@@ -933,6 +933,27 @@ class ReportGenerator:
             if hoja in self.wb.sheetnames:
                 self._safe_write(self.wb[hoja], fila, col, x_max)
 
+        # Comentarios de la gráfica (filas 49+ de 'Gráfica VDC '): limpiar
+        # cualquier remanente del template y escribir los comentarios reales
+        # del survey (etiquetas DCP del técnico). Si quedaran filas viejas, el
+        # informe mostraría anotaciones de OTRA inspección.
+        if 'Gráfica VDC ' in self.wb.sheetnames:
+            ws_vdc = self.wb['Gráfica VDC ']
+            for r in range(49, max(ws_vdc.max_row, 49) + 1):
+                for c in (4, 5, 6):
+                    if ws_vdc.cell(row=r, column=c).value is not None:
+                        ws_vdc.cell(row=r, column=c).value = None
+            fila = 49
+            for d in cips_data:
+                obs = str(d.get('observaciones') or d.get('referencia') or '').strip()
+                absc = d.get('abscisa_val')
+                if not obs or obs.lower() == 'nan' or absc is None:
+                    continue
+                self._safe_write(ws_vdc, fila, 4, absc)
+                self._safe_write(ws_vdc, fila, 5, -2000)
+                self._safe_write(ws_vdc, fila, 6, obs)
+                fila += 1
+
         for hoja in ('Gráfica VDC ', 'Gráfica Interferencia'):
             if hoja not in self.wb.sheetnames:
                 continue
