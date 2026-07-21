@@ -21,17 +21,52 @@ class PPMGenerator:
         except Exception as e:
             pass
 
-    def generate(self, info: dict, potenciales: list, aislamientos: list, output_path: str):
+    def _limpiar_filas_datos(self):
+        """Borra cualquier dato remanente del template (filas 2+): si el
+        archivo base se guardó con datos de una inspección anterior, no deben
+        arrastrarse al PPM generado."""
+        for row in self.ws.iter_rows(min_row=2, max_row=self.ws.max_row,
+                                     min_col=1, max_col=18):
+            for cell in row:
+                if cell.value is not None:
+                    cell.value = None
+
+    def generate(self, info: dict, potenciales: list, aislamientos: list,
+                 output_path: str, cips: list = None):
         # The template has headers in row 1, data starts at row 2
-        
+        self._limpiar_filas_datos()
+
         # We need to map everything into rows
         current_row = 2
-        
+
         # 1. Add potential points
         for pot in potenciales:
             self._write_row(current_row, info, pot)
             current_row += 1
-            
+
+        # 1b. Add CIPS points (mismo contenido que la hoja CIPS del informe)
+        for c in (cips or []):
+            on = c.get('on_mv')
+            off = c.get('off_mv')
+            ir = None
+            if c.get('on_limpio') is not None and c.get('off_limpio') is not None:
+                ir = c['on_limpio'] - c['off_limpio']
+            elif on is not None and off is not None:
+                ir = on - off
+            self._write_row(current_row, info, {
+                'abscisa': c.get('abscisa_val'),
+                'lat': c.get('lat', ''),
+                'lon': c.get('lon', ''),
+                'alt': '',
+                'on_mv': on,
+                'off_mv': off,
+                'potencial_natural': None,
+                'polarizacion': None,
+                'observaciones': c.get('observaciones', ''),
+                'ir_on_off': ir,
+            })
+            current_row += 1
+
         # 2. Add isolation points
         for ais in aislamientos:
             pot_pseudo = {

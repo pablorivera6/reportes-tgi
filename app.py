@@ -323,10 +323,11 @@ class WorkerThread(QThread):
             from ppm_generator import PPMGenerator
             ppm_gen = PPMGenerator()
             ppm_gen.generate(
-                self.app_data['info'], 
-                self.app_data['potenciales'], 
-                self.app_data['aislamientos'], 
-                self.ppm_path
+                self.app_data['info'],
+                self.app_data['potenciales'],
+                self.app_data['aislamientos'],
+                self.ppm_path,
+                cips=self.app_data.get('cips') or []
             )
             self.progress.emit(100)
             self.status.emit("¡Informes generados con éxito!")

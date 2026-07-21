@@ -792,7 +792,8 @@ with tabs[11]:
             gen.save(pap_path)
             prog.progress(90, text="Generando PPM...")
             ppm_path = os.path.join(tmpd, nombre.replace("REP", "PPM"))
-            PPMGenerator().generate(info, data['potenciales'], data['aislamientos'], ppm_path)
+            PPMGenerator().generate(info, data['potenciales'], data['aislamientos'],
+                                    ppm_path, cips=data['cips'])
             with open(pap_path, 'rb') as f:
                 st.session_state.informe_bytes = f.read()
             with open(ppm_path, 'rb') as f:
