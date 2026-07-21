@@ -323,9 +323,10 @@ class ReportGenerator:
             
             ws_cips.cell(row=row_idx, column=5, value=data.get('on_mv', ''))
             ws_cips.cell(row=row_idx, column=6, value=data.get('off_mv', ''))
-            
-            ws_cips.cell(row=row_idx, column=7, value=data.get('on_limpio', ''))
-            ws_cips.cell(row=row_idx, column=8, value=data.get('off_limpio', ''))
+
+            # Columnas G/H "POTENCIAL NEGATIVO 1 TGI [CORREGIDO]" se dejan
+            # VACÍAS por pedido del usuario: el informe lleva únicamente los
+            # potenciales medidos (E/F).
             
             # POTENCIAL NATURAL, POLARIZACIÓN (leave empty for now unless calculated)
             
@@ -340,11 +341,11 @@ class ReportGenerator:
             ws_cips.cell(row=row_idx, column=16, value=data.get('near_on', ''))
             ws_cips.cell(row=row_idx, column=17, value=data.get('near_off', ''))
             
-            # IR ON-OFF
-            on_limp = data.get('on_limpio')
-            off_limp = data.get('off_limpio')
-            if pd.notna(on_limp) and pd.notna(off_limp):
-                ws_cips.cell(row=row_idx, column=18, value=on_limp - off_limp)
+            # IR ON-OFF con los potenciales medidos (E/F)
+            on_v = data.get('on_mv')
+            off_v = data.get('off_mv')
+            if pd.notna(on_v) and pd.notna(off_v):
+                ws_cips.cell(row=row_idx, column=18, value=on_v - off_v)
                 
             ws_cips.cell(row=row_idx, column=19, value=data.get('lat', ''))
             ws_cips.cell(row=row_idx, column=20, value=data.get('lon', ''))

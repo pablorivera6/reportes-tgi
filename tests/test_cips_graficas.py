@@ -33,6 +33,12 @@ def test_abscisa_cips_es_numerica_y_completa():
             f"fila {12+i}: abscisa debe ser número, es {b!r}")
     # el primer punto (abscisa 0) NO puede quedar vacío
     assert ws.cell(row=12, column=2).value == 0
+    # G/H "POTENCIAL NEGATIVO 1 TGI [CORREGIDO]" deben quedar VACÍAS:
+    # el informe solo lleva los potenciales medidos (E/F)
+    for i in range(3):
+        assert ws.cell(row=12 + i, column=7).value in (None, '')
+        assert ws.cell(row=12 + i, column=8).value in (None, '')
+        assert ws.cell(row=12 + i, column=5).value is not None
 
 
 def test_grafica_cips_recorta_rango_a_datos(tmp_path):
