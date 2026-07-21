@@ -28,7 +28,7 @@ def test_mapeo_basico():
     assert d0["off_limpio"] == -900.0
     assert d0["lat"] == 4.1
     assert d0["lon"] == -73.1
-    assert d0["observaciones"] == "inicio"
+    assert d0["observaciones"] == "Inicio"
     assert not d0.get("vac")
     assert not d0.get("far_on")
 
