@@ -69,6 +69,58 @@ class InfraTramos:
 
         return None
 
+    def sugerir_tramos(self, lat, lon, margen=0.05, max_seg=10.0):
+        """Tramos cuyo bounding box (±margen grados) contiene el punto dado.
+
+        Lee SOLO el header de cada .shp (bytes 36-68 = bbox), así que es
+        barato; aún así se corta a max_seg segundos por si el filesystem es
+        lento (iCloud). Devuelve [(TRAMO, DISTRITO, ID TRAMO), ...].
+        """
+        import struct
+        import time
+
+        def _bbox_archivo(ruta):
+            with open(ruta, "rb") as f:
+                head = f.read(68)
+            return struct.unpack("<4d", head[36:68])
+
+        def _bbox_zip(z, nombre):
+            with z.open(nombre) as f:
+                head = f.read(68)
+            return struct.unpack("<4d", head[36:68])
+
+        inicio = time.time()
+        sugerencias = []
+        usa_dir = os.path.isdir(self.shapefiles_dir)
+        z = None
+        if not usa_dir and os.path.exists(self.shapefiles_zip):
+            z = zipfile.ZipFile(self.shapefiles_zip)
+        try:
+            for _, fila in self.df.dropna(subset=["ID TRAMO"]).iterrows():
+                if time.time() - inicio > max_seg:
+                    break
+                id_tramo = str(fila["ID TRAMO"])
+                try:
+                    if usa_dir:
+                        ruta = os.path.join(self.shapefiles_dir, id_tramo + ".shp")
+                        if not os.path.exists(ruta):
+                            continue
+                        minx, miny, maxx, maxy = _bbox_archivo(ruta)
+                    elif z is not None:
+                        minx, miny, maxx, maxy = _bbox_zip(z, id_tramo + ".shp")
+                    else:
+                        break
+                except Exception:
+                    continue
+                if (minx - margen <= lon <= maxx + margen and
+                        miny - margen <= lat <= maxy + margen):
+                    sugerencias.append((str(fila["TRAMO"]),
+                                        str(fila["DISTRITO"]), id_tramo))
+        finally:
+            if z is not None:
+                z.close()
+        return sugerencias
+
     def _extraer_de_zip(self, id_tramo):
         """Extrae los archivos de un tramo del .zip a una carpeta caché y
         devuelve la ruta del .shp (o None si el tramo no está en el zip)."""

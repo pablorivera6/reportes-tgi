@@ -20,6 +20,24 @@ from mod_cips_lrs import _leer_linea_proyectada
 CRITERIO_OK = -850
 CRITERIO_MARGINAL = -1200
 
+# Si la mediana de la distancia punto→traza supera esto, el tramo elegido no
+# corresponde a los datos (GPS ruidoso ronda decenas de metros; un tramo
+# equivocado queda a kilómetros).
+UMBRAL_TRAMO_M = 300.0
+
+
+class TramoIncorrectoError(ValueError):
+    """Los datos del archivo no corresponden al tramo/shapefile elegido."""
+
+    def __init__(self, dist_m, lat=None, lon=None):
+        self.dist_m = dist_m
+        self.lat = lat
+        self.lon = lon
+        super().__init__(
+            f"Los puntos del archivo quedan a ~{dist_m / 1000:.1f} km de la "
+            f"traza del tramo seleccionado: el tramo NO corresponde a los "
+            f"datos. Verifica Empresa/Distrito/Tramo.")
+
 
 def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
     """Unifica los archivos y aplica LRS sobre la traza del shapefile.
@@ -73,6 +91,17 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
 
         linea = _leer_linea_proyectada(shp_path)
         snapped = [linea.interpolate(linea.project(p)) for p in df["geometry"]]
+
+        # Guardia: si los puntos quedan lejos de la traza, el usuario eligió un
+        # tramo que no es (p.ej. dejó el tramo por defecto del selector). Sin
+        # esto, todo se proyecta al extremo de la traza y la abscisa sale 0.
+        dist_traza = pd.Series(
+            [p.distance(s) for p, s in zip(df["geometry"], snapped)])
+        med = float(dist_traza.median()) if len(dist_traza) else 0.0
+        if med > UMBRAL_TRAMO_M:
+            raise TramoIncorrectoError(
+                med, lat=float(df["Lat"].median()), lon=float(df["Long"].median()))
+
         df["geometry"] = snapped
         df["PK_geom_m"] = [linea.project(p) for p in df["geometry"]]
 

@@ -1511,8 +1511,19 @@ class AppWindow(QMainWindow):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            QMessageBox.critical(self, "Error CIPS",
-                f"Ocurrió un error procesando CIPS:\n{str(e)}")
+            msg = f"Ocurrió un error procesando CIPS:\n{str(e)}"
+            try:
+                from cips_lrs import TramoIncorrectoError
+                if isinstance(e, TramoIncorrectoError) and e.lat:
+                    sugs = self.infra_tramos.sugerir_tramos(e.lat, e.lon)
+                    if sugs:
+                        lista = "\n".join(f"  • {t} (Distrito {d}, {i})"
+                                          for t, d, i in sugs[:5])
+                        msg += ("\n\nSegún las coordenadas del archivo, los "
+                                "datos parecen corresponder a:\n" + lista)
+            except Exception:
+                pass
+            QMessageBox.critical(self, "Error CIPS", msg)
             self.lbl_status.setText("Error.")
     def refresh_cips_table(self):
         self.table_cips.setRowCount(0)

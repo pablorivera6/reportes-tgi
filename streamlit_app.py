@@ -546,7 +546,17 @@ with tabs[1]:
                                     "anclada a la etiqueta 'pk' del comentario "
                                     "si existe.")
                     except Exception as e:
+                        from cips_lrs import TramoIncorrectoError
                         st.error(f"Error procesando CIPS: {e}")
+                        if isinstance(e, TramoIncorrectoError) and e.lat:
+                            sugs = infra_tramos.sugerir_tramos(e.lat, e.lon)
+                            if sugs:
+                                lineas = "\n".join(
+                                    f"- **{t}** (Distrito {d}, {i})"
+                                    for t, d, i in sugs[:5])
+                                st.warning("Según las coordenadas del archivo, "
+                                           "los datos parecen corresponder a:\n"
+                                           + lineas)
         else:
             st.warning("No se encontró la base de infraestructura de tramos.")
 
