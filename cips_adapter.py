@@ -47,6 +47,8 @@ _ORTOGRAFIA = {
     'rio': 'río',
     'abcisado': 'abscisado',
     'abcisa': 'abscisa',
+    'sipaso': 'sin paso',
+    'roceria': 'rocería',
     'medicion': 'medición',
     'proteccion': 'protección',
     'derivacion': 'derivación',
@@ -95,9 +97,13 @@ def _tipo_hallazgo(texto):
         return 'Válvula'
     if 'malla' in t or 'enseramiento' in t or 'encerramiento' in t:
         return 'Malla / encerramiento'
-    if ('aerio' in t or 'aereo' in t or 'aéreo' in t or 'salto' in t
-            or 'montado' in t):
-        return 'Tramo aéreo / salto'
+    # Tramo enmontado/sin rocería: la cuadrilla no pudo pasar (pasto alto o
+    # terreno intransitable) y ese tramo quedó sin inspeccionar ("salto").
+    if ('montado' in t or 'rocería' in t or 'roceria' in t or 'salto' in t
+            or 'sin paso' in t or 'sipaso' in t):
+        return 'Tramo sin rocería / no inspeccionado'
+    if 'aerio' in t or 'aereo' in t or 'aéreo' in t:
+        return 'Tramo aéreo'
     if 'interfase' in t or 'interface' in t:
         return 'Interfase tierra-aire'
     return 'Observación de campo'

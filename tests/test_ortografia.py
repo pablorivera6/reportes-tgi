@@ -14,6 +14,7 @@ def test_correcciones_comunes():
         'salida valvula pk 0+000': 'Salida válvula PK 0+000',
         'pk 5+000 abcisado': 'PK 5+000 abscisado',
         'salto tramo en montado': 'Salto tramo enmontado',
+        'sipaso tramo enmontado salto': 'Sin paso tramo enmontado salto',
     }
     for crudo, esperado in casos.items():
         assert _corregir_texto(crudo) == esperado, (
