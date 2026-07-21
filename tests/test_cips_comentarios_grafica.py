@@ -39,5 +39,5 @@ def test_fill_graficas_cips_escribe_comentarios_del_survey():
 
     coms = _comentarios(ws)
     textos = [c[2] for c in coms]
-    assert textos == ['valvula pk 0+100', 'cruce via'], f"comentarios: {textos}"
+    assert textos == ['Válvula PK 0+100', 'Cruce vía'], f"comentarios: {textos}"
     assert coms[0][0] == 100 and coms[1][0] == 900

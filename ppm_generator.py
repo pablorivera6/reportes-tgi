@@ -2,6 +2,7 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 import os
 from generator import resource_path
+from ortografia import corregir_campo
 
 class PPMGenerator:
     def __init__(self, template_path: str = None):
@@ -125,5 +126,5 @@ class PPMGenerator:
         # Default Ascendente for now?
         self._safe_write(row, 16, 'Ascendente')
         
-        self._safe_write(row, 17, data.get('observaciones', ''))
+        self._safe_write(row, 17, corregir_campo(data.get('observaciones', '')))
         self._safe_write(row, 18, data.get('ir_on_off'))

@@ -7,6 +7,7 @@ import pandas as pd
 from openpyxl.utils import get_column_letter
 from copy import copy
 from datetime import datetime
+from ortografia import corregir_campo
 from typing import Optional
 import os
 import sys
@@ -268,7 +269,7 @@ class ReportGenerator:
             self._safe_write(ws, row, 1, i + 1)                              # A - ITEM
             self._safe_write(ws, row, 2, p.get('abscisa', ''))                # B - ABSCISADO
             self._safe_write(ws, row, 3, p.get('fecha', fecha))               # C - FECHA
-            self._safe_write(ws, row, 4, p.get('ref_geografica', ''))          # D - REF GEOG
+            self._safe_write(ws, row, 4, corregir_campo(p.get('ref_geografica', '')))  # D - REF GEOG
             self._safe_write(ws, row, 5, p.get('on_mv'))                      # E - ON NEG1
             self._safe_write(ws, row, 6, p.get('off_mv'))                     # F - OFF NEG1
             self._safe_write(ws, row, 7, p.get('on_mv_corregido'))            # G - ON CORR
@@ -291,7 +292,7 @@ class ReportGenerator:
             self._safe_write(ws, row, 24, p.get('conexiones'))                # X - Conexiones
             self._safe_write(ws, row, 25, p.get('verticalidad'))              # Y - Verticalidad
             self._safe_write(ws, row, 26, p.get('tipo_mant'))                 # Z - Tipo mant
-            self._safe_write(ws, row, 27, p.get('observaciones'))             # AA - Obs
+            self._safe_write(ws, row, 27, corregir_campo(p.get('observaciones')))  # AA - Obs
 
     def fill_cips(self, cips_data: list):
         if not cips_data:
@@ -318,7 +319,7 @@ class ReportGenerator:
             ws_cips.cell(row=row_idx, column=1, value=i + 1)
             ws_cips.cell(row=row_idx, column=2, value=abscisa)
             # Fecha (maybe we don't have it here, leave empty or you could pass it)
-            ws_cips.cell(row=row_idx, column=4, value=data.get('referencia', ''))
+            ws_cips.cell(row=row_idx, column=4, value=corregir_campo(data.get('referencia', '')))
             
             ws_cips.cell(row=row_idx, column=5, value=data.get('on_mv', ''))
             ws_cips.cell(row=row_idx, column=6, value=data.get('off_mv', ''))
@@ -347,7 +348,7 @@ class ReportGenerator:
                 
             ws_cips.cell(row=row_idx, column=19, value=data.get('lat', ''))
             ws_cips.cell(row=row_idx, column=20, value=data.get('lon', ''))
-            ws_cips.cell(row=row_idx, column=21, value=data.get('observaciones', ''))
+            ws_cips.cell(row=row_idx, column=21, value=corregir_campo(data.get('observaciones', '')))
 
     def fill_graficas(self, potenciales: list, info: dict):
         """Fill chart data for VDC, Interferencia, and VAC graphs"""
@@ -395,7 +396,7 @@ class ReportGenerator:
                 self._safe_write(ws, row, 5, p.get('abscisa', 0))
                 self._safe_write(ws, row, 6, -2100)  # Y position for annotation
                 obs = p.get('observaciones', '')
-                self._safe_write(ws, row, 7, obs if obs else p.get('ref_geografica', ''))
+                self._safe_write(ws, row, 7, corregir_campo(obs if obs else p.get('ref_geografica', '')))
             
             # Observations text
             offs = [p['off_mv'] for p in potenciales if p.get('off_mv') is not None]
@@ -518,8 +519,8 @@ class ReportGenerator:
             self._safe_write(ws, row, 9, h.get('lat_fin', ''))                   # I
             self._safe_write(ws, row, 10, h.get('lon_fin', ''))                  # J
             self._safe_write(ws, row, 11, h.get('fecha', info.get('fecha', '')))  # K
-            self._safe_write(ws, row, 12, h.get('tipo', ''))                   # L
-            self._safe_write(ws, row, 13, h.get('descripcion', ''))            # M
+            self._safe_write(ws, row, 12, corregir_campo(h.get('tipo', '')))     # L
+            self._safe_write(ws, row, 13, corregir_campo(h.get('descripcion', '')))  # M
             
         # Clear unused prefilled rows
         if len(hallazgos) < n_prefilled:
@@ -613,7 +614,7 @@ class ReportGenerator:
             self._safe_write(ws, row, 19, a.get('diagnostico', ''))
             self._safe_write(ws, row, 20, a.get('lat'))
             self._safe_write(ws, row, 21, a.get('lon'))
-            self._safe_write(ws, row, 22, a.get('observaciones', ''))
+            self._safe_write(ws, row, 22, corregir_campo(a.get('observaciones', '')))
             
         # Clear unused prefilled rows
         if len(aislamientos) < n_prefilled:
@@ -651,7 +652,7 @@ class ReportGenerator:
                 self._safe_write(ws, row, 13, m.get('lat', ''))
                 self._safe_write(ws, row, 14, m.get('lon', ''))
                 self._safe_write(ws, row, 15, m.get('estado_pintura', 'Bueno'))
-                self._safe_write(ws, row, 16, m.get('observaciones', ''))
+                self._safe_write(ws, row, 16, corregir_campo(m.get('observaciones', '')))
 
         # Inventario Tramos Aéreos
         if tramos_aereos and self.ws_tramos_aereos:
@@ -670,7 +671,7 @@ class ReportGenerator:
                 self._safe_write(ws, row, 9, t.get('lat_fin'))
                 self._safe_write(ws, row, 10, t.get('lon_fin'))
                 self._safe_write(ws, row, 11, t.get('fecha', ''))
-                self._safe_write(ws, row, 12, t.get('observaciones', ''))
+                self._safe_write(ws, row, 12, corregir_campo(t.get('observaciones', '')))
 
         # Tramos no inspeccionados
         if tramos_no_insp and self.ws_tramos_no_insp:
@@ -824,10 +825,10 @@ class ReportGenerator:
             self._safe_write(ws, row, 16, a.get('pot_off_abajo', ''))         # P - AGUAS ABAJO POT OFF
             self._safe_write(ws, row, 17, a.get('diferencia', ''))            # Q - DIFERENCIA
             self._safe_write(ws, row, 18, "")                                 # R - DIFERENCIA INSTANT OFF
-            self._safe_write(ws, row, 19, a.get('diagnostico', ''))           # S - DIAGNÓSTICO
+            self._safe_write(ws, row, 19, corregir_campo(a.get('diagnostico', '')))  # S - DIAGNÓSTICO
             self._safe_write(ws, row, 20, a.get('latitud', ''))               # T - LATITUD
             self._safe_write(ws, row, 21, a.get('longitud', ''))              # U - LONGITUD
-            self._safe_write(ws, row, 22, a.get('observaciones', ''))         # V - OBSERVACIONES
+            self._safe_write(ws, row, 22, corregir_campo(a.get('observaciones', '')))  # V - OBSERVACIONES
 
 
     def fill_comentario_huella(self, comentario: str):
@@ -951,7 +952,7 @@ class ReportGenerator:
                     continue
                 self._safe_write(ws_vdc, fila, 4, absc)
                 self._safe_write(ws_vdc, fila, 5, -2000)
-                self._safe_write(ws_vdc, fila, 6, obs)
+                self._safe_write(ws_vdc, fila, 6, corregir_campo(obs))
                 fila += 1
 
         for hoja in ('Gráfica VDC ', 'Gráfica Interferencia'):
