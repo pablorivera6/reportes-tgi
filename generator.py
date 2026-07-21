@@ -303,13 +303,17 @@ class ReportGenerator:
         for i, data in enumerate(cips_data):
             row_idx = i + 12
             
-            # Formatear abscisa
-            abscisa = data.get('abscisa', '')
-            if not abscisa and data.get('abscisa_val'):
-                val = data['abscisa_val']
-                km = int(val / 1000)
-                m = int(val % 1000)
-                abscisa = f"K {km:03d}+{m:03d}"
+            # Abscisa: escribir el VALOR NUMÉRICO en metros. La celda de la
+            # columna B tiene formato personalizado \K\ 000\+000 que lo muestra
+            # como "K 000+007", y la serie X (numérica) de las gráficas VDC /
+            # Interferencia lee esta columna: si se escribe texto, Excel no
+            # encuentra puntos y la gráfica queda vacía. Se usa 'abscisa_val'
+            # (metros del motor LRS) y 0 es un valor válido, no "sin dato".
+            abscisa = data.get('abscisa_val', data.get('abscisa'))
+            if abscisa is not None and pd.notna(abscisa):
+                abscisa = int(round(abscisa)) if isinstance(abscisa, (int, float)) else abscisa
+            else:
+                abscisa = None
 
             ws_cips.cell(row=row_idx, column=1, value=i + 1)
             ws_cips.cell(row=row_idx, column=2, value=abscisa)
@@ -897,6 +901,61 @@ class ReportGenerator:
                 margin = span * 0.1
                 chart.y_axis.scaling.min = self._nice_floor(lo - margin, step)
                 chart.y_axis.scaling.max = self._nice_ceil(hi + margin, step)
+
+    def fill_graficas_cips(self, cips_data, info=None):
+        """Ajusta las gráficas del template CIPS (VDC e Interferencia).
+
+        Estas gráficas leen la hoja 'Potenciales CIPS' (eje X = abscisa en
+        columna B; Y = On/Off en E/F e IR en R). Las líneas de criterio
+        (-850, -1200, 100, 50 mV) ya vienen precargadas en el template, así que
+        aquí solo se: (1) recorta el rango de las series de datos de las ~29 000
+        filas del template a las N filas realmente escritas, (2) fija la abscisa
+        máxima real en la línea de criterio y en el eje X. Sin esto, la serie X
+        abarca miles de celdas vacías y el eje queda dominado por el 38 000 m
+        que trae el template por defecto.
+        """
+        import re
+        if not cips_data:
+            return
+        n = len(cips_data)
+        last = 11 + n
+        abscisas = [d.get('abscisa_val', d.get('abscisa')) for d in cips_data]
+        abscisas = [a for a in abscisas if a is not None and pd.notna(a)]
+        max_absc = max(abscisas) if abscisas else 0
+        x_max = self._nice_ceil(max_absc, 100) if max_absc > 0 else 100
+
+        # Endpoint de la abscisa en cada línea de criterio (celda ya existente).
+        criterio_absc = [
+            ('Gráfica VDC ', 44, 4),          # D44
+            ('Gráfica Interferencia', 42, 5),  # E42
+        ]
+        for hoja, fila, col in criterio_absc:
+            if hoja in self.wb.sheetnames:
+                self._safe_write(self.wb[hoja], fila, col, x_max)
+
+        for hoja in ('Gráfica VDC ', 'Gráfica Interferencia'):
+            if hoja not in self.wb.sheetnames:
+                continue
+            ws = self.wb[hoja]
+            if not getattr(ws, '_charts', None):
+                continue
+            chart = ws._charts[0]
+            for s in chart.series:
+                fx = s.xVal.numRef.f if (s.xVal and s.xVal.numRef) else None
+                if not fx or 'Potenciales CIPS' not in fx:
+                    continue
+                s.xVal.numRef.f = re.sub(r'\$B\$\d+:\$B\$\d+',
+                                         f'$B$12:$B${last}', fx)
+                m = re.search(r'\$([A-Z]+)\$\d+:', s.yVal.numRef.f)
+                if m:
+                    col = m.group(1)
+                    s.yVal.numRef.f = f"'Potenciales CIPS'!${col}$12:${col}${last}"
+                if s.xVal.numRef.numCache:
+                    s.xVal.numRef.numCache = None
+                if s.yVal.numRef.numCache:
+                    s.yVal.numRef.numCache = None
+            chart.x_axis.scaling.min = 0
+            chart.x_axis.scaling.max = x_max
 
     def save(self, output_path: str):
         """Save the completed report"""

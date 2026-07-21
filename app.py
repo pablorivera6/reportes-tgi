@@ -283,6 +283,8 @@ class WorkerThread(QThread):
             
             self.status.emit("Generando gráficas...")
             gen.fill_graficas(self.app_data['potenciales'], self.app_data['info'])
+            if tipo_inspeccion == 'CIPS' and self.app_data.get('cips'):
+                gen.fill_graficas_cips(self.app_data['cips'], self.app_data['info'])
             self.progress.emit(60)
             
             self.status.emit("Llenando hallazgos y rectificadores...")

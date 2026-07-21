@@ -771,6 +771,8 @@ with tabs[11]:
                 gen.fill_cips(data['cips'])
             prog.progress(60, text="Gráficas y hallazgos...")
             gen.fill_graficas(data['potenciales'], info)
+            if info.get('tipo_inspeccion') == 'CIPS' and data['cips']:
+                gen.fill_graficas_cips(data['cips'], info)
             gen.fill_hallazgos(data['hallazgos'], info)
             gen.fill_rectificadores(data['rectificadores'])
             gen.fill_aislamientos(data['aislamientos'])
