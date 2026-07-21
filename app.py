@@ -288,7 +288,11 @@ class WorkerThread(QThread):
             self.progress.emit(60)
             
             self.status.emit("Llenando hallazgos y rectificadores...")
-            gen.fill_hallazgos(self.app_data['hallazgos'], self.app_data['info'])
+            hallazgos_rep = list(self.app_data['hallazgos'])
+            if tipo_inspeccion == 'CIPS' and self.app_data.get('cips'):
+                from cips_adapter import cips_a_hallazgos
+                hallazgos_rep += cips_a_hallazgos(self.app_data['cips'])
+            gen.fill_hallazgos(hallazgos_rep, self.app_data['info'])
             gen.fill_rectificadores(self.app_data['rectificadores'])
             self.progress.emit(70)
             
