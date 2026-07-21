@@ -5,6 +5,7 @@ recibe una lista de rutas de archivo y devuelve el DataFrame procesado
 CONSERVANDO los mV crudos (On_mV/Off_mV) que el export original descarta.
 """
 import os
+import re
 import shutil
 import tempfile
 import numpy as np
@@ -19,6 +20,43 @@ from mod_cips_lrs import _leer_linea_proyectada
 
 CRITERIO_OK = -850
 CRITERIO_MARGINAL = -1200
+
+# Etiqueta de abscisa que el técnico escribe en la hoja DCP Data, p.ej.
+# "pk 00+000: Pipe To Soil", "km 5+120 junta 3", "PK2+000". El número antes del
+# '+' son kilómetros y el de después metros dentro del km.
+_RE_ABSCISA = re.compile(r'(?:pk|km)\s*(\d+)\s*\+\s*(\d+)', re.IGNORECASE)
+
+
+def _parse_abscisa_label(texto):
+    """Devuelve la abscisa en metros de una etiqueta de campo, o None."""
+    if texto is None or (isinstance(texto, float) and np.isnan(texto)):
+        return None
+    m = _RE_ABSCISA.search(str(texto))
+    if not m:
+        return None
+    return int(m.group(1)) * 1000 + int(m.group(2))
+
+
+def _abscisa_desde_dcp(unif, df):
+    """Añade a df la columna 'Abscisa_label_m' con la abscisa rotulada por el
+    técnico en la hoja DCP Data, mapeada por 'Data No' y rellenada hacia
+    adelante (las sub-lecturas de un mismo poste heredan su abscisa). df debe
+    venir en orden de adquisición (antes de ordenar por PK geométrico)."""
+    df["Abscisa_label_m"] = np.nan
+    try:
+        dcp = pd.read_excel(unif, sheet_name="DCP Data")
+    except Exception:
+        return df
+    col_feat = next((c for c in dcp.columns
+                     if 'Feature' in str(c) or 'Anomaly' in str(c)), None)
+    if col_feat is None or "Data No" not in dcp.columns or "Data No" not in df.columns:
+        return df
+    dcp["_absc"] = dcp[col_feat].apply(_parse_abscisa_label)
+    etiquetas = dcp.dropna(subset=["_absc"]).groupby("Data No")["_absc"].first()
+    if etiquetas.empty:
+        return df
+    df["Abscisa_label_m"] = df["Data No"].map(etiquetas).ffill()
+    return df
 
 
 def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
@@ -39,6 +77,12 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         # Exportes acumulativos del logger repiten registros completos entre
         # archivos; una fila 100% idéntica es el mismo registro medido una vez.
         df = df.drop_duplicates().reset_index(drop=True)
+
+        # Abscisa rotulada por el técnico (hoja DCP Data). En levantamientos por
+        # postes el GPS se repite entre postes distintos, así que la proyección
+        # geométrica los colapsa; la etiqueta es la fuente fiable. Se calcula
+        # AQUÍ, en orden de adquisición, antes de reordenar por PK geométrico.
+        df = _abscisa_desde_dcp(unif, df)
 
         df = df.rename(columns={
             "Dist From Start": "PK_equipo",
@@ -82,7 +126,14 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
             df["PK_geom_m"] = linea.length - df["PK_geom_m"]
 
         df["PK_real_m"] = df["PK_geom_m"] - df["PK_geom_m"].min()
-        df = df.sort_values("PK_geom_m").reset_index(drop=True)
+
+        # Abscisa final: la etiqueta del técnico manda; el PK geométrico (GPS)
+        # es solo respaldo cuando la lectura no trae etiqueta. El informe se
+        # ordena por esta abscisa real, no por la proyección GPS.
+        df["Abscisa_final_m"] = df["Abscisa_label_m"]
+        faltan = df["Abscisa_final_m"].isna()
+        df.loc[faltan, "Abscisa_final_m"] = df.loc[faltan, "PK_geom_m"]
+        df = df.sort_values("Abscisa_final_m", kind="stable").reset_index(drop=True)
 
         t_back = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
         xs = [p.x for p in df["geometry"]]
