@@ -81,9 +81,38 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         if corr is not None and corr < 0:
             df["PK_geom_m"] = linea.length - df["PK_geom_m"]
 
-        # Igual que la app original (proceso-cips): la abscisa ES el PK
-        # geométrico —GPS proyectado sobre la traza del tramo— y el resultado
-        # se ordena por él.
+        # ── Respaldo por GPS congelado ───────────────────────────────────────
+        # Si el equipo no actualizó el GPS (todas las lecturas con la misma
+        # coordenada, típico dentro de estaciones de válvulas), la proyección
+        # colapsa a un solo PK y la abscisa saldría constante (p.ej. todo 0).
+        # Solo en ese caso la abscisa se toma del odómetro del equipo
+        # ('Dist From Start' → PK_equipo), anclada a la etiqueta 'pk X+YYY' si
+        # aparece en los comentarios. Con GPS normal el cálculo es IDÉNTICO al
+        # de la app original proceso-cips.
+        fuente_abscisa = "GPS"
+        span_geom = float(df["PK_geom_m"].max() - df["PK_geom_m"].min()) if len(df) else 0.0
+        pk_eq = pd.to_numeric(df["PK_equipo"], errors="coerce")
+        span_eq = float(pk_eq.max() - pk_eq.min()) if pk_eq.notna().any() else 0.0
+        if len(df) >= 3 and span_eq > 0 and span_geom < max(5.0, 0.01 * span_eq):
+            import re as _re
+            pat = _re.compile(r'(?:pk|km)\s*(\d+)\s*[+]\s*(\d+)', _re.IGNORECASE)
+            ancla = 0.0
+            encontrada = False
+            for col in ("Comentarios", "Anomalia", "Comentario"):
+                if col not in df.columns or encontrada:
+                    continue
+                for idx, txt in df[col].items():
+                    if pd.isna(txt):
+                        continue
+                    m = pat.search(str(txt))
+                    if m and pd.notna(pk_eq.loc[idx]):
+                        etiqueta_m = int(m.group(1)) * 1000 + int(m.group(2))
+                        ancla = etiqueta_m - float(pk_eq.loc[idx])
+                        encontrada = True
+                        break
+            df["PK_geom_m"] = pk_eq.fillna(0) + ancla
+            fuente_abscisa = "EQUIPO"
+
         df["PK_real_m"] = df["PK_geom_m"] - df["PK_geom_m"].min()
         df = df.sort_values("PK_geom_m").reset_index(drop=True)
 
@@ -116,6 +145,8 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         df["Estado_CP"] = df["Off_mV_limpio"].apply(validar)
 
         df = df.drop(columns=["X", "Y", "geometry"], errors="ignore")
+
+        df.attrs["fuente_abscisa"] = fuente_abscisa
 
         if carpeta_salida:
             salida = os.path.join(carpeta_salida, "CIPS_VALIDADO_FINAL.xlsx")

@@ -539,6 +539,12 @@ with tabs[1]:
                         st.success(f"{len(dicts)} registros CIPS procesados "
                                    f"({len(cips_files)} archivo(s); cada "
                                    f"procesamiento reemplaza la data anterior).")
+                        if df.attrs.get("fuente_abscisa") == "EQUIPO":
+                            st.info("El GPS de este archivo no varía entre "
+                                    "lecturas, así que la abscisa se tomó del "
+                                    "odómetro del equipo (Dist From Start), "
+                                    "anclada a la etiqueta 'pk' del comentario "
+                                    "si existe.")
                     except Exception as e:
                         st.error(f"Error procesando CIPS: {e}")
         else:
