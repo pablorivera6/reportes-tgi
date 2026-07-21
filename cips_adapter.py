@@ -16,11 +16,9 @@ def _num(v):
 def lrs_df_a_cips_dicts(df):
     salida = []
     for _, row in df.iterrows():
-        # Abscisa: la rotulada por el técnico (Abscisa_final_m) tiene prioridad;
-        # si el motor no la trae (versión previa), se cae al PK geométrico.
-        pk = row.get("Abscisa_final_m")
-        if pk is None or (isinstance(pk, float) and math.isnan(pk)):
-            pk = row.get("PK_geom_m")
+        # Abscisa = PK geométrico del motor LRS (GPS sobre la traza), igual
+        # que la app original proceso-cips.
+        pk = row.get("PK_geom_m")
         abscisa_val = int(round(pk)) if pd.notna(pk) else 0
         comentario = str(row.get("Comentarios", "") or "").strip()
         salida.append({
