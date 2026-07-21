@@ -90,6 +90,12 @@ def lrs_df_a_cips_dicts(df):
             "off_mv": _num(row.get("Off_mV")),
             "on_limpio": _num(row.get("On_mV_limpio")),
             "off_limpio": _num(row.get("Off_mV_limpio")),
+            "metal_on": _num(row.get("metal_on_mv")),
+            "metal_off": _num(row.get("metal_off_mv")),
+            "far_on": _num(row.get("far_on_mv")),
+            "far_off": _num(row.get("far_off_mv")),
+            "near_on": _num(row.get("near_on_mv")),
+            "near_off": _num(row.get("near_off_mv")),
             "lat": _num(row.get("Lat_corr")),
             "lon": _num(row.get("Long_corr")),
         })

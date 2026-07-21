@@ -26,6 +26,37 @@ CRITERIO_MARGINAL = -1200
 UMBRAL_TRAMO_M = 300.0
 
 
+def _lecturas_dcp(unif, df):
+    """Extrae de la hoja DCP Data las lecturas de Metal IR / Far Ground /
+    Near Ground y las asigna al punto del survey con el mismo Data No, en mV
+    (Value1=ON, Value2=OFF; el equipo las registra en V)."""
+    TIPOS = (("metal", "metal ir"), ("far", "far ground"), ("near", "near ground"))
+    for pref, _ in TIPOS:
+        df[f"{pref}_on_mv"] = np.nan
+        df[f"{pref}_off_mv"] = np.nan
+    try:
+        dcp = pd.read_excel(unif, sheet_name="DCP Data")
+    except Exception:
+        return df
+    col_feat = next((c for c in dcp.columns
+                     if 'Feature' in str(c) or 'Anomaly' in str(c)), None)
+    if col_feat is None or "Data No" not in dcp.columns or "Data No" not in df.columns:
+        return df
+    for _, fila in dcp.iterrows():
+        feat = str(fila.get(col_feat, "") or "").lower()
+        for pref, marca in TIPOS:
+            if marca in feat:
+                idx = df.index[df["Data No"] == fila["Data No"]]
+                if len(idx) and pd.isna(df.loc[idx[0], f"{pref}_on_mv"]):
+                    v1, v2 = fila.get("Value1"), fila.get("Value2")
+                    if pd.notna(v1):
+                        df.loc[idx[0], f"{pref}_on_mv"] = float(v1) * 1000
+                    if pd.notna(v2):
+                        df.loc[idx[0], f"{pref}_off_mv"] = float(v2) * 1000
+                break
+    return df
+
+
 class TramoIncorrectoError(ValueError):
     """Los datos del archivo no corresponden al tramo/shapefile elegido."""
 
@@ -57,6 +88,9 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         # Exportes acumulativos del logger repiten registros completos entre
         # archivos; una fila 100% idéntica es el mismo registro medido una vez.
         df = df.drop_duplicates().reset_index(drop=True)
+
+        # Lecturas Metal IR / Far / Near de la hoja DCP Data, por Data No.
+        df = _lecturas_dcp(unif, df)
 
         df = df.rename(columns={
             "Dist From Start": "PK_equipo",
