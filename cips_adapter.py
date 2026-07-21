@@ -27,6 +27,64 @@ def _reparar_texto(s):
     return s
 
 
+# Errores de digitación frecuentes en los comentarios de campo. Solo palabras
+# completas (con límites) y correcciones inequívocas.
+_ORTOGRAFIA = {
+    'cruse': 'cruce',
+    'aerio': 'aéreo',
+    'aereo': 'aéreo',
+    'aerios': 'aéreos',
+    'aereos': 'aéreos',
+    'enseramiento': 'encerramiento',
+    'enserramiento': 'encerramiento',
+    'paryidura': 'partidura',
+    'tencion': 'tensión',
+    'tension': 'tensión',
+    'valvula': 'válvula',
+    'valvulas': 'válvulas',
+    'linea': 'línea',
+    'lineas': 'líneas',
+    'rio': 'río',
+    'abcisado': 'abscisado',
+    'abcisa': 'abscisa',
+    'medicion': 'medición',
+    'proteccion': 'protección',
+    'derivacion': 'derivación',
+    'estacion': 'estación',
+    'via': 'vía',
+    'pk': 'PK',
+}
+_RE_PALABRA = re.compile(r'[a-záéíóúüñA-ZÁÉÍÓÚÜÑ]+')
+# 'en montado' -> 'enmontado' (tramo cubierto de monte) antes del corte por palabras
+_RE_EN_MONTADO = re.compile(r'\ben\s+montado\b', re.IGNORECASE)
+
+
+def _corregir_texto(s):
+    """Corrige ortografía/digitación de un comentario de campo y lo deja con
+    mayúscula inicial. No inventa contenido: solo sustituciones de palabra
+    completa del diccionario _ORTOGRAFIA."""
+    if not s:
+        return s
+    s = _RE_EN_MONTADO.sub('enmontado', s)
+
+    def _sub(m):
+        pal = m.group(0)
+        rep = _ORTOGRAFIA.get(pal.lower())
+        if rep is None:
+            return pal
+        if pal.isupper() and len(pal) > 2:
+            return rep.upper()
+        if pal[0].isupper():
+            return rep[0].upper() + rep[1:]
+        return rep
+
+    s = _RE_PALABRA.sub(_sub, s)
+    s = re.sub(r'\s{2,}', ' ', s).strip()
+    if s and s[0].islower():
+        s = s[0].upper() + s[1:]
+    return s
+
+
 def _tipo_hallazgo(texto):
     t = texto.lower()
     if 'cable' in t or 'partid' in t:
@@ -79,7 +137,10 @@ def lrs_df_a_cips_dicts(df):
         # que la app original proceso-cips.
         pk = row.get("PK_geom_m")
         abscisa_val = int(round(pk)) if pd.notna(pk) else 0
-        comentario = _reparar_texto(str(row.get("Comentarios", "") or "").strip())
+        comentario = str(row.get("Comentarios", "") or "").strip()
+        if comentario.lower() in ("nan", "none"):
+            comentario = ""
+        comentario = _corregir_texto(_reparar_texto(comentario))
         salida.append({
             "abscisa_val": abscisa_val,
             "referencia": comentario,
