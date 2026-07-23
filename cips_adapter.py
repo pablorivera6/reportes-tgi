@@ -99,4 +99,33 @@ def lrs_df_a_cips_dicts(df):
             "lat": _num(row.get("Lat_corr")),
             "lon": _num(row.get("Long_corr")),
         })
-    return salida
+    return _un_punto_por_abscisa(salida)
+
+
+_CLAVES_COMPLETAR = ("metal_on", "metal_off", "far_on", "far_off",
+                     "near_on", "near_off", "vac")
+
+
+def _un_punto_por_abscisa(salida):
+    """Deja UN punto por abscisa (metro). El GPS quieto hace que 2-3 lecturas
+    caigan en el mismo metro de la traza y el informe salía con filas
+    repetidas. Se conserva la primera lectura de cada abscisa; los comentarios
+    y lecturas DCP (Metal/Far/Near) de los duplicados se traspasan al punto
+    que queda para no perder información."""
+    por_absc = {}
+    orden = []
+    for d in salida:
+        a = d.get("abscisa_val")
+        if a not in por_absc:
+            por_absc[a] = d
+            orden.append(a)
+            continue
+        base = por_absc[a]
+        for k in _CLAVES_COMPLETAR:
+            if base.get(k) is None and d.get(k) is not None:
+                base[k] = d[k]
+        for k in ("observaciones", "referencia"):
+            txt = d.get(k)
+            if txt and txt not in (base.get(k) or ""):
+                base[k] = f"{base[k]} | {txt}" if base.get(k) else txt
+    return [por_absc[a] for a in orden]
