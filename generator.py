@@ -299,11 +299,24 @@ class ReportGenerator:
             return
             
         ws_cips = self.wb['Potenciales CIPS']
-        
+
+        # Hasta qué fila trae formato el template (borde en la col B). Más allá
+        # se copia el estilo de la fila 12 para que un survey muy largo no
+        # quede sin formato ("se daña la data").
+        fila_fmt_max = 12
+        for r in range(12, ws_cips.max_row + 1):
+            b = ws_cips.cell(row=r, column=2).border
+            if b and b.left and b.left.style:
+                fila_fmt_max = r
+            elif r > 12:
+                break
+
         # Start inserting at row 12
         for i, data in enumerate(cips_data):
             row_idx = i + 12
-            
+            if row_idx > fila_fmt_max:
+                self._copy_row_style(ws_cips, 12, row_idx, 1, 21)
+
             # Abscisa: escribir el VALOR NUMÉRICO en metros. La celda de la
             # columna B tiene formato personalizado \K\ 000\+000 que lo muestra
             # como "K 000+007", y la serie X (numérica) de las gráficas VDC /
@@ -489,22 +502,57 @@ class ReportGenerator:
         if not hallazgos:
             return
 
-        n_prefilled = 6
         start_row = 18
-        
-        # Clear default text in prefilled rows
-        for r in range(start_row, start_row + n_prefilled):
-            self._safe_write(ws, r, 1, '')
+        n = len(hallazgos)
 
-        # Insert rows if we have more than prefilled
-        if len(hallazgos) > n_prefilled:
-            ws.insert_rows(start_row + n_prefilled, len(hallazgos) - n_prefilled)
-            for r in range(start_row + n_prefilled, start_row + len(hallazgos)):
-                self._copy_row_style(ws, start_row, r, 1, 13)
+        # El bloque de firmas (ELABORÓ/REVISÓ/APROBÓ) va justo debajo de la zona
+        # de datos. Si hay más hallazgos que las filas disponibles, hay que
+        # empujar ese bloque hacia abajo. OJO: openpyxl.insert_rows NO desplaza
+        # las celdas combinadas, así que se desmerge antes y se recrea después
+        # (si no, quedan MergedCell encima de los datos y no se puede escribir
+        # → filas en blanco y descuadradas, el daño que reportó el usuario).
+        fila_elaboro = None
+        for r in range(start_row, ws.max_row + 1):
+            if ws.cell(row=r, column=3).value == 'ELABORÓ':
+                fila_elaboro = r
+                break
+
+        # El bloque de firmas puede tener una barra combinada (p.ej. A67:M67)
+        # una fila arriba de 'ELABORÓ'. El tope real del bloque es el min_row de
+        # las celdas combinadas que están en/bajo la zona de datos (la zona de
+        # datos no tiene combinaciones).
+        fila_firmas = fila_elaboro
+        if fila_elaboro is not None:
+            merges_bloque = [rng for rng in ws.merged_cells.ranges
+                             if rng.min_row >= start_row]
+            if merges_bloque:
+                fila_firmas = min(rng.min_row for rng in merges_bloque)
+
+        if fila_firmas is not None:
+            disponibles = fila_firmas - start_row       # filas de datos libres
+            if n > disponibles:
+                faltan = n - disponibles
+                merges = [rng for rng in list(ws.merged_cells.ranges)
+                          if rng.min_row >= fila_firmas]
+                for rng in merges:
+                    ws.unmerge_cells(str(rng))
+                ws.insert_rows(fila_firmas, faltan)
+                for rng in merges:
+                    ws.merge_cells(start_row=rng.min_row + faltan,
+                                   start_column=rng.min_col,
+                                   end_row=rng.max_row + faltan,
+                                   end_column=rng.max_col)
+                fila_firmas += faltan
+
+        # Formatear TODA la zona de datos copiando el estilo de la fila modelo
+        # (garantiza borde/formato en cada fila, sin depender de cuántas trae
+        # pre-formateadas el template).
+        for r in range(start_row, start_row + n):
+            self._copy_row_style(ws, start_row, r, 1, 13)
 
         for i, h in enumerate(hallazgos):
             row = start_row + i
-            
+
             # Prefer abscisa_val for numeric formatting if available
             abs_ini = h.get('abscisa_val', h.get('abscisa_inicio', h.get('abscisa', '')))
             abs_fin = h.get('abscisa_fin', '')
@@ -523,11 +571,12 @@ class ReportGenerator:
             self._safe_write(ws, row, 12, corregir_campo(h.get('tipo', '')))     # L
             self._safe_write(ws, row, 13, corregir_campo(h.get('descripcion', '')))  # M
             
-        # Clear unused prefilled rows
-        if len(hallazgos) < n_prefilled:
-            for r in range(start_row + len(hallazgos), start_row + n_prefilled):
-                for c in range(1, 14):
-                    self._safe_write(ws, r, c, '')
+        # Limpiar filas pre-formateadas del template que queden entre el último
+        # dato y el bloque de firmas (no deben mostrar residuos).
+        fin = fila_firmas - 1 if fila_firmas is not None else start_row + n
+        for r in range(start_row + n, fin):
+            for c in range(1, 14):
+                self._safe_write(ws, r, c, '')
 
     def fill_rectificadores(self, rectificadores: list):
         """Fill rectifier parameters in Informe sheet (rows 80+)

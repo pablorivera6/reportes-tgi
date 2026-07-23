@@ -10,7 +10,8 @@ import pytest
 from cips_lrs import procesar_cips_lrs, TramoIncorrectoError
 from cips_infra import InfraTramos
 
-_SHP_LOCAL = "/private/tmp/tgi_push/shapefiles"
+import glob as _glob
+_SHP_LOCAL = next((d for d in ("/private/tmp/tgi_push_new/shapefiles", "/private/tmp/tgi_push/shapefiles") if _glob.glob(d + "/R_SAL.shp")), "/private/tmp/tgi_push_new/shapefiles")
 
 
 def test_tramo_equivocado_lanza_error(archivos_cips, tmp_path):
