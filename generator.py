@@ -318,7 +318,8 @@ class ReportGenerator:
 
             ws_cips.cell(row=row_idx, column=1, value=i + 1)
             ws_cips.cell(row=row_idx, column=2, value=abscisa)
-            # Fecha (maybe we don't have it here, leave empty or you could pass it)
+            # Fecha del día en que se tomó el dato (columna C = FECHA)
+            ws_cips.cell(row=row_idx, column=3, value=data.get('fecha', ''))
             ws_cips.cell(row=row_idx, column=4, value=corregir_campo(data.get('referencia', '')))
             
             ws_cips.cell(row=row_idx, column=5, value=data.get('on_mv', ''))

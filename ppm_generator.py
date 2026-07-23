@@ -65,6 +65,7 @@ class PPMGenerator:
                 'polarizacion': None,
                 'observaciones': c.get('observaciones', ''),
                 'ir_on_off': ir,
+                'fecha': c.get('fecha'),
             })
             current_row += 1
 
@@ -105,7 +106,9 @@ class PPMGenerator:
         self._safe_write(row, 3, info.get('distrito', ''))
         self._safe_write(row, 4, info.get('tipo_ducto', ''))
         self._safe_write(row, 5, info.get('tramo', ''))
-        self._safe_write(row, 6, info.get('fecha', ''))
+        # Fecha del día en que se tomó el punto (si viene por dato); si no, la
+        # fecha general del informe.
+        self._safe_write(row, 6, data.get('fecha') or info.get('fecha', ''))
         
         # ABCISA is usually an integer in meters? We'll write exactly what's there (should be integer normally)
         abscisa = data.get('abscisa', '')

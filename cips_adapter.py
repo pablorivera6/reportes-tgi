@@ -59,6 +59,7 @@ def cips_a_hallazgos(cips_dicts):
             'longitud': '',
             'lat': d.get('lat'),
             'lon': d.get('lon'),
+            'fecha': d.get('fecha'),
             'tipo': _tipo_hallazgo(obs),
             'descripcion': obs,
         })
@@ -82,10 +83,13 @@ def lrs_df_a_cips_dicts(df):
         if comentario.lower() in ("nan", "none"):
             comentario = ""
         comentario = _corregir_texto(_reparar_texto(comentario))
+        fecha = row.get("Fecha_dato")
+        fecha = str(fecha) if (fecha is not None and pd.notna(fecha)) else None
         salida.append({
             "abscisa_val": abscisa_val,
             "referencia": comentario,
             "observaciones": comentario,
+            "fecha": fecha,
             "on_mv": _num(row.get("On_mV")),
             "off_mv": _num(row.get("Off_mV")),
             "on_limpio": _num(row.get("On_mV_limpio")),

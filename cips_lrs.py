@@ -92,6 +92,17 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         # Lecturas Metal IR / Far / Near de la hoja DCP Data, por Data No.
         df = _lecturas_dcp(unif, df)
 
+        # Fecha de inspección por punto: el día del timestamp 'On Time' (al
+        # subir varios archivos con fechas distintas, cada punto conserva la
+        # suya). Se guarda como texto dd/mm/aaaa.
+        col_time = next((c for c in ("On Time", "Off Time", "Fix Time")
+                         if c in df.columns), None)
+        if col_time is not None:
+            fechas = pd.to_datetime(df[col_time], errors="coerce")
+            df["Fecha_dato"] = fechas.dt.strftime("%d/%m/%Y")
+        else:
+            df["Fecha_dato"] = None
+
         df = df.rename(columns={
             "Dist From Start": "PK_equipo",
             "On Voltage": "On_V",
