@@ -489,22 +489,25 @@ class ReportGenerator:
         if not hallazgos:
             return
 
-        n_prefilled = 6
         start_row = 18
-        
-        # Clear default text in prefilled rows
-        for r in range(start_row, start_row + n_prefilled):
-            self._safe_write(ws, r, 1, '')
 
-        # Insert rows if we have more than prefilled
-        if len(hallazgos) > n_prefilled:
-            ws.insert_rows(start_row + n_prefilled, len(hallazgos) - n_prefilled)
-            for r in range(start_row + n_prefilled, start_row + len(hallazgos)):
-                self._copy_row_style(ws, start_row, r, 1, 13)
+        # La plantilla ya trae 500 filas de datos formateadas antes del bloque
+        # de firmas, así que aquí solo se escribe (no se insertan filas). La
+        # capacidad = filas de datos disponibles antes de las firmas.
+        fila_firmas = next((r for r in range(start_row, ws.max_row + 1)
+                            if ws.cell(row=r, column=3).value == 'ELABORÓ'), None)
+        if fila_firmas is not None:
+            tope_bloque = min([m.min_row for m in ws.merged_cells.ranges
+                               if m.min_row >= start_row] + [fila_firmas])
+        else:
+            tope_bloque = start_row + len(hallazgos) + 1
+        capacidad = tope_bloque - start_row
+
+        hallazgos = hallazgos[:capacidad]   # no invadir el bloque de firmas
 
         for i, h in enumerate(hallazgos):
             row = start_row + i
-            
+
             # Prefer abscisa_val for numeric formatting if available
             abs_ini = h.get('abscisa_val', h.get('abscisa_inicio', h.get('abscisa', '')))
             abs_fin = h.get('abscisa_fin', '')
@@ -522,12 +525,12 @@ class ReportGenerator:
             self._safe_write(ws, row, 11, h.get('fecha', info.get('fecha', '')))  # K
             self._safe_write(ws, row, 12, corregir_campo(h.get('tipo', '')))     # L
             self._safe_write(ws, row, 13, corregir_campo(h.get('descripcion', '')))  # M
-            
-        # Clear unused prefilled rows
-        if len(hallazgos) < n_prefilled:
-            for r in range(start_row + len(hallazgos), start_row + n_prefilled):
-                for c in range(1, 14):
-                    self._safe_write(ws, r, c, '')
+
+        # Limpiar las filas de datos no usadas (hasta el bloque de firmas), por
+        # si el template traía texto de ejemplo o de una corrida anterior.
+        for r in range(start_row + len(hallazgos), tope_bloque):
+            for c in range(1, 14):
+                self._safe_write(ws, r, c, '')
 
     def fill_rectificadores(self, rectificadores: list):
         """Fill rectifier parameters in Informe sheet (rows 80+)
