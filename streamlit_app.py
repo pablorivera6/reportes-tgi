@@ -527,7 +527,19 @@ with tabs[1]:
             if cips_files and st.button("Procesar CIPS"):
                 shp = infra_tramos.shapefile(empresa=emp, tramo=tramo_cips, distrito=dist)
                 if not shp:
-                    st.error(f"No hay shapefile para el tramo '{tramo_cips}'.")
+                    st.error(f"El tramo '{tramo_cips}' no tiene shapefile en el "
+                             f"paquete.")
+                    from cips_lrs import coords_muestra
+                    latlon = coords_muestra(_tmp_files(cips_files))
+                    if latlon:
+                        sugs = infra_tramos.sugerir_tramos(*latlon)
+                        if sugs:
+                            lineas = "\n".join(f"- **{t}** (Distrito {d}, {i})"
+                                               for t, d, i in sugs[:5])
+                            st.warning("Según las coordenadas de tus archivos, "
+                                       "los datos corresponden a:\n" + lineas +
+                                       "\n\nSelecciona ese tramo y vuelve a "
+                                       "procesar.")
                 else:
                     try:
                         with st.spinner("Procesando CIPS (LRS)..."):

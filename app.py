@@ -1490,8 +1490,20 @@ class AppWindow(QMainWindow):
             distrito = self.cmb_cips_distrito.currentText() if empresa == "TGI" else None
             shp = self.infra_tramos.shapefile(empresa=empresa, tramo=tramo, distrito=distrito)
             if not shp:
-                QMessageBox.warning(self, "Error",
-                    f"No se encontró shapefile para el tramo '{tramo}'.")
+                msg = f"El tramo '{tramo}' no tiene shapefile en el paquete."
+                try:
+                    from cips_lrs import coords_muestra
+                    latlon = coords_muestra(archivos)
+                    if latlon:
+                        sugs = self.infra_tramos.sugerir_tramos(*latlon)
+                        if sugs:
+                            lista = "\n".join(f"  • {t} (Distrito {d}, {i})"
+                                              for t, d, i in sugs[:5])
+                            msg += ("\n\nSegún las coordenadas de los archivos, "
+                                    "los datos corresponden a:\n" + lista)
+                except Exception:
+                    pass
+                QMessageBox.warning(self, "Error", msg)
                 return
 
             self.lbl_status.setText("Procesando CIPS (LRS)...")

@@ -26,6 +26,27 @@ CRITERIO_MARGINAL = -1200
 UMBRAL_TRAMO_M = 300.0
 
 
+def coords_muestra(lista_archivos_xlsx):
+    """Lat/Lon medianos de las lecturas de los archivos CIPS, para sugerir el
+    tramo correcto sin necesidad de un shapefile. Devuelve (lat, lon) o None."""
+    lats, lons = [], []
+    for ruta in lista_archivos_xlsx:
+        try:
+            df = pd.read_excel(ruta, sheet_name="Survey Data",
+                               usecols=["Latitude", "Longitude"])
+        except Exception:
+            continue
+        la = pd.to_numeric(df["Latitude"], errors="coerce").dropna()
+        lo = pd.to_numeric(df["Longitude"], errors="coerce").dropna()
+        lats += la.tolist()
+        lons += lo.tolist()
+    if not lats or not lons:
+        return None
+    s_la = pd.Series(lats).median()
+    s_lo = pd.Series(lons).median()
+    return float(s_la), float(s_lo)
+
+
 def _lecturas_dcp(unif, df):
     """Extrae de la hoja DCP Data las lecturas de Metal IR / Far Ground /
     Near Ground y las asigna al punto del survey con el mismo Data No, en mV
