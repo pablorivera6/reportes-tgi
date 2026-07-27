@@ -40,6 +40,31 @@ def _suavizar_outliers(serie, window=25, umbral=250):
     return out
 
 
+def tecnico_de_archivos(lista_archivos_xlsx):
+    """Técnico que hizo la inspección, leído de la hoja 'Survey Info'
+    ('Technician Name') de los archivos CIPS. Con varios archivos devuelve el
+    más frecuente; '' si no aparece."""
+    import openpyxl
+    from collections import Counter
+    cont = Counter()
+    for ruta in lista_archivos_xlsx:
+        try:
+            wb = openpyxl.load_workbook(ruta, read_only=True, data_only=True)
+        except Exception:
+            continue
+        try:
+            if "Survey Info" in wb.sheetnames:
+                for row in wb["Survey Info"].iter_rows(values_only=True):
+                    if row and str(row[0] or "").strip() == "Technician Name":
+                        v = str(row[1] or "").strip()
+                        if v:
+                            cont[v] += 1
+                        break
+        finally:
+            wb.close()
+    return cont.most_common(1)[0][0] if cont else ""
+
+
 def coords_muestra(lista_archivos_xlsx):
     """Lat/Lon medianos de las lecturas de los archivos CIPS, para sugerir el
     tramo correcto sin necesidad de un shapefile. Devuelve (lat, lon) o None."""

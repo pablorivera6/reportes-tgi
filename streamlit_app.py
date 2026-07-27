@@ -514,6 +514,9 @@ with tabs[1]:
 
     with c2:
         st.subheader("Data CIPS — Motor LRS_")
+        if st.session_state.get("flash_cips"):
+            st.success(st.session_state.flash_cips)
+            st.session_state.flash_cips = None
         if infra_tramos:
             emp = st.selectbox("Empresa", ["TGI", "OCENSA"], key="cips_emp")
             if emp == "TGI":
@@ -542,21 +545,42 @@ with tabs[1]:
                                        "procesar.")
                 else:
                     try:
+                        rutas_cips = _tmp_files(cips_files)
                         with st.spinner("Procesando CIPS (LRS)..."):
-                            from cips_lrs import procesar_cips_lrs
+                            from cips_lrs import procesar_cips_lrs, tecnico_de_archivos
                             from cips_adapter import lrs_df_a_cips_dicts
-                            df = procesar_cips_lrs(_tmp_files(cips_files), shp)
+                            df = procesar_cips_lrs(rutas_cips, shp)
                             dicts = lrs_df_a_cips_dicts(df)
                             data['cips'] = dicts
-                        st.success(f"{len(dicts)} registros CIPS procesados "
-                                   f"({len(cips_files)} archivo(s); cada "
-                                   f"procesamiento reemplaza la data anterior).")
+
+                        # Identificar el técnico del archivo y autollenar
+                        # inspector + seriales de sus equipos en Datos Generales.
+                        tecnico = tecnico_de_archivos(rutas_cips)
+                        msg_tec = ""
+                        if tecnico:
+                            data['info']['inspector'] = tecnico
+                            auto = {'inspector': tecnico}
+                            serial, fc, eqs = get_equipos_for_inspector(tecnico)
+                            if serial:
+                                data['info']['serial_equipo'] = serial
+                                auto['serial_equipo'] = serial
+                            if fc:
+                                data['info']['fecha_calibracion'] = fc
+                                auto['fecha_calibracion'] = fc
+                            if eqs:
+                                st.session_state.equipos_inspector = eqs
+                            st.session_state.pending_autofill = auto
+                            msg_tec = (f" · Técnico: {tecnico}"
+                                       + (f" · Serial {serial}" if serial else
+                                          " (sin equipos en el listado)"))
+
+                        st.session_state.flash_cips = (
+                            f"{len(dicts)} registros CIPS procesados "
+                            f"({len(cips_files)} archivo(s)).{msg_tec}")
                         if df.attrs.get("fuente_abscisa") == "EQUIPO":
-                            st.info("El GPS de este archivo no varía entre "
-                                    "lecturas, así que la abscisa se tomó del "
-                                    "odómetro del equipo (Dist From Start), "
-                                    "anclada a la etiqueta 'pk' del comentario "
-                                    "si existe.")
+                            st.session_state.flash_cips += (
+                                " · Abscisa tomada del odómetro (GPS congelado).")
+                        st.rerun()
                     except Exception as e:
                         from cips_lrs import TramoIncorrectoError
                         st.error(f"Error procesando CIPS: {e}")

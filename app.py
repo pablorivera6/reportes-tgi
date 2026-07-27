@@ -1521,9 +1521,26 @@ class AppWindow(QMainWindow):
 
             self.data['cips'] = cips_dicts
             self.refresh_cips_table()
+
+            # Identificar el técnico del archivo y autollenar inspector +
+            # seriales de sus equipos en Datos Generales.
+            msg_tec = ""
+            try:
+                from cips_lrs import tecnico_de_archivos
+                tecnico = tecnico_de_archivos(self.cips_archivos)
+                if tecnico:
+                    self.fields['inspector'].setText(tecnico)
+                    self.autofill_equipos(tecnico)
+                    serial = self.fields['serial_equipo'].text()
+                    msg_tec = (f" · Técnico: {tecnico}"
+                               + (f" · Serial {serial}" if serial else
+                                  " (sin equipos en el listado)"))
+            except Exception:
+                pass
+
             self.lbl_status.setText(
                 f"Data CIPS procesada: {len(cips_dicts)} registros "
-                f"de {len(self.cips_archivos)} archivo(s).")
+                f"de {len(self.cips_archivos)} archivo(s).{msg_tec}")
         except Exception as e:
             import traceback
             traceback.print_exc()
