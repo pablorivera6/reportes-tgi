@@ -26,6 +26,20 @@ CRITERIO_MARGINAL = -1200
 UMBRAL_TRAMO_M = 300.0
 
 
+def _suavizar_outliers(serie, window=25, umbral=250):
+    """Reemplaza los picos aislados por la mediana local (misma idea que la app
+    original proceso-cips, reforzada): mediana móvil centrada con min_periods=1
+    —para que los EXTREMOS también se suavicen— y ventana algo más ancha para
+    alcanzar racimos cortos de lecturas malas. Una desviación sostenida (baja
+    protección real, decenas de puntos) NO se toca, porque ahí la mediana local
+    sigue el nivel real."""
+    med = serie.rolling(window, center=True, min_periods=1).median()
+    mask = (serie - med).abs() > umbral
+    out = serie.copy()
+    out[mask] = med[mask]
+    return out
+
+
 def coords_muestra(lista_archivos_xlsx):
     """Lat/Lon medianos de las lecturas de los archivos CIPS, para sugerir el
     tramo correcto sin necesidad de un shapefile. Devuelve (lat, lon) o None."""
@@ -219,12 +233,8 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         df["On_mV"] = df["On_V"] * 1000
         df["Off_mV"] = df["Off_V"] * 1000
 
-        WINDOW, UMBRAL = 15, 250
         for col, out_col in [("Off_mV", "Off_mV_limpio"), ("On_mV", "On_mV_limpio")]:
-            med = df[col].rolling(WINDOW, center=True).median()
-            mask_out = abs(df[col] - med) > UMBRAL
-            df[out_col] = df[col].copy()
-            df.loc[mask_out, out_col] = med[mask_out]
+            df[out_col] = _suavizar_outliers(df[col])
 
         df["IR_Drop_mV_limpio"] = df["On_mV_limpio"] - df["Off_mV_limpio"]
 
