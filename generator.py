@@ -322,12 +322,23 @@ class ReportGenerator:
             ws_cips.cell(row=row_idx, column=3, value=data.get('fecha', ''))
             ws_cips.cell(row=row_idx, column=4, value=corregir_campo(data.get('referencia', '')))
             
-            ws_cips.cell(row=row_idx, column=5, value=data.get('on_mv', ''))
-            ws_cips.cell(row=row_idx, column=6, value=data.get('off_mv', ''))
+            # POTENCIAL NEGATIVO 1 TGI (E/F): se escribe el potencial SUAVIZADO
+            # (on_limpio/off_limpio del motor LRS: mediana móvil ventana 15 que
+            # reemplaza los picos > 250 mV), igual que la app original
+            # proceso-cips —que grafica y reporta la data limpia, no la cruda—.
+            # La gráfica CIPS lee E/F, así que aquí es donde debe ir el suavizado.
+            on_e = data.get('on_limpio')
+            off_e = data.get('off_limpio')
+            if on_e is None or (isinstance(on_e, float) and pd.isna(on_e)):
+                on_e = data.get('on_mv', '')
+            if off_e is None or (isinstance(off_e, float) and pd.isna(off_e)):
+                off_e = data.get('off_mv', '')
+            ws_cips.cell(row=row_idx, column=5, value=on_e)
+            ws_cips.cell(row=row_idx, column=6, value=off_e)
 
             # Columnas G/H "POTENCIAL NEGATIVO 1 TGI [CORREGIDO]" se dejan
             # VACÍAS por pedido del usuario: el informe lleva únicamente los
-            # potenciales medidos (E/F).
+            # potenciales de la columna POTENCIAL NEGATIVO 1 TGI (E/F).
             
             # POTENCIAL NATURAL, POLARIZACIÓN (leave empty for now unless calculated)
             
@@ -342,11 +353,9 @@ class ReportGenerator:
             ws_cips.cell(row=row_idx, column=16, value=data.get('near_on', ''))
             ws_cips.cell(row=row_idx, column=17, value=data.get('near_off', ''))
             
-            # IR ON-OFF con los potenciales medidos (E/F)
-            on_v = data.get('on_mv')
-            off_v = data.get('off_mv')
-            if pd.notna(on_v) and pd.notna(off_v):
-                ws_cips.cell(row=row_idx, column=18, value=on_v - off_v)
+            # IR ON-OFF con los mismos potenciales suavizados de E/F
+            if isinstance(on_e, (int, float)) and isinstance(off_e, (int, float)):
+                ws_cips.cell(row=row_idx, column=18, value=on_e - off_e)
                 
             ws_cips.cell(row=row_idx, column=19, value=data.get('lat', ''))
             ws_cips.cell(row=row_idx, column=20, value=data.get('lon', ''))
@@ -517,13 +526,14 @@ class ReportGenerator:
             self._safe_write(ws, row, 2, abs_ini)                              # B
             self._safe_write(ws, row, 3, abs_fin)                              # C
             self._safe_write(ws, row, 4, h.get('longitud', ''))                # D
-            self._safe_write(ws, row, 5, h.get('gasoducto', info.get('gasoducto', '')))  # E
-            self._safe_write(ws, row, 6, h.get('tramo', info.get('tramo', '')))           # F
+            self._safe_write(ws, row, 5, h.get('gasoducto') or info.get('gasoducto', ''))  # E
+            self._safe_write(ws, row, 6, h.get('tramo') or info.get('tramo', ''))           # F
             self._safe_write(ws, row, 7, h.get('lat_inicio', h.get('lat', '')))  # G
             self._safe_write(ws, row, 8, h.get('lon_inicio', h.get('lon', '')))  # H
             self._safe_write(ws, row, 9, h.get('lat_fin', ''))                   # I
             self._safe_write(ws, row, 10, h.get('lon_fin', ''))                  # J
-            self._safe_write(ws, row, 11, h.get('fecha', info.get('fecha', '')))  # K
+            # fecha del punto; si el hallazgo no la trae, la general del informe
+            self._safe_write(ws, row, 11, h.get('fecha') or info.get('fecha', ''))  # K
             self._safe_write(ws, row, 12, corregir_campo(h.get('tipo', '')))     # L
             self._safe_write(ws, row, 13, corregir_campo(h.get('descripcion', '')))  # M
 
