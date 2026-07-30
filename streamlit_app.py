@@ -856,6 +856,13 @@ with tabs[11]:
             st.session_state.informe_nombre = nombre
             prog.progress(100, text="¡Listo!")
             st.success("Informes generados.")
+            if getattr(gen, "cips_truncados", 0):
+                st.warning(
+                    f"El survey CIPS tiene {getattr(gen,'cips_truncados')} "
+                    f"puntos más de los que caben en la hoja del formato, así "
+                    f"que se recortaron los últimos. Es un tramo muy largo: "
+                    f"conviene dividir el survey en segmentos y generar un "
+                    f"informe por segmento.")
         except Exception as e:
             import traceback
             st.error(f"Error generando el informe: {e}")

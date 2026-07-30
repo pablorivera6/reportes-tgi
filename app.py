@@ -335,7 +335,13 @@ class WorkerThread(QThread):
             )
             self.progress.emit(100)
             self.status.emit("¡Informes generados con éxito!")
-            self.finished.emit(f"PAP: {self.output_path}\nPPM: {self.ppm_path}")
+            aviso = ""
+            if getattr(gen, "cips_truncados", 0):
+                aviso = (f"\n\n⚠ El survey CIPS tiene {gen.cips_truncados} puntos "
+                         f"más de los que caben en la hoja del formato; se "
+                         f"recortaron los últimos. Conviene dividir el survey "
+                         f"en segmentos y generar un informe por segmento.")
+            self.finished.emit(f"PAP: {self.output_path}\nPPM: {self.ppm_path}{aviso}")
             
 
         except Exception as e:

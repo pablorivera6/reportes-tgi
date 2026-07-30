@@ -295,11 +295,29 @@ class ReportGenerator:
             self._safe_write(ws, row, 27, corregir_campo(p.get('observaciones')))  # AA - Obs
 
     def fill_cips(self, cips_data: list):
+        self.cips_truncados = 0
         if not cips_data:
             return
-            
+
         ws_cips = self.wb['Potenciales CIPS']
-        
+
+        # Capacidad: la hoja tiene un bloque de resumen/firmas al final (fila
+        # con 'ELABORÓ' y una fila de fórmulas justo antes). No se puede
+        # escribir sobre sus celdas combinadas, así que la data va de la fila
+        # 12 hasta 2 filas antes del bloque. Si el survey trae más puntos que
+        # eso, se recorta y se avisa (self.cips_truncados).
+        fila_firmas = next((r for r in range(12, ws_cips.max_row + 1)
+                            if ws_cips.cell(row=r, column=3).value == 'ELABORÓ'), None)
+        if fila_firmas:
+            fila_resumen = min([m.min_row for m in ws_cips.merged_cells.ranges
+                                if m.min_row >= 12] + [fila_firmas])
+            capacidad = fila_resumen - 12   # filas 12 .. fila_resumen-1
+        else:
+            capacidad = len(cips_data)
+        if len(cips_data) > capacidad:
+            self.cips_truncados = len(cips_data) - capacidad
+            cips_data = cips_data[:capacidad]
+
         # Start inserting at row 12
         for i, data in enumerate(cips_data):
             row_idx = i + 12
@@ -316,11 +334,11 @@ class ReportGenerator:
             else:
                 abscisa = None
 
-            ws_cips.cell(row=row_idx, column=1, value=i + 1)
-            ws_cips.cell(row=row_idx, column=2, value=abscisa)
+            self._safe_write(ws_cips, row_idx, 1, i + 1)
+            self._safe_write(ws_cips, row_idx, 2, abscisa)
             # Fecha del día en que se tomó el dato (columna C = FECHA)
-            ws_cips.cell(row=row_idx, column=3, value=data.get('fecha', ''))
-            ws_cips.cell(row=row_idx, column=4, value=corregir_campo(data.get('referencia', '')))
+            self._safe_write(ws_cips, row_idx, 3, data.get('fecha', ''))
+            self._safe_write(ws_cips, row_idx, 4, corregir_campo(data.get('referencia', '')))
             
             # POTENCIAL NEGATIVO 1 TGI (E/F): se escribe el potencial SUAVIZADO
             # (on_limpio/off_limpio del motor LRS: mediana móvil ventana 15 que
@@ -333,8 +351,8 @@ class ReportGenerator:
                 on_e = data.get('on_mv', '')
             if off_e is None or (isinstance(off_e, float) and pd.isna(off_e)):
                 off_e = data.get('off_mv', '')
-            ws_cips.cell(row=row_idx, column=5, value=on_e)
-            ws_cips.cell(row=row_idx, column=6, value=off_e)
+            self._safe_write(ws_cips, row_idx, 5, on_e)
+            self._safe_write(ws_cips, row_idx, 6, off_e)
 
             # Columnas G/H "POTENCIAL NEGATIVO 1 TGI [CORREGIDO]" se dejan
             # VACÍAS por pedido del usuario: el informe lleva únicamente los
@@ -342,24 +360,24 @@ class ReportGenerator:
             
             # POTENCIAL NATURAL, POLARIZACIÓN (leave empty for now unless calculated)
             
-            ws_cips.cell(row=row_idx, column=11, value=data.get('vac', ''))
+            self._safe_write(ws_cips, row_idx, 11, data.get('vac', ''))
             
-            ws_cips.cell(row=row_idx, column=12, value=data.get('metal_on', ''))
-            ws_cips.cell(row=row_idx, column=13, value=data.get('metal_off', ''))
+            self._safe_write(ws_cips, row_idx, 12, data.get('metal_on', ''))
+            self._safe_write(ws_cips, row_idx, 13, data.get('metal_off', ''))
             
-            ws_cips.cell(row=row_idx, column=14, value=data.get('far_on', ''))
-            ws_cips.cell(row=row_idx, column=15, value=data.get('far_off', ''))
+            self._safe_write(ws_cips, row_idx, 14, data.get('far_on', ''))
+            self._safe_write(ws_cips, row_idx, 15, data.get('far_off', ''))
             
-            ws_cips.cell(row=row_idx, column=16, value=data.get('near_on', ''))
-            ws_cips.cell(row=row_idx, column=17, value=data.get('near_off', ''))
+            self._safe_write(ws_cips, row_idx, 16, data.get('near_on', ''))
+            self._safe_write(ws_cips, row_idx, 17, data.get('near_off', ''))
             
             # IR ON-OFF con los mismos potenciales suavizados de E/F
             if isinstance(on_e, (int, float)) and isinstance(off_e, (int, float)):
-                ws_cips.cell(row=row_idx, column=18, value=on_e - off_e)
+                self._safe_write(ws_cips, row_idx, 18, on_e - off_e)
                 
-            ws_cips.cell(row=row_idx, column=19, value=data.get('lat', ''))
-            ws_cips.cell(row=row_idx, column=20, value=data.get('lon', ''))
-            ws_cips.cell(row=row_idx, column=21, value=corregir_campo(data.get('observaciones', '')))
+            self._safe_write(ws_cips, row_idx, 19, data.get('lat', ''))
+            self._safe_write(ws_cips, row_idx, 20, data.get('lon', ''))
+            self._safe_write(ws_cips, row_idx, 21, corregir_campo(data.get('observaciones', '')))
 
     def fill_graficas(self, potenciales: list, info: dict):
         """Fill chart data for VDC, Interferencia, and VAC graphs"""
