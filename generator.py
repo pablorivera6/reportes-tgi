@@ -301,26 +301,45 @@ class ReportGenerator:
 
         ws_cips = self.wb['Potenciales CIPS']
 
-        # Capacidad: la hoja tiene un bloque de resumen/firmas al final (fila
-        # con 'ELABORÓ' y una fila de fórmulas justo antes). No se puede
-        # escribir sobre sus celdas combinadas, así que la data va de la fila
-        # 12 hasta 2 filas antes del bloque. Si el survey trae más puntos que
-        # eso, se recorta y se avisa (self.cips_truncados).
-        fila_firmas = next((r for r in range(12, ws_cips.max_row + 1)
-                            if ws_cips.cell(row=r, column=3).value == 'ELABORÓ'), None)
-        if fila_firmas:
-            fila_resumen = min([m.min_row for m in ws_cips.merged_cells.ranges
-                                if m.min_row >= 12] + [fila_firmas])
-            capacidad = fila_resumen - 12   # filas 12 .. fila_resumen-1
-        else:
-            capacidad = len(cips_data)
+        # Capacidad: al final de la hoja hay un bloque de resumen/firmas con
+        # celdas combinadas (no se puede escribir sobre ellas). La data va de
+        # la fila 12 hasta justo antes de ese bloque. El bloque se detecta por
+        # el primer rango combinado en/bajo la fila 12 (rápido).
+        merges_datos = [m.min_row for m in ws_cips.merged_cells.ranges
+                        if m.min_row >= 12]
+        capacidad = (min(merges_datos) - 12) if merges_datos else len(cips_data)
         if len(cips_data) > capacidad:
             self.cips_truncados = len(cips_data) - capacidad
             cips_data = cips_data[:capacidad]
 
+        # Modelo de formato (fila 12) para extender las filas que la plantilla
+        # no trae pre-formateadas (surveys largos tipo OCENSA). El formato
+        # numérico "K 000+000" de la columna B marca las filas ya listas.
+        _kfmt = ws_cips.cell(row=12, column=2).number_format
+        _modelo = {c: ws_cips.cell(row=12, column=c) for c in range(1, 22)}
+
         # Start inserting at row 12
         for i, data in enumerate(cips_data):
             row_idx = i + 12
+
+            # Si la fila no está pre-formateada, copiar el estilo del modelo y
+            # las fórmulas por fila (V/W/X, empty-safe) para que la tabla se vea
+            # bien y las estadísticas la cuenten.
+            if ws_cips.cell(row=row_idx, column=2).number_format != _kfmt:
+                for c, src in _modelo.items():
+                    if src.has_style:
+                        tc = ws_cips.cell(row=row_idx, column=c)
+                        tc.font = copy(src.font)
+                        tc.border = copy(src.border)
+                        tc.fill = copy(src.fill)
+                        tc.number_format = src.number_format
+                        tc.alignment = copy(src.alignment)
+                ws_cips.cell(row=row_idx, column=22).value = \
+                    f'=IF(F{row_idx}="","",IF(F{row_idx}<=-850,1,0))'
+                ws_cips.cell(row=row_idx, column=23).value = \
+                    f'=IF(F{row_idx}="","",IF(F{row_idx}>-1200,1,0))'
+                ws_cips.cell(row=row_idx, column=24).value = \
+                    f'=CONCATENATE(T{row_idx},",",S{row_idx})'
             
             # Abscisa: escribir el VALOR NUMÉRICO en metros. La celda de la
             # columna B tiene formato personalizado \K\ 000\+000 que lo muestra

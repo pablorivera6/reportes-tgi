@@ -15,19 +15,30 @@ def _capacidad(ws):
     return resumen - 12, firmas
 
 
-def test_survey_gigante_no_truena_y_avisa():
+def test_capacidad_grande_para_ocensa():
+    # Tras extender la hoja, la capacidad debe superar con creces los ~29k
+    # puntos que antes hacían tronar el informe (caso OCENSA).
     gen = ReportGenerator(resource_path("CIPS EN BLANCO.xlsx"))
-    cap, fila_firmas = _capacidad(gen.wb['Potenciales CIPS'])
-    n = cap + 5
+    cap, _ = _capacidad(gen.wb['Potenciales CIPS'])
+    assert cap >= 60000, f"capacidad insuficiente: {cap}"
+
+
+def test_survey_largo_extiende_formato(tmp_path):
+    # 35 000 puntos (más que las filas pre-formateadas ~29 336): no debe tronar,
+    # no debe recortar, y las filas nuevas quedan formateadas + contadas.
+    import os
+    gen = ReportGenerator(resource_path("CIPS EN BLANCO.xlsx"))
+    n = 35000
     datos = [{'abscisa_val': i, 'on_mv': -1100.0, 'off_mv': -900.0,
               'on_limpio': -1100.0, 'off_limpio': -900.0} for i in range(n)]
-    gen.fill_cips(datos)   # no debe lanzar excepción
+    gen.fill_cips(datos)   # no debe lanzar
+    assert gen.cips_truncados == 0
     ws = gen.wb['Potenciales CIPS']
-    assert gen.cips_truncados == 5
-    # el bloque de firmas sigue intacto
-    assert ws.cell(row=fila_firmas, column=3).value == 'ELABORÓ'
-    # la última fila de datos permitida tiene el potencial escrito
-    assert ws.cell(row=12 + cap - 1, column=5).value == -1100.0
+    # una fila más allá de la zona pre-formateada tiene potencial y formato
+    r = 12 + 34000
+    assert ws.cell(row=r, column=5).value == -1100.0
+    assert 'K' in ws.cell(row=r, column=2).number_format
+    assert str(ws.cell(row=r, column=22).value).startswith('=IF(F')
 
 
 def test_survey_normal_no_recorta():
