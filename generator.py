@@ -1112,10 +1112,13 @@ class ReportGenerator:
                         f"=((P{ps}-P{pa})/(D{ps}-D{pa})*(D{row}-D{pa}))+P{pa}")
                 elif pa or ps:
                     self._safe_write(ws, row, 17, f"=P{pa or ps}")           # extremo
-                # %IR en la columna del carácter y clasificación (V)
+                # SEVERIDAD %IR: el OL/RE del FastField ya viene como % (0-100),
+                # así que la severidad = OL/RE directo (NO se multiplica por 100).
+                # Va en la columna del carácter (AA/CA/CC) y de ahí sale la
+                # clasificación por umbrales.
                 col_sev = _COLSEV.get(car)
                 if col_sev and r.get('ol_re') is not None:
-                    self._safe_write(ws, row, col_sev, f"=(M{row}/Q{row})*100")
+                    self._safe_write(ws, row, col_sev, f"=M{row}")
                     letra = _gcl(col_sev)
                     self._safe_write(ws, row, 22,
                         f'=IF({letra}{row}="","",IF({letra}{row}<=15,"Muy Pequeño",'

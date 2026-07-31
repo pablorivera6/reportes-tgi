@@ -58,8 +58,9 @@ def test_fill_dcvg_ordena_y_mapea(tmp_path):
     assert ws.cell(row=9, column=11).value == 52.9   # K (O)
     assert ws.cell(row=9, column=12).value == "CC"   # L caracter
     assert ws.cell(row=9, column=13).value == 95.7   # M OL/RE
-    # %IR en U (porque CC) como fórmula, y P/RE (Q) interpolada
-    assert str(ws.cell(row=9, column=21).value).startswith("=(M9/Q9)")   # U
+    # %IR en U (porque CC) = OL/RE directo (NO ×100), y P/RE (Q) interpolada
+    assert str(ws.cell(row=9, column=21).value) == "=M9"                  # U
+    assert "*100" not in str(ws.cell(row=9, column=21).value)
     assert str(ws.cell(row=9, column=17).value).startswith("=((P")        # Q interpolación
     # clasificación V como fórmula sobre U
     assert "Muy Pequeño" in str(ws.cell(row=9, column=22).value)
