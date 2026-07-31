@@ -1203,6 +1203,74 @@ class ReportGenerator:
                     if ref.numRef.numCache:
                         ref.numRef.numCache = None
 
+    def fill_rangos_dcvg(self, postes, defectos, seg_m=5000, max_hojas=60):
+        """Crea las hojas por rango (~5 km) del informe DCVG: cada una es una
+        copia de 'GRAFICA DCVG' (mismo chart de %IR vs abscisa, leyendo
+        'Inspección DCVG') con el eje X limitado a su segmento. Los segmentos
+        cubren la extensión de abscisas del survey. Devuelve el nº de hojas."""
+        import copy as _copy
+        if 'GRAFICA DCVG' not in self.wb.sheetnames:
+            return 0
+        absc = [x['pk_m'] for x in (list(postes or []) + list(defectos or []))
+                if x.get('pk_m') is not None]
+        if not absc:
+            return 0
+        lo, hi = min(absc), max(absc)
+        b0 = ((lo // seg_m) + 1) * seg_m if lo % seg_m else lo + seg_m
+        # límites de cada segmento: primer parcial + bloques de seg_m
+        limites = []
+        if lo < b0:
+            limites.append((lo, min(b0 - 1, hi)))
+        b = b0
+        while b <= hi and len(limites) < max_hojas:
+            limites.append((b, min(b + seg_m, hi)))
+            b += seg_m
+        if not limites:
+            limites = [(lo, hi)]
+
+        src = self.wb['GRAFICA DCVG']
+        src_merges = [str(m) for m in src.merged_cells.ranges]
+
+        def _k(m):
+            return f"K {int(m) // 1000:03d}+{int(m) % 1000:03d}"
+
+        creadas = 0
+        for ini, fin in limites:
+            nombre = f"{_k(ini)} - {_k(fin)}"[:31]
+            if nombre in self.wb.sheetnames:
+                continue
+            ws = self.wb.create_sheet(nombre)
+            # copiar celdas/estilos (encabezado, tabla de criterios) del modelo
+            for col, dim in src.column_dimensions.items():
+                ws.column_dimensions[col].width = dim.width
+            for row in src.iter_rows():
+                for c in row:
+                    if c.value is None and not c.has_style:
+                        continue
+                    tc = ws.cell(row=c.row, column=c.column, value=c.value)
+                    if c.has_style:
+                        tc.font = copy(c.font)
+                        tc.border = copy(c.border)
+                        tc.fill = copy(c.fill)
+                        tc.number_format = c.number_format
+                        tc.alignment = copy(c.alignment)
+            for m in src_merges:
+                try:
+                    ws.merge_cells(m)
+                except Exception:
+                    pass
+            # chart: copia con el eje X del segmento
+            if getattr(src, '_charts', None):
+                ch = _copy.deepcopy(src._charts[0])
+                try:
+                    ch.x_axis.scaling.min = ini
+                    ch.x_axis.scaling.max = fin
+                except Exception:
+                    pass
+                ws.add_chart(ch, "A9")
+            creadas += 1
+        return creadas
+
     def save(self, output_path: str):
         """Save the completed report"""
         self.wb.save(output_path)

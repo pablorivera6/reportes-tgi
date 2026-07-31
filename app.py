@@ -219,6 +219,7 @@ class WorkerThread(QThread):
                 gen.fill_resistividad(resist)
                 n_insp = sum(1 for x in (postes + defectos) if x.get('pk_m') is not None)
                 gen.fill_graficas_dcvg(n_insp, len(resist))
+                gen.fill_rangos_dcvg(postes, defectos)
                 hall = [{'abscisa_val': d['pk_m'], 'lat': d.get('lat'),
                          'lon': d.get('lon'), 'tipo': 'Defecto de recubrimiento',
                          'descripcion': d.get('comentarios') or 'Defecto DCVG'}

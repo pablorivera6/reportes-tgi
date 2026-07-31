@@ -853,6 +853,7 @@ with tabs[11]:
                 n_insp = sum(1 for x in (data['dcvg_postes'] + data['dcvg_defectos'])
                              if x.get('pk_m') is not None)
                 gen.fill_graficas_dcvg(n_insp, len(data['dcvg_resist']))
+                gen.fill_rangos_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
                 hall = [{'abscisa_val': df['pk_m'], 'lat': df.get('lat'),
                          'lon': df.get('lon'), 'tipo': 'Defecto de recubrimiento',
                          'descripcion': df.get('comentarios') or 'Defecto DCVG'}
