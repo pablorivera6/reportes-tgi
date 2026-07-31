@@ -220,10 +220,8 @@ class WorkerThread(QThread):
                 n_insp = sum(1 for x in (postes + defectos) if x.get('pk_m') is not None)
                 gen.fill_graficas_dcvg(n_insp, len(resist))
                 gen.fill_rangos_dcvg(postes, defectos)
-                hall = [{'abscisa_val': d['pk_m'], 'lat': d.get('lat'),
-                         'lon': d.get('lon'), 'tipo': 'Defecto de recubrimiento',
-                         'descripcion': d.get('comentarios') or 'Defecto DCVG'}
-                        for d in defectos if d.get('pk_m') is not None]
+                from cips_adapter import cips_a_hallazgos
+                hall = cips_a_hallazgos(self.app_data.get('dcvg_hallazgos', []))
                 gen.fill_hallazgos(hall, self.app_data['info'])
                 self.progress.emit(90)
                 self.status.emit("Guardando informe DCVG...")
@@ -435,6 +433,7 @@ class AppWindow(QMainWindow):
             'dcvg_postes': [],
             'dcvg_defectos': [],
             'dcvg_resist': [],
+            'dcvg_hallazgos': [],
         }
         
         self.kmz_loader = None
@@ -1532,13 +1531,19 @@ class AppWindow(QMainWindow):
             resist_f, _ = QFileDialog.getOpenFileName(
                 self, "Seleccionar FastField Resistividades (opcional)", "",
                 "Excel (*.xlsx)")
+            campo_f, _ = QFileDialog.getOpenFileName(
+                self, "Seleccionar data cruda de campo / logger (para hallazgos)",
+                "", "Excel (*.xlsx)")
             from dcvg_reader import (leer_dcvg_fastfield,
-                                     leer_resistividades_fastfield)
+                                     leer_resistividades_fastfield,
+                                     leer_hallazgos_logger)
             d = leer_dcvg_fastfield(dcvg_f)
             self.data['dcvg_postes'] = d['postes']
             self.data['dcvg_defectos'] = d['defectos']
             self.data['dcvg_resist'] = (
                 leer_resistividades_fastfield(resist_f) if resist_f else [])
+            self.data['dcvg_hallazgos'] = (
+                leer_hallazgos_logger(campo_f) if campo_f else [])
             tecnico = d['meta'].get('tecnico', '')
             msg_tec = ""
             if tecnico:
@@ -1553,7 +1558,8 @@ class AppWindow(QMainWindow):
             QMessageBox.information(self, "DCVG",
                 f"DCVG cargado: {len(d['postes'])} postes, "
                 f"{len(d['defectos'])} defectos, "
-                f"{len(self.data['dcvg_resist'])} resistividades.{msg_tec}")
+                f"{len(self.data['dcvg_resist'])} resistividades, "
+                f"{len(self.data['dcvg_hallazgos'])} hallazgos (logger).{msg_tec}")
         except Exception as e:
             import traceback; traceback.print_exc()
             QMessageBox.critical(self, "Error DCVG",

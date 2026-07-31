@@ -149,8 +149,9 @@ def init_state():
             'dcvg_postes': [],
             'dcvg_defectos': [],
             'dcvg_resist': [],
+            'dcvg_hallazgos': [],
         }
-    for k in ('dcvg_postes', 'dcvg_defectos', 'dcvg_resist'):
+    for k in ('dcvg_postes', 'dcvg_defectos', 'dcvg_resist', 'dcvg_hallazgos'):
         st.session_state.data.setdefault(k, [])
     st.session_state.setdefault("active_inspections", {
         'marco_h': False, 'ce': False, 'anodos': False,
@@ -634,19 +635,25 @@ with tabs[1]:
         dcvg_ff = st.file_uploader("FastField DCVG", type=["xlsx"], key="up_dcvg")
         resist_ff = st.file_uploader("FastField Resistividades", type=["xlsx"],
                                      key="up_resist")
+        campo_ff = st.file_uploader("Data cruda de campo (logger, para hallazgos)",
+                                    type=["xlsx"], key="up_dcvg_campo")
         if st.button("Procesar DCVG"):
             if not dcvg_ff:
                 st.warning("Sube al menos el FastField de DCVG.")
             else:
                 try:
                     from dcvg_reader import (leer_dcvg_fastfield,
-                                             leer_resistividades_fastfield)
+                                             leer_resistividades_fastfield,
+                                             leer_hallazgos_logger)
                     d = leer_dcvg_fastfield(_tmp_files([dcvg_ff])[0])
                     data['dcvg_postes'] = d['postes']
                     data['dcvg_defectos'] = d['defectos']
                     if resist_ff:
                         data['dcvg_resist'] = leer_resistividades_fastfield(
                             _tmp_files([resist_ff])[0])
+                    if campo_ff:
+                        data['dcvg_hallazgos'] = leer_hallazgos_logger(
+                            _tmp_files([campo_ff])[0])
                     tecnico = d['meta'].get('tecnico', '')
                     if tecnico:
                         data['info']['inspector'] = tecnico
@@ -663,7 +670,8 @@ with tabs[1]:
                         st.session_state.pending_autofill = auto
                     st.session_state.flash_dcvg = (
                         f"DCVG: {len(d['postes'])} postes, {len(d['defectos'])} "
-                        f"defectos, {len(data['dcvg_resist'])} resistividades."
+                        f"defectos, {len(data['dcvg_resist'])} resistividades, "
+                        f"{len(data['dcvg_hallazgos'])} hallazgos (logger)."
                         + (f" · Técnico: {tecnico}" if tecnico else ""))
                     st.rerun()
                 except Exception as e:
@@ -854,10 +862,10 @@ with tabs[11]:
                              if x.get('pk_m') is not None)
                 gen.fill_graficas_dcvg(n_insp, len(data['dcvg_resist']))
                 gen.fill_rangos_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
-                hall = [{'abscisa_val': df['pk_m'], 'lat': df.get('lat'),
-                         'lon': df.get('lon'), 'tipo': 'Defecto de recubrimiento',
-                         'descripcion': df.get('comentarios') or 'Defecto DCVG'}
-                        for df in data['dcvg_defectos'] if df.get('pk_m') is not None]
+                # Hallazgos: de la data cruda del logger (cruces, enmontados,
+                # mallas, válvulas…), clasificados como en CIPS.
+                from cips_adapter import cips_a_hallazgos
+                hall = cips_a_hallazgos(data['dcvg_hallazgos'])
                 prog.progress(75, text="Hallazgos...")
                 gen.fill_hallazgos(hall, info)
                 tmpd = tempfile.mkdtemp(prefix="tgi_out_")

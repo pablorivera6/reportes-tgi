@@ -170,6 +170,74 @@ def leer_dcvg_fastfield(ruta):
     return {"meta": meta, "postes": postes, "defectos": defectos}
 
 
+_RE_SOLO_RESIST = re.compile(
+    r'^\s*(pk\s*\d+\s*\+?\s*\d*\s*)?toma\s+resistivida[d]?\s*$', re.IGNORECASE)
+
+
+def leer_hallazgos_logger(ruta):
+    """Hallazgos del informe DCVG desde la data cruda del logger (hoja DCP
+    Data): filas con comentario de campo (cruces, tramos enmontados, saltos,
+    mallas, válvulas…). abscisa = Station No; GPS tomado de la hoja Survey Data
+    por Station. Excluye los comentarios de carácter (Cathodic/Anodic) y los de
+    solo 'toma resistividad'. Devuelve dicts listos para cips_a_hallazgos."""
+    wb = openpyxl.load_workbook(ruta, read_only=True, data_only=True)
+    gps = {}
+    if "Survey Data" in wb.sheetnames:
+        sf = _filas(wb["Survey Data"])
+        if sf:
+            im = _indice_columnas(sf[0])
+            si = _col(im, "Station No"); la = _col(im, "Latitude"); lo = _col(im, "Longitude")
+            for r in sf[1:]:
+                if si is not None and si < len(r) and r[si] is not None:
+                    try:
+                        st = int(float(r[si]))
+                    except (ValueError, TypeError):
+                        continue
+                    lat = r[la] if la is not None and la < len(r) else None
+                    lon = r[lo] if lo is not None and lo < len(r) else None
+                    if st not in gps and lat is not None:
+                        gps[st] = (_num(lat), _num(lon))
+    salida = []
+    if "DCP Data" in wb.sheetnames:
+        df = _filas(wb["DCP Data"])
+        if df:
+            im = _indice_columnas(df[0])
+            si = _col(im, "Station No"); ci = _col(im, "Comments")
+            for r in df[1:]:
+                com = r[ci] if ci is not None and ci < len(r) else None
+                com = str(com or "").strip()
+                if not com:
+                    continue
+                low = com.lower()
+                if low in ("cathodic/cathodic", "cathodic/anodic", "anodic/anodic",
+                           "anodic/cathodic"):
+                    continue
+                if _RE_SOLO_RESIST.match(com):
+                    continue
+                com = _corregir_hallazgo(com)
+                if not com:
+                    continue
+                try:
+                    st = int(float(r[si])) if (si is not None and r[si] is not None) else None
+                except (ValueError, TypeError):
+                    st = None
+                lat, lon = gps.get(st, (None, None))
+                salida.append({"abscisa_val": st, "observaciones": com,
+                               "referencia": com, "lat": lat, "lon": lon})
+    wb.close()
+    return salida
+
+
+def _corregir_hallazgo(texto):
+    """Repara mojibake, quita el ruido de 'toma resistividad' de comentarios
+    combinados y normaliza. Devuelve '' si no queda contenido útil."""
+    from ortografia import reparar_texto
+    t = reparar_texto(texto)
+    t = re.sub(r'\btoma\s+resistivida[d]?\b', '', t, flags=re.IGNORECASE)
+    t = re.sub(r'\s{2,}', ' ', t).strip(' ,;-')
+    return t
+
+
 def leer_resistividades_fastfield(ruta):
     wb = openpyxl.load_workbook(ruta, read_only=True, data_only=True)
     out = []
