@@ -30,9 +30,12 @@ class ReportGenerator:
             # Revert to standard EN BLANCO.xlsx which now contains the Potenciales CIPS sheet manually
             template_path = resource_path("EN BLANCO.xlsx")
         self.wb = openpyxl.load_workbook(template_path)
-        self.ws_informe = self.wb['Informe']
-        self.ws_potenciales = self.wb['Potenciales PAP']
-        self.ws_hallazgos = self.wb['Hallazgos']
+        # Algunas plantillas (p.ej. DCVG) no traen todas las hojas; tolerar.
+        def _hoja(nombre):
+            return self.wb[nombre] if nombre in self.wb.sheetnames else None
+        self.ws_informe = _hoja('Informe')
+        self.ws_potenciales = _hoja('Potenciales PAP')
+        self.ws_hallazgos = _hoja('Hallazgos')
         # Gráficas - handle encoding variations
         self._init_sheet_refs()
 
@@ -1030,6 +1033,175 @@ class ReportGenerator:
                     s.yVal.numRef.numCache = None
             chart.x_axis.scaling.min = 0
             chart.x_axis.scaling.max = x_max
+
+    # ── DCVG ──────────────────────────────────────────────────────────────────
+
+    def fill_dcvg(self, postes: list, defectos: list, resistividades: list = None):
+        """Llena la hoja 'Inspección DCVG' con postes + defectos ordenados por
+        abscisa. Postes traen ON/OFF (potencial estructura) y su pulso
+        P=ABS(N-O). Los defectos traen forma (N→12/E→3/S→6/O→9), carácter,
+        OL/RE, profundidad; el %IR = (OL/RE ÷ P/RE)*100 se pone en S/T/U según
+        el carácter (AA/CA/CC), con P/RE interpolado del pulso entre los postes
+        que rodean el defecto; la clasificación (V) sale de los umbrales de %IR.
+        Los registros sin abscisa se omiten (self.dcvg_omitidos)."""
+        self.dcvg_omitidos = 0
+        if 'Inspección DCVG' not in self.wb.sheetnames:
+            return
+        ws = self.wb['Inspección DCVG']
+        start = 8
+        tope = next((r for r in range(start, ws.max_row + 1)
+                     if ws.cell(row=r, column=3).value
+                     and 'ELABOR' in str(ws.cell(row=r, column=3).value).upper()),
+                    ws.max_row)
+        capacidad = tope - start
+
+        filas = []
+        for p in (postes or []):
+            if p.get('pk_m') is None:
+                self.dcvg_omitidos += 1
+                continue
+            filas.append(('poste', p))
+        for d in (defectos or []):
+            if d.get('pk_m') is None:
+                self.dcvg_omitidos += 1
+                continue
+            filas.append(('defecto', d))
+        filas.sort(key=lambda t: t[1]['pk_m'])
+        if len(filas) > capacidad:
+            self.dcvg_omitidos += len(filas) - capacidad
+            filas = filas[:capacidad]
+        if not filas:
+            return
+
+        # filas (1-based en Excel) de cada poste, para interpolar el pulso
+        fila_poste = [start + i for i, (t, _) in enumerate(filas) if t == 'poste']
+
+        _COLSEV = {'AA': 19, 'CA': 20, 'CC': 21}   # S/T/U
+        from openpyxl.utils import get_column_letter as _gcl
+
+        for i, (tipo, r) in enumerate(filas):
+            row = start + i
+            self._safe_write(ws, row, 1, i + 1)                              # A item
+            self._safe_write(ws, row, 4, r['pk_m'])                          # D abscisa
+            if row > start:
+                self._safe_write(ws, row, 3, f"=D{row}-$D${start}")          # C distancia
+            self._safe_write(ws, row, 5, r.get('lat'))                       # E
+            self._safe_write(ws, row, 6, r.get('lon'))                       # F
+            if tipo == 'poste':
+                self._safe_write(ws, row, 2, corregir_campo(r.get('tipo', 'Poste')))  # B
+                self._safe_write(ws, row, 14, r.get('on'))                   # N ON
+                self._safe_write(ws, row, 15, r.get('off'))                  # O OFF
+                if r.get('on') is not None and r.get('off') is not None:
+                    self._safe_write(ws, row, 16, f"=ABS(N{row}-O{row})")    # P pulso
+                self._safe_write(ws, row, 24, corregir_campo(r.get('tipo', '')))  # X
+            else:
+                self._safe_write(ws, row, 2, "Defecto")                      # B
+                self._safe_write(ws, row, 8, r.get('forma_n'))               # H 12
+                self._safe_write(ws, row, 9, r.get('forma_e'))               # I 3
+                self._safe_write(ws, row, 10, r.get('forma_s'))              # J 6
+                self._safe_write(ws, row, 11, r.get('forma_o'))              # K 9
+                car = r.get('caracter', '')
+                self._safe_write(ws, row, 12, car)                           # L carácter
+                self._safe_write(ws, row, 13, r.get('ol_re'))                # M OL/RE
+                self._safe_write(ws, row, 18, r.get('profundidad'))          # R profundidad
+                # P/RE (Q): pulso interpolado entre los postes que rodean
+                pa = max([fp for fp in fila_poste if fp < row], default=None)
+                ps = min([fp for fp in fila_poste if fp > row], default=None)
+                if pa and ps:
+                    self._safe_write(ws, row, 17,
+                        f"=((P{ps}-P{pa})/(D{ps}-D{pa})*(D{row}-D{pa}))+P{pa}")
+                elif pa or ps:
+                    self._safe_write(ws, row, 17, f"=P{pa or ps}")           # extremo
+                # %IR en la columna del carácter y clasificación (V)
+                col_sev = _COLSEV.get(car)
+                if col_sev and r.get('ol_re') is not None:
+                    self._safe_write(ws, row, col_sev, f"=(M{row}/Q{row})*100")
+                    letra = _gcl(col_sev)
+                    self._safe_write(ws, row, 22,
+                        f'=IF({letra}{row}="","",IF({letra}{row}<=15,"Muy Pequeño",'
+                        f'IF({letra}{row}<=35,"Pequeño",IF({letra}{row}<=60,'
+                        f'"Mediano","Grande"))))')
+                # W resistividad más cercana por abscisa
+                if resistividades:
+                    cerc = min(resistividades,
+                               key=lambda x: abs((x.get('pk_m') or 1e12) - r['pk_m']))
+                    partes = [f"{n}m {int(cerc[k])}" for n, k in
+                              (("1", "r1"), ("2", "r2"), ("3", "r3"))
+                              if cerc.get(k) is not None]
+                    if partes:
+                        self._safe_write(ws, row, 23, "\n".join(partes))     # W
+                obs = r.get('comentarios') or "Defecto"
+                self._safe_write(ws, row, 24, corregir_campo(obs))           # X
+
+        # limpiar filas de datos sobrantes hasta el bloque de firmas
+        for row in range(start + len(filas), tope):
+            for c in range(1, 25):
+                self._safe_write(ws, row, c, '')
+
+    def fill_resistividad(self, resistividades: list):
+        """Llena la hoja 'Resistividad' desde la fila 9 (fila 8 = encabezados).
+        Las columnas ρ y la clasificación de corrosividad ya son fórmulas del
+        template; aquí se escriben A=abscisa, B=sector, C/D=lat/lon,
+        E=profundidad, F/H/J = Resistencia 1/2/3 m."""
+        if not resistividades or 'Resistividad' not in self.wb.sheetnames:
+            return
+        import re
+        ws = self.wb['Resistividad']
+        start = 9
+        # última fila con fórmula ρ (modelo a replicar si hay más puntos)
+        modelo = start
+        for r in range(start, ws.max_row + 1):
+            v = ws.cell(row=r, column=12).value
+            if isinstance(v, str) and v.startswith('='):
+                modelo = r
+            else:
+                break
+        for i, d in enumerate(resistividades):
+            row = start + i
+            # si la fila no trae las fórmulas ρ (más puntos que el template),
+            # copiarlas del modelo con la fila ajustada
+            if not (isinstance(ws.cell(row=row, column=12).value, str)
+                    and str(ws.cell(row=row, column=12).value).startswith('=')):
+                self._copy_row_style(ws, modelo, row, 1, 24)
+                for c in range(12, 25):
+                    fv = ws.cell(row=modelo, column=c).value
+                    if isinstance(fv, str) and fv.startswith('='):
+                        ws.cell(row=row, column=c).value = re.sub(
+                            r'(\$?[A-Z]+\$?)' + str(modelo) + r'\b',
+                            lambda mm: mm.group(1) + str(row), fv)
+            self._safe_write(ws, row, 1, d.get('pk_m'))            # A abscisa
+            self._safe_write(ws, row, 2, corregir_campo(d.get('sector', '')))  # B
+            self._safe_write(ws, row, 3, d.get('lat'))             # C
+            self._safe_write(ws, row, 4, d.get('lon'))             # D
+            self._safe_write(ws, row, 5, d.get('profundidad'))     # E
+            self._safe_write(ws, row, 6, d.get('r1'))              # F R1
+            self._safe_write(ws, row, 8, d.get('r2'))              # H R2
+            self._safe_write(ws, row, 10, d.get('r3'))             # J R3
+
+    def fill_graficas_dcvg(self, n_inspeccion, n_resist):
+        """Ajusta el rango de las series de datos de las 2 gráficas DCVG a las
+        filas realmente escritas (Inspección DCVG y Resistividad)."""
+        import re
+        planes = [
+            ('GRAFICA DCVG', 'Inspección DCVG', 8, n_inspeccion),
+            ('Gráfica Resistividad', 'Resistividad', 9, n_resist),
+        ]
+        for hoja_g, hoja_dato, inicio, n in planes:
+            if n <= 0 or hoja_g not in self.wb.sheetnames:
+                continue
+            ws = self.wb[hoja_g]
+            if not getattr(ws, '_charts', None):
+                continue
+            last = inicio + n - 1
+            for s in self.wb[hoja_g]._charts[0].series:
+                for ref in (s.xVal, s.yVal):
+                    f = ref.numRef.f if (ref and ref.numRef) else None
+                    if not f or hoja_dato not in f:
+                        continue
+                    ref.numRef.f = re.sub(r'(\$?[A-Z]+\$?)\d+:(\$?[A-Z]+\$?)\d+',
+                                          lambda m: f"{m.group(1)}{inicio}:{m.group(2)}{last}", f)
+                    if ref.numRef.numCache:
+                        ref.numRef.numCache = None
 
     def save(self, output_path: str):
         """Save the completed report"""

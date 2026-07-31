@@ -146,7 +146,12 @@ def init_state():
             'conclusiones': [],
             'recomendaciones': [],
             'firmas': {'elaboro': {}, 'reviso': {}, 'aprobo': {}},
+            'dcvg_postes': [],
+            'dcvg_defectos': [],
+            'dcvg_resist': [],
         }
+    for k in ('dcvg_postes', 'dcvg_defectos', 'dcvg_resist'):
+        st.session_state.data.setdefault(k, [])
     st.session_state.setdefault("active_inspections", {
         'marco_h': False, 'ce': False, 'anodos': False,
         'cupones_ir': False, 'cupones_grav': False, 'pe': False})
@@ -620,6 +625,50 @@ with tabs[1]:
             except Exception as e:
                 st.error(f"Error cargando aislamientos: {e}")
 
+        st.subheader("Data DCVG_")
+        st.caption("Para informe DCVG: sube el FastField de DCVG y el de "
+                   "Resistividades. (Pon Tipo Inspección = DCVG en Datos Generales.)")
+        if st.session_state.get("flash_dcvg"):
+            st.success(st.session_state.flash_dcvg)
+            st.session_state.flash_dcvg = None
+        dcvg_ff = st.file_uploader("FastField DCVG", type=["xlsx"], key="up_dcvg")
+        resist_ff = st.file_uploader("FastField Resistividades", type=["xlsx"],
+                                     key="up_resist")
+        if st.button("Procesar DCVG"):
+            if not dcvg_ff:
+                st.warning("Sube al menos el FastField de DCVG.")
+            else:
+                try:
+                    from dcvg_reader import (leer_dcvg_fastfield,
+                                             leer_resistividades_fastfield)
+                    d = leer_dcvg_fastfield(_tmp_files([dcvg_ff])[0])
+                    data['dcvg_postes'] = d['postes']
+                    data['dcvg_defectos'] = d['defectos']
+                    if resist_ff:
+                        data['dcvg_resist'] = leer_resistividades_fastfield(
+                            _tmp_files([resist_ff])[0])
+                    tecnico = d['meta'].get('tecnico', '')
+                    if tecnico:
+                        data['info']['inspector'] = tecnico
+                        auto = {'inspector': tecnico}
+                        serial, fc, eqs = get_equipos_for_inspector(tecnico)
+                        if serial:
+                            data['info']['serial_equipo'] = serial
+                            auto['serial_equipo'] = serial
+                        if fc:
+                            data['info']['fecha_calibracion'] = fc
+                            auto['fecha_calibracion'] = fc
+                        if eqs:
+                            st.session_state.equipos_inspector = eqs
+                        st.session_state.pending_autofill = auto
+                    st.session_state.flash_dcvg = (
+                        f"DCVG: {len(d['postes'])} postes, {len(d['defectos'])} "
+                        f"defectos, {len(data['dcvg_resist'])} resistividades."
+                        + (f" · Técnico: {tecnico}" if tecnico else ""))
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error procesando DCVG: {e}")
+
 # ── Tabs 3-6, 8: tablas ───────────────────────────────────────────────────────
 with tabs[2]:
     if data['potenciales']:
@@ -769,10 +818,15 @@ with tabs[10]:
 
 # ── Tab 12: Generar ───────────────────────────────────────────────────────────
 with tabs[11]:
-    st.subheader("Generar Informe PAP + PPM_")
-    if not data['potenciales'] and not data['cips']:
-        st.info("Carga al menos FASTFIELD o CIPS antes de generar.")
-    if st.button("🚀 GENERAR INFORME", disabled=not (data['potenciales'] or data['cips'])):
+    st.subheader("Generar Informe_")
+    if st.session_state.get("flash_generar"):
+        st.success(st.session_state.flash_generar)
+        st.session_state.flash_generar = None
+    _hay_datos = bool(data['potenciales'] or data['cips'] or data['dcvg_defectos']
+                      or data['dcvg_postes'])
+    if not _hay_datos:
+        st.info("Carga FASTFIELD, CIPS o DCVG antes de generar.")
+    if st.button("🚀 GENERAR INFORME", disabled=not _hay_datos):
         try:
             prog = st.progress(5, text="Iniciando...")
             info = dict(data['info'])
@@ -784,6 +838,43 @@ with tabs[11]:
             nombres_rect = [r.get('nombre') for r in data['rectificadores'] if r.get('nombre')]
             info['rectificadores_tgi'] = ", ".join(nombres_rect) if nombres_rect \
                 else "[ESCRIBIR RECTIFICADORES TGI]"
+
+            # ── Rama DCVG ────────────────────────────────────────────────────
+            if info.get('tipo_inspeccion') == 'DCVG':
+                gen = ReportGenerator(resource_path("DCVG_REP.xlsx"))
+                prog.progress(30, text="Información general...")
+                gen.fill_general_info(info)
+                if st.session_state.equipos_inspector:
+                    gen.fill_equipos_utilizados(st.session_state.equipos_inspector)
+                prog.progress(55, text="Inspección DCVG y Resistividad...")
+                gen.fill_dcvg(data['dcvg_postes'], data['dcvg_defectos'],
+                              data['dcvg_resist'])
+                gen.fill_resistividad(data['dcvg_resist'])
+                n_insp = sum(1 for x in (data['dcvg_postes'] + data['dcvg_defectos'])
+                             if x.get('pk_m') is not None)
+                gen.fill_graficas_dcvg(n_insp, len(data['dcvg_resist']))
+                hall = [{'abscisa_val': df['pk_m'], 'lat': df.get('lat'),
+                         'lon': df.get('lon'), 'tipo': 'Defecto de recubrimiento',
+                         'descripcion': df.get('comentarios') or 'Defecto DCVG'}
+                        for df in data['dcvg_defectos'] if df.get('pk_m') is not None]
+                prog.progress(75, text="Hallazgos...")
+                gen.fill_hallazgos(hall, info)
+                tmpd = tempfile.mkdtemp(prefix="tgi_out_")
+                nombre = (f"DCVG_REP_{info.get('tramo','')}"
+                          f"_{info.get('contrato','')}_PCC_RevA.xlsx")
+                out = os.path.join(tmpd, nombre)
+                gen.save(out)
+                with open(out, 'rb') as f:
+                    st.session_state.informe_bytes = f.read()
+                st.session_state.ppm_bytes = None
+                st.session_state.informe_nombre = nombre
+                msg = "Informe DCVG generado."
+                if getattr(gen, 'dcvg_omitidos', 0):
+                    msg += (f" ⚠️ {gen.dcvg_omitidos} registro(s) sin PK/abscisa "
+                            f"se omitieron.")
+                st.session_state.flash_generar = msg
+                prog.progress(100)
+                st.rerun()
 
             if info.get('tipo_inspeccion') == 'CIPS':
                 gen = ReportGenerator(resource_path("CIPS EN BLANCO.xlsx"))
@@ -870,13 +961,17 @@ with tabs[11]:
                 st.code(traceback.format_exc())
 
     if st.session_state.informe_bytes:
-        d1, d2 = st.columns(2)
-        d1.download_button("⬇️ Descargar PAP", data=st.session_state.informe_bytes,
-                           file_name=st.session_state.informe_nombre,
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        d2.download_button("⬇️ Descargar PPM", data=st.session_state.ppm_bytes,
-                           file_name=st.session_state.informe_nombre.replace("REP", "PPM"),
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        _mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if st.session_state.ppm_bytes:
+            d1, d2 = st.columns(2)
+            d1.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
+                               file_name=st.session_state.informe_nombre, mime=_mime)
+            d2.download_button("⬇️ Descargar PPM", data=st.session_state.ppm_bytes,
+                               file_name=st.session_state.informe_nombre.replace("REP", "PPM"),
+                               mime=_mime)
+        else:
+            st.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
+                               file_name=st.session_state.informe_nombre, mime=_mime)
 
 # ── Pie de página de marca ────────────────────────────────────────────────────
 st.markdown("""

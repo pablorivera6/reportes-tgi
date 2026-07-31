@@ -200,6 +200,41 @@ class WorkerThread(QThread):
             self.status.emit("Iniciando generador de informe...")
             self.progress.emit(10)
             tipo_inspeccion = self.app_data.get('info', {}).get('tipo_inspeccion', 'ESTANDAR')
+
+            # ── Rama DCVG ────────────────────────────────────────────────────
+            if tipo_inspeccion == 'DCVG':
+                import os as _os, sys as _sys
+                base = getattr(_sys, "_MEIPASS", _os.path.dirname(_os.path.abspath(__file__)))
+                gen = ReportGenerator(_os.path.join(base, "DCVG_REP.xlsx"))
+                self.status.emit("Llenando información general...")
+                gen.fill_general_info(self.app_data['info'])
+                if self.app_data.get('equipos_inspector'):
+                    gen.fill_equipos_utilizados(self.app_data['equipos_inspector'])
+                self.progress.emit(45)
+                self.status.emit("Llenando Inspección DCVG y Resistividad...")
+                postes = self.app_data.get('dcvg_postes', [])
+                defectos = self.app_data.get('dcvg_defectos', [])
+                resist = self.app_data.get('dcvg_resist', [])
+                gen.fill_dcvg(postes, defectos, resist)
+                gen.fill_resistividad(resist)
+                n_insp = sum(1 for x in (postes + defectos) if x.get('pk_m') is not None)
+                gen.fill_graficas_dcvg(n_insp, len(resist))
+                hall = [{'abscisa_val': d['pk_m'], 'lat': d.get('lat'),
+                         'lon': d.get('lon'), 'tipo': 'Defecto de recubrimiento',
+                         'descripcion': d.get('comentarios') or 'Defecto DCVG'}
+                        for d in defectos if d.get('pk_m') is not None]
+                gen.fill_hallazgos(hall, self.app_data['info'])
+                self.progress.emit(90)
+                self.status.emit("Guardando informe DCVG...")
+                gen.save(self.output_path)
+                self.progress.emit(100)
+                aviso = ""
+                if getattr(gen, "dcvg_omitidos", 0):
+                    aviso = (f"\n\n⚠ {gen.dcvg_omitidos} registro(s) DCVG sin "
+                             f"PK/abscisa se omitieron.")
+                self.finished.emit(f"DCVG: {self.output_path}{aviso}")
+                return
+
             if tipo_inspeccion == 'CIPS':
                 import os, sys
                 if hasattr(sys, '_MEIPASS'):
@@ -395,7 +430,10 @@ class AppWindow(QMainWindow):
             'inspecciones': {},
             'conclusiones': [],
             'recomendaciones': [],
-            'firmas': {'elaboro': {}, 'reviso': {}, 'aprobo': {}}
+            'firmas': {'elaboro': {}, 'reviso': {}, 'aprobo': {}},
+            'dcvg_postes': [],
+            'dcvg_defectos': [],
+            'dcvg_resist': [],
         }
         
         self.kmz_loader = None
@@ -644,6 +682,8 @@ class AppWindow(QMainWindow):
         self.btn_load_rectificador.clicked.connect(self.load_rectificador)
         self.btn_load_fotos = QPushButton("🖼️ Cargar Carpeta Fotos (IA)")
         self.btn_load_fotos.clicked.connect(self.load_fotos)
+        self.btn_load_dcvg = QPushButton("🩺 Cargar DCVG (FastField + Resistividades)")
+        self.btn_load_dcvg.clicked.connect(self.load_dcvg)
         
         local_layout.addWidget(QLabel("Método Cálculo CIPS:"), 0, 0)
         local_layout.addWidget(self.cmb_metodo_abscisa, 0, 1)
@@ -676,6 +716,7 @@ class AppWindow(QMainWindow):
         local_layout.addWidget(self.btn_load_cips, 2, 0, 1, 2)
         local_layout.addWidget(self.btn_load_rectificador, 3, 0)
         local_layout.addWidget(self.btn_load_fotos, 3, 1)
+        local_layout.addWidget(self.btn_load_dcvg, 7, 0, 1, 2)
         
         group_local.setLayout(local_layout)
         actions_layout.addWidget(group_local, stretch=1)
@@ -1478,6 +1519,44 @@ class AppWindow(QMainWindow):
         self.cmb_cips_tramo.clear()
         self.cmb_cips_tramo.addItems(
             self.infra_tramos.tramos(empresa="TGI", distrito=distrito))
+
+    def load_dcvg(self):
+        """Carga el FastField DCVG (postes+defectos) y, opcionalmente, el de
+        Resistividades. Autollena el técnico/equipos igual que CIPS."""
+        try:
+            dcvg_f, _ = QFileDialog.getOpenFileName(
+                self, "Seleccionar FastField DCVG", "", "Excel (*.xlsx)")
+            if not dcvg_f:
+                return
+            resist_f, _ = QFileDialog.getOpenFileName(
+                self, "Seleccionar FastField Resistividades (opcional)", "",
+                "Excel (*.xlsx)")
+            from dcvg_reader import (leer_dcvg_fastfield,
+                                     leer_resistividades_fastfield)
+            d = leer_dcvg_fastfield(dcvg_f)
+            self.data['dcvg_postes'] = d['postes']
+            self.data['dcvg_defectos'] = d['defectos']
+            self.data['dcvg_resist'] = (
+                leer_resistividades_fastfield(resist_f) if resist_f else [])
+            tecnico = d['meta'].get('tecnico', '')
+            msg_tec = ""
+            if tecnico:
+                self.fields['inspector'].setText(tecnico)
+                self.autofill_equipos(tecnico)
+                msg_tec = f"\nTécnico: {tecnico}"
+            # sugerir Tipo Inspección = DCVG
+            try:
+                self.cmb_tipo_inspeccion.setCurrentText("DCVG")
+            except Exception:
+                pass
+            QMessageBox.information(self, "DCVG",
+                f"DCVG cargado: {len(d['postes'])} postes, "
+                f"{len(d['defectos'])} defectos, "
+                f"{len(self.data['dcvg_resist'])} resistividades.{msg_tec}")
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            QMessageBox.critical(self, "Error DCVG",
+                f"Ocurrió un error cargando DCVG:\n{str(e)}")
 
     def load_cips(self):
         try:
