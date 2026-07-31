@@ -36,17 +36,22 @@ def _gen():
 
 def test_fill_dcvg_ordena_y_mapea(tmp_path):
     gen = _gen()
-    gen.fill_dcvg(_postes(), _defectos())
+    # un hallazgo entre el defecto (3000) y el poste (6000)
+    hall = [{'abscisa_val': 4500, 'descripcion': 'Cruce vía', 'lat': 4.5,
+             'lon': -75.7, 'tipo': 'Cruce'}]
+    gen.fill_dcvg(_postes(), _defectos(), hallazgos=hall)
     out = os.path.join(tmp_path, "dcvg.xlsx")
     gen.save(out)
     ws = openpyxl.load_workbook(out)["Inspección DCVG"]
 
     # 3 filas escritas (2 postes + 1 defecto con PK); el defecto sin PK se omite
     assert gen.dcvg_omitidos == 1
-    # orden por abscisa: poste0 (0), defecto (3000), poste6000 (6000)
+    # orden por abscisa intercalando el hallazgo: 0, 3000(defecto), 4500(hallazgo), 6000
     assert ws.cell(row=8, column=4).value == 0        # D abscisa poste0
     assert ws.cell(row=9, column=4).value == 3000     # defecto
-    assert ws.cell(row=10, column=4).value == 6000    # poste
+    assert ws.cell(row=10, column=4).value == 4500    # hallazgo intercalado
+    assert ws.cell(row=10, column=2).value == 'Cruce vía'   # B referencia
+    assert ws.cell(row=11, column=4).value == 6000    # poste
     # poste: ON/OFF en N/O y pulso P=ABS(N-O)
     assert ws.cell(row=8, column=14).value == -1682.0   # N
     assert ws.cell(row=8, column=15).value == -1169.0   # O
@@ -73,16 +78,18 @@ def test_fill_dcvg_ordena_y_mapea(tmp_path):
 
 def test_fill_resistividad(tmp_path):
     gen = _gen()
-    resist = [{"pk_m": 136500, "sector": "Potrero", "profundidad": 198,
-               "lat": 4.97, "lon": -75.77, "r1": 6.1, "r2": 3.2, "r3": 2.8},
-              {"pk_m": 136750, "sector": "Potrero", "profundidad": 192,
-               "lat": 4.96, "lon": -75.78, "r1": 3.8, "r2": 2.3, "r3": 2.0}]
+    # a propósito desordenadas -> deben quedar ascendentes por abscisa
+    resist = [{"pk_m": 136750, "sector": "Potrero", "profundidad": 192,
+               "lat": 4.96, "lon": -75.78, "r1": 3.8, "r2": 2.3, "r3": 2.0},
+              {"pk_m": 136500, "sector": "Potrero", "profundidad": 198,
+               "lat": 4.97, "lon": -75.77, "r1": 6.1, "r2": 3.2, "r3": 2.8}]
     gen.fill_resistividad(resist)
     out = os.path.join(tmp_path, "r.xlsx")
     gen.save(out)
     ws = openpyxl.load_workbook(out)["Resistividad"]
-    # datos desde fila 9
-    assert ws.cell(row=9, column=1).value == 136500    # A abscisa
+    # ordenadas ascendente: 136500 antes que 136750
+    assert ws.cell(row=9, column=1).value == 136500    # A abscisa (menor primero)
+    assert ws.cell(row=10, column=1).value == 136750
     assert ws.cell(row=9, column=6).value == 6.1       # F R1
     assert ws.cell(row=9, column=8).value == 3.2       # H R2
     assert ws.cell(row=9, column=10).value == 2.8      # J R3

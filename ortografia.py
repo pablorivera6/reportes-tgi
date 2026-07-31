@@ -10,6 +10,8 @@ import re
 # Errores de digitación frecuentes en los comentarios de campo.
 ORTOGRAFIA = {
     'cruse': 'cruce',
+    'crus': 'cruce',
+    'limea': 'línea',
     'aerio': 'aéreo',
     'aereo': 'aéreo',
     'aerios': 'aéreos',

@@ -51,5 +51,8 @@ def test_hallazgos_cips_en_hoja_del_formato(tmp_path):
     assert ws.cell(row=fila, column=6).value == 'Salento'         # tramo
     assert ws.cell(row=fila, column=7).value == 4.627             # lat
     assert ws.cell(row=fila, column=11).value == '27/06/2026'     # fecha
+    # ordenados de menor a mayor abscisa: el primero es el de abscisa 19
     assert ws.cell(row=fila, column=13).value == 'Salida válvula PK 0+000'
-    assert ws.cell(row=fila + 2, column=13).value == 'Partidura de cable'
+    # y las abscisas quedan ascendentes
+    absc = [ws.cell(row=fila + i, column=2).value for i in range(3)]
+    assert absc == sorted(absc)

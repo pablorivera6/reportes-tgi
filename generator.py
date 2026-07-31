@@ -539,6 +539,15 @@ class ReportGenerator:
         if not hallazgos:
             return
 
+        # Ordenar de menor a mayor abscisa (los sin abscisa quedan al final).
+        def _absc(h):
+            v = h.get('abscisa_val', h.get('abscisa_inicio', h.get('abscisa')))
+            try:
+                return (v is None, float(v))
+            except (TypeError, ValueError):
+                return (True, 0.0)
+        hallazgos = sorted(hallazgos, key=_absc)
+
         start_row = 18
 
         # La plantilla ya trae 500 filas de datos formateadas antes del bloque
@@ -1036,14 +1045,17 @@ class ReportGenerator:
 
     # ── DCVG ──────────────────────────────────────────────────────────────────
 
-    def fill_dcvg(self, postes: list, defectos: list, resistividades: list = None):
-        """Llena la hoja 'Inspección DCVG' con postes + defectos ordenados por
-        abscisa. Postes traen ON/OFF (potencial estructura) y su pulso
-        P=ABS(N-O). Los defectos traen forma (N→12/E→3/S→6/O→9), carácter,
-        OL/RE, profundidad; el %IR = (OL/RE ÷ P/RE)*100 se pone en S/T/U según
-        el carácter (AA/CA/CC), con P/RE interpolado del pulso entre los postes
-        que rodean el defecto; la clasificación (V) sale de los umbrales de %IR.
-        Los registros sin abscisa se omiten (self.dcvg_omitidos)."""
+    def fill_dcvg(self, postes: list, defectos: list, resistividades: list = None,
+                  hallazgos: list = None):
+        """Llena la hoja 'Inspección DCVG' con postes + defectos + hallazgos
+        intercalados por abscisa (en secuencia del recorrido). Postes traen
+        ON/OFF (potencial estructura) y su pulso P=ABS(N-O). Los defectos traen
+        forma (N→12/E→3/S→6/O→9), carácter, OL/RE, profundidad; la severidad
+        %IR = OL/RE (col S/T/U según carácter AA/CA/CC como fracción para el
+        formato '0%'), y la clasificación (V) por umbrales. Los hallazgos
+        (cruces, tramos enmontados…) van como filas de referencia con su
+        abscisa y descripción. Los registros sin abscisa se omiten
+        (self.dcvg_omitidos)."""
         self.dcvg_omitidos = 0
         if 'Inspección DCVG' not in self.wb.sheetnames:
             return
@@ -1066,7 +1078,14 @@ class ReportGenerator:
                 self.dcvg_omitidos += 1
                 continue
             filas.append(('defecto', d))
-        filas.sort(key=lambda t: t[1]['pk_m'])
+        for h in (hallazgos or []):
+            if h.get('abscisa_val') is None:
+                continue
+            filas.append(('hallazgo', h))
+        # orden por abscisa; a igual abscisa, postes/defectos antes que hallazgos
+        _orden = {'poste': 0, 'defecto': 1, 'hallazgo': 2}
+        filas.sort(key=lambda t: (t[1].get('pk_m') if t[0] != 'hallazgo'
+                                  else t[1].get('abscisa_val'), _orden[t[0]]))
         if len(filas) > capacidad:
             self.dcvg_omitidos += len(filas) - capacidad
             filas = filas[:capacidad]
@@ -1081,13 +1100,19 @@ class ReportGenerator:
 
         for i, (tipo, r) in enumerate(filas):
             row = start + i
+            absc = r.get('pk_m') if tipo != 'hallazgo' else r.get('abscisa_val')
             self._safe_write(ws, row, 1, i + 1)                              # A item
-            self._safe_write(ws, row, 4, r['pk_m'])                          # D abscisa
+            self._safe_write(ws, row, 4, absc)                              # D abscisa
             if row > start:
                 self._safe_write(ws, row, 3, f"=D{row}-$D${start}")          # C distancia
             self._safe_write(ws, row, 5, r.get('lat'))                       # E
             self._safe_write(ws, row, 6, r.get('lon'))                       # F
-            if tipo == 'poste':
+            if tipo == 'hallazgo':
+                desc = corregir_campo(r.get('descripcion')
+                                      or r.get('observaciones') or 'Hallazgo')
+                self._safe_write(ws, row, 2, desc)                          # B referencia
+                self._safe_write(ws, row, 24, desc)                        # X observaciones
+            elif tipo == 'poste':
                 self._safe_write(ws, row, 2, corregir_campo(r.get('tipo', 'Poste')))  # B
                 self._safe_write(ws, row, 14, r.get('on'))                   # N ON
                 self._safe_write(ws, row, 15, r.get('off'))                  # O OFF
@@ -1128,7 +1153,7 @@ class ReportGenerator:
                 # W resistividad más cercana por abscisa
                 if resistividades:
                     cerc = min(resistividades,
-                               key=lambda x: abs((x.get('pk_m') or 1e12) - r['pk_m']))
+                               key=lambda x: abs((x.get('pk_m') or 1e12) - absc))
                     partes = [f"{n}m {int(cerc[k])}" for n, k in
                               (("1", "r1"), ("2", "r2"), ("3", "r3"))
                               if cerc.get(k) is not None]
@@ -1150,6 +1175,11 @@ class ReportGenerator:
         if not resistividades or 'Resistividad' not in self.wb.sheetnames:
             return
         import re
+        # Ordenar por abscisa ascendente (arriba->abajo). Las que no traen
+        # abscisa quedan al final, en su orden original.
+        resistividades = sorted(
+            resistividades,
+            key=lambda d: (d.get('pk_m') is None, d.get('pk_m') or 0))
         ws = self.wb['Resistividad']
         start = 9
         # última fila con fórmula ρ (modelo a replicar si hay más puntos)

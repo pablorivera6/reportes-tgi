@@ -854,18 +854,20 @@ with tabs[11]:
                 gen.fill_general_info(info)
                 if st.session_state.equipos_inspector:
                     gen.fill_equipos_utilizados(st.session_state.equipos_inspector)
-                prog.progress(55, text="Inspección DCVG y Resistividad...")
-                gen.fill_dcvg(data['dcvg_postes'], data['dcvg_defectos'],
-                              data['dcvg_resist'])
-                gen.fill_resistividad(data['dcvg_resist'])
-                n_insp = sum(1 for x in (data['dcvg_postes'] + data['dcvg_defectos'])
-                             if x.get('pk_m') is not None)
-                gen.fill_graficas_dcvg(n_insp, len(data['dcvg_resist']))
-                gen.fill_rangos_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
                 # Hallazgos: de la data cruda del logger (cruces, enmontados,
-                # mallas, válvulas…), clasificados como en CIPS.
+                # mallas, válvulas…), clasificados como en CIPS. Van tanto a la
+                # hoja Hallazgos como intercalados en Inspección DCVG.
                 from cips_adapter import cips_a_hallazgos
                 hall = cips_a_hallazgos(data['dcvg_hallazgos'])
+                prog.progress(55, text="Inspección DCVG y Resistividad...")
+                gen.fill_dcvg(data['dcvg_postes'], data['dcvg_defectos'],
+                              data['dcvg_resist'], hallazgos=hall)
+                gen.fill_resistividad(data['dcvg_resist'])
+                n_insp = (sum(1 for x in (data['dcvg_postes'] + data['dcvg_defectos'])
+                              if x.get('pk_m') is not None)
+                          + sum(1 for h in hall if h.get('abscisa_val') is not None))
+                gen.fill_graficas_dcvg(n_insp, len(data['dcvg_resist']))
+                gen.fill_rangos_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
                 prog.progress(75, text="Hallazgos...")
                 gen.fill_hallazgos(hall, info)
                 tmpd = tempfile.mkdtemp(prefix="tgi_out_")
