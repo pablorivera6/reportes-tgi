@@ -1112,17 +1112,18 @@ class ReportGenerator:
                         f"=((P{ps}-P{pa})/(D{ps}-D{pa})*(D{row}-D{pa}))+P{pa}")
                 elif pa or ps:
                     self._safe_write(ws, row, 17, f"=P{pa or ps}")           # extremo
-                # SEVERIDAD %IR: el OL/RE del FastField ya viene como % (0-100),
-                # así que la severidad = OL/RE directo (NO se multiplica por 100).
-                # Va en la columna del carácter (AA/CA/CC) y de ahí sale la
-                # clasificación por umbrales.
+                # SEVERIDAD %IR: el OL/RE del FastField ya viene como % (0-100).
+                # La celda S/T/U tiene formato '0%' (multiplica ×100 al mostrar),
+                # así que se guarda como fracción (=M/100) para que aparezca
+                # "95.7%". La clasificación compara contra fracciones
+                # (0.15/0.35/0.60), no contra 15/35/60.
                 col_sev = _COLSEV.get(car)
                 if col_sev and r.get('ol_re') is not None:
-                    self._safe_write(ws, row, col_sev, f"=M{row}")
+                    self._safe_write(ws, row, col_sev, f"=M{row}/100")
                     letra = _gcl(col_sev)
                     self._safe_write(ws, row, 22,
-                        f'=IF({letra}{row}="","",IF({letra}{row}<=15,"Muy Pequeño",'
-                        f'IF({letra}{row}<=35,"Pequeño",IF({letra}{row}<=60,'
+                        f'=IF({letra}{row}="","",IF({letra}{row}<=0.15,"Muy Pequeño",'
+                        f'IF({letra}{row}<=0.35,"Pequeño",IF({letra}{row}<=0.6,'
                         f'"Mediano","Grande"))))')
                 # W resistividad más cercana por abscisa
                 if resistividades:

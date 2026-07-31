@@ -58,12 +58,13 @@ def test_fill_dcvg_ordena_y_mapea(tmp_path):
     assert ws.cell(row=9, column=11).value == 52.9   # K (O)
     assert ws.cell(row=9, column=12).value == "CC"   # L caracter
     assert ws.cell(row=9, column=13).value == 95.7   # M OL/RE
-    # %IR en U (porque CC) = OL/RE directo (NO ×100), y P/RE (Q) interpolada
-    assert str(ws.cell(row=9, column=21).value) == "=M9"                  # U
-    assert "*100" not in str(ws.cell(row=9, column=21).value)
+    # %IR en U (porque CC) = OL/RE como fracción para el formato '0%' (=M/100),
+    # y P/RE (Q) interpolada
+    assert str(ws.cell(row=9, column=21).value) == "=M9/100"              # U
     assert str(ws.cell(row=9, column=17).value).startswith("=((P")        # Q interpolación
-    # clasificación V como fórmula sobre U
-    assert "Muy Pequeño" in str(ws.cell(row=9, column=22).value)
+    # clasificación V con umbrales en fracción (0.15/0.35/0.6)
+    v = str(ws.cell(row=9, column=22).value)
+    assert "Muy Pequeño" in v and "0.15" in v and "0.6" in v
     # distancia C = fórmula
     assert ws.cell(row=9, column=3).value == "=D9-$D$8"
     # firmas intactas debajo
