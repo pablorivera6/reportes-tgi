@@ -1092,8 +1092,12 @@ class ReportGenerator:
         if not filas:
             return
 
-        # filas (1-based en Excel) de cada poste, para interpolar el pulso
-        fila_poste = [start + i for i, (t, _) in enumerate(filas) if t == 'poste']
+        # filas (1-based en Excel) de los postes que TIENEN pulso (ON y OFF):
+        # el P/RE de cada defecto se interpola entre el pulso anterior y el
+        # posterior, así que solo cuentan los postes con pulso real.
+        fila_poste = [start + i for i, (t, p) in enumerate(filas)
+                      if t == 'poste' and p.get('on') is not None
+                      and p.get('off') is not None]
 
         _COLSEV = {'AA': 19, 'CA': 20, 'CC': 21}   # S/T/U
         from openpyxl.utils import get_column_letter as _gcl

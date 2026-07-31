@@ -76,6 +76,35 @@ def test_fill_dcvg_ordena_y_mapea(tmp_path):
     assert ws.cell(row=239, column=3).value and 'ELABOR' in str(ws.cell(row=239, column=3).value).upper()
 
 
+def test_pre_interpola_solo_postes_con_pulso(tmp_path):
+    # poste sin ON/OFF entre el defecto y el poste con pulso: se debe SALTAR
+    postes = [
+        {"tipo": "Poste", "pk_m": 0, "on": -1600.0, "off": -1100.0,
+         "lat": 4.5, "lon": -75.7},
+        {"tipo": "Poste abscisado", "pk_m": 5000, "on": None, "off": None,
+         "lat": 4.5, "lon": -75.7},                       # sin pulso
+        {"tipo": "Poste", "pk_m": 6000, "on": -1600.0, "off": -1100.0,
+         "lat": 4.5, "lon": -75.7},
+    ]
+    defectos = [{"pk_m": 4000, "forma_n": 1, "forma_s": 1, "forma_e": 1,
+                 "forma_o": 1, "ol_re": 30, "profundidad": 190, "caracter": "CC",
+                 "lat": 4.5, "lon": -75.7, "comentarios": "d"}]
+    gen = _gen()
+    gen.fill_dcvg(postes, defectos)
+    out = os.path.join(tmp_path, "p.xlsx")
+    gen.save(out)
+    ws = openpyxl.load_workbook(out)["Inspección DCVG"]
+    # fila del defecto (abscisa 4000)
+    fd = next(r for r in range(8, 20) if ws.cell(row=r, column=4).value == 4000)
+    q = str(ws.cell(row=fd, column=17).value)
+    import re
+    refs = sorted(int(x) for x in re.findall(r'P(\d+)', q))
+    # las filas de pulso referenciadas deben tener P=ABS(...) (poste con pulso)
+    for pr in refs:
+        assert str(ws.cell(row=pr, column=16).value or '').startswith("=ABS("), \
+            f"Q referencia fila {pr} sin pulso: {q}"
+
+
 def test_fill_resistividad(tmp_path):
     gen = _gen()
     # a propósito desordenadas -> deben quedar ascendentes por abscisa
