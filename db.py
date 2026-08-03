@@ -253,3 +253,235 @@ def url_descarga(path: str, expira_seg: int = 3600) -> str | None:
         return r.get("signedURL") or r.get("signedUrl")
     except Exception:
         return None
+
+
+# ── Helpers compartidos para publicar (PAP / DCVG) ──────────────────────────
+def _subir_excel(cli, insp_id, excel_bytes, excel_nombre, ppm_bytes, ppm_nombre):
+    xlsx = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    excel_path = ppm_path = None
+    if excel_bytes:
+        excel_path = f"{insp_id}/{excel_nombre or 'informe.xlsx'}"
+        cli.storage.from_(_BUCKET).upload(
+            excel_path, excel_bytes, {"content-type": xlsx, "upsert": "true"})
+    if ppm_bytes:
+        ppm_path = f"{insp_id}/{ppm_nombre or 'ppm.xlsx'}"
+        cli.storage.from_(_BUCKET).upload(
+            ppm_path, ppm_bytes, {"content-type": xlsx, "upsert": "true"})
+    if excel_path or ppm_path:
+        cli.table("inspecciones").update(
+            {"excel_path": excel_path, "ppm_path": ppm_path}
+        ).eq("id", insp_id).execute()
+
+
+def _fila_inspeccion(info, tipo, abscisa_ini, abscisa_fin, resumen, creado_por):
+    return {
+        "tipo": tipo,
+        "gasoducto": info.get("gasoducto"), "tramo": info.get("tramo"),
+        "fecha": _fecha(info.get("fecha")), "inspector": info.get("inspector"),
+        "ciclo": str(info.get("ciclo") or info.get("cycle") or "") or None,
+        "ot": info.get("ot"), "contratista": info.get("contratista"),
+        "serial_equipo": info.get("serial_equipo"),
+        "tipo_recubrimiento": info.get("tipo_recubrimiento"),
+        "diametro": str(info.get("diametro") or "") or None,
+        "abscisa_ini": abscisa_ini, "abscisa_fin": abscisa_fin,
+        "resumen": resumen, "creado_por": creado_por,
+    }
+
+
+def _hallazgos_filas(insp_id, hallazgos):
+    hs = []
+    for i, h in enumerate(hallazgos or [], 1):
+        hs.append({
+            "inspeccion_id": insp_id, "item": i,
+            "abscisa_ini": _i(h.get("abscisa_val") if h.get("abscisa_val") is not None
+                              else h.get("abscisa_inicio")),
+            "abscisa_fin": _i(h.get("abscisa_fin")), "longitud_m": _f(h.get("longitud")),
+            "lat_ini": _f(h.get("lat") if h.get("lat") is not None else h.get("lat_inicio")),
+            "lon_ini": _f(h.get("lon") if h.get("lon") is not None else h.get("lon_inicio")),
+            "lat_fin": _f(h.get("lat_fin")), "lon_fin": _f(h.get("lon_fin")),
+            "fecha": _fecha(h.get("fecha")),
+            "tipo": h.get("tipo"), "descripcion": h.get("descripcion"),
+        })
+    return hs
+
+
+# ── PAP (poste a poste) ─────────────────────────────────────────────────────
+def guardar_inspeccion_pap(info, potenciales, hallazgos,
+                           excel_bytes=None, excel_nombre=None,
+                           ppm_bytes=None, ppm_nombre=None, creado_por="PCC"):
+    cli = _client(write=True)
+
+    def _absc(p):
+        return _i(p.get("abscisa") if p.get("abscisa") is not None else p.get("pk_m"))
+
+    def _off(p):
+        return _f(p.get("off_mv") if p.get("off_mv") is not None else p.get("off"))
+
+    def _on(p):
+        return _f(p.get("on_mv") if p.get("on_mv") is not None else p.get("on"))
+
+    offs = [_off(p) for p in potenciales]
+    con_dato = [o for o in offs if o is not None]
+    cumple = sum(1 for o in con_dato if o <= -850)
+    absc = [_absc(p) for p in potenciales if _absc(p) is not None]
+    a_ini, a_fin = (min(absc), max(absc)) if absc else (None, None)
+    resumen = {
+        "total": len(potenciales), "con_dato": len(con_dato), "cumple_850": cumple,
+        "pct_cumple": round(100 * cumple / len(con_dato), 1) if con_dato else 0.0,
+        "n_hallazgos": len(hallazgos or []),
+        "longitud_m": (a_fin - a_ini) if (a_ini is not None and a_fin is not None) else None,
+    }
+    insp_id = cli.table("inspecciones").insert(
+        _fila_inspeccion(info, "PAP", a_ini, a_fin, resumen, creado_por)
+    ).execute().data[0]["id"]
+    _subir_excel(cli, insp_id, excel_bytes, excel_nombre, ppm_bytes, ppm_nombre)
+
+    filas = []
+    for i, p in enumerate(potenciales, 1):
+        off = _off(p)
+        filas.append({
+            "inspeccion_id": insp_id, "item": i, "abscisa": _absc(p),
+            "fecha": _fecha(p.get("fecha")), "on_mv": _on(p), "off_mv": off,
+            "natural_mv": _f(p.get("potencial_natural")),
+            "polarizacion_mv": _f(p.get("polarizacion")),
+            "vac_mv": _f(p.get("vac")), "ir_on_off": _f(p.get("ir_on_off")),
+            "resistencia": _f(p.get("resistencia")),
+            "lat": _f(p.get("lat")), "lon": _f(p.get("lon")),
+            "ref_geografica": p.get("ref_geografica"),
+            "observaciones": p.get("observaciones"), "estado": estado_cp(off),
+        })
+    _insert_lotes(cli, "puntos_pap", filas)
+    _insert_lotes(cli, "hallazgos", _hallazgos_filas(insp_id, hallazgos))
+    return insp_id
+
+
+# ── DCVG (defectos + postes + resistividad) ─────────────────────────────────
+def _severidad_dcvg(postes, defectos):
+    """Calcula P/RE (interpolado entre postes con pulso), %IR y clasificación
+    para cada defecto — misma lógica que generator.fill_dcvg.
+    Devuelve lista paralela a `defectos` de dicts {p_re, severidad_pct, clasificacion}."""
+    pulsos = sorted(
+        [(_f(p.get("pk_m")), abs(_f(p.get("on")) - _f(p.get("off"))))
+         for p in postes
+         if p.get("pk_m") is not None and _f(p.get("on")) is not None
+         and _f(p.get("off")) is not None],
+        key=lambda t: t[0])
+
+    def _pre(a):
+        if a is None or not pulsos:
+            return None
+        antes = [t for t in pulsos if t[0] <= a]
+        despues = [t for t in pulsos if t[0] >= a]
+        if antes and despues:
+            da, pa = antes[-1]
+            ds, ps = despues[0]
+            if ds == da:
+                return pa
+            return (ps - pa) / (ds - da) * (a - da) + pa
+        if antes:
+            return antes[-1][1]
+        if despues:
+            return despues[0][1]
+        return None
+
+    def _clas(pct):
+        if pct is None:
+            return None
+        if pct <= 15:
+            return "Muy Pequeño"
+        if pct <= 35:
+            return "Pequeño"
+        if pct <= 60:
+            return "Mediano"
+        return "Grande"
+
+    out = []
+    for d in defectos:
+        a = _f(d.get("pk_m"))
+        pre = _pre(a)
+        olre = _f(d.get("ol_re"))
+        pct = round(olre / pre * 100, 1) if (olre is not None and pre) else None
+        out.append({"p_re": pre, "severidad_pct": pct, "clasificacion": _clas(pct)})
+    return out
+
+
+def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
+                            excel_bytes=None, excel_nombre=None, creado_por="PCC"):
+    cli = _client(write=True)
+    sev = _severidad_dcvg(postes or [], defectos or [])
+
+    todas = ([_i(x.get("pk_m")) for x in (postes or []) + (defectos or [])
+              if x.get("pk_m") is not None])
+    a_ini, a_fin = (min(todas), max(todas)) if todas else (None, None)
+    conteo = {"Muy Pequeño": 0, "Pequeño": 0, "Mediano": 0, "Grande": 0}
+    for s in sev:
+        if s["clasificacion"] in conteo:
+            conteo[s["clasificacion"]] += 1
+    resumen = {
+        "n_defectos": len(defectos or []), "n_postes": len(postes or []),
+        "n_resist": len(resistividades or []), "n_hallazgos": len(hallazgos or []),
+        "por_clasificacion": conteo,
+        "n_criticos": conteo["Mediano"] + conteo["Grande"],
+        "longitud_m": (a_fin - a_ini) if (a_ini is not None and a_fin is not None) else None,
+    }
+    insp_id = cli.table("inspecciones").insert(
+        _fila_inspeccion(info, "DCVG", a_ini, a_fin, resumen, creado_por)
+    ).execute().data[0]["id"]
+    _subir_excel(cli, insp_id, excel_bytes, excel_nombre, None, None)
+
+    _insert_lotes(cli, "postes_dcvg", [{
+        "inspeccion_id": insp_id, "item": i, "abscisa": _i(p.get("pk_m")),
+        "tipo": p.get("tipo"), "on_mv": _f(p.get("on")), "off_mv": _f(p.get("off")),
+        "vac_mv": _f(p.get("vac")), "resistencia": _f(p.get("resistencia")),
+        "lat": _f(p.get("lat")), "lon": _f(p.get("lon")),
+    } for i, p in enumerate(postes or [], 1)])
+
+    _insert_lotes(cli, "defectos_dcvg", [{
+        "inspeccion_id": insp_id, "item": i, "abscisa": _i(d.get("pk_m")),
+        "sector": d.get("sector"),
+        "forma_n": _f(d.get("forma_n")), "forma_e": _f(d.get("forma_e")),
+        "forma_s": _f(d.get("forma_s")), "forma_o": _f(d.get("forma_o")),
+        "caracter": d.get("caracter"), "ol_re": _f(d.get("ol_re")),
+        "p_re": sev[i - 1]["p_re"], "severidad_pct": sev[i - 1]["severidad_pct"],
+        "clasificacion": sev[i - 1]["clasificacion"],
+        "profundidad": _f(d.get("profundidad")),
+        "posicion_reloj": d.get("posicion_reloj"),
+        "lat": _f(d.get("lat")), "lon": _f(d.get("lon")),
+        "comentarios": d.get("comentarios"),
+    } for i, d in enumerate(defectos or [], 1)])
+
+    _insert_lotes(cli, "resistividades_dcvg", [{
+        "inspeccion_id": insp_id, "item": i, "abscisa": _i(r.get("pk_m")),
+        "sector": r.get("sector"), "profundidad": _f(r.get("profundidad")),
+        "r1": _f(r.get("r1")), "r2": _f(r.get("r2")), "r3": _f(r.get("r3")),
+        "lat": _f(r.get("lat")), "lon": _f(r.get("lon")),
+    } for i, r in enumerate(resistividades or [], 1)])
+
+    _insert_lotes(cli, "hallazgos", _hallazgos_filas(insp_id, hallazgos))
+    return insp_id
+
+
+# ── Cargar detalle PAP / DCVG (portal) ──────────────────────────────────────
+def cargar_inspeccion_pap(insp_id):
+    cli = _client(write=False)
+    insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
+    pts = (cli.table("puntos_pap").select("*")
+           .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
+    hall = (cli.table("hallazgos").select("*")
+            .eq("inspeccion_id", insp_id).order("abscisa_ini").execute().data) or []
+    return {"inspeccion": insp, "puntos": pts, "hallazgos": hall}
+
+
+def cargar_inspeccion_dcvg(insp_id):
+    cli = _client(write=False)
+    insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
+    postes = (cli.table("postes_dcvg").select("*")
+              .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
+    defectos = (cli.table("defectos_dcvg").select("*")
+                .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
+    resist = (cli.table("resistividades_dcvg").select("*")
+              .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
+    hall = (cli.table("hallazgos").select("*")
+            .eq("inspeccion_id", insp_id).order("abscisa_ini").execute().data) or []
+    return {"inspeccion": insp, "postes": postes, "defectos": defectos,
+            "resistividades": resist, "hallazgos": hall}

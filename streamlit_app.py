@@ -989,28 +989,45 @@ with tabs[11]:
             st.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
                                file_name=st.session_state.informe_nombre, mime=_mime)
 
-        # ── Publicar al portal TGI (solo CIPS por ahora) ──────────────────────
-        if data['cips']:
+        # ── Publicar al portal TGI (CIPS / PAP / DCVG) ────────────────────────
+        _tipo_pub = ("CIPS" if data['cips'] else
+                     "DCVG" if (data['dcvg_defectos'] or data['dcvg_postes']) else
+                     "PAP" if data['potenciales'] else None)
+        if _tipo_pub:
             st.divider()
-            st.markdown("**Portal TGI**")
+            st.markdown(f"**Portal TGI** · publicar inspección {_tipo_pub}")
             if not db.disponible(write=True):
                 st.caption("ℹ️ Configura Supabase (`[supabase] service_key`) en los "
                            "Secrets para poder publicar la inspección al portal.")
             elif st.session_state.get("publicado_id"):
                 st.success(f"Publicado en el portal ✓ (id {st.session_state.publicado_id})")
-            elif st.button("📤 Publicar al portal"):
+            elif st.button(f"📤 Publicar {_tipo_pub} al portal"):
                 try:
                     from cips_adapter import cips_a_hallazgos
                     _info = dict(data['info'])
                     _info['tramo'] = re.sub(r'\s*\(?PK.*', '',
                                             _info.get('tramo', '')).strip()
-                    _id = db.guardar_inspeccion_cips(
-                        _info, data['cips'], cips_a_hallazgos(data['cips']),
-                        excel_bytes=st.session_state.informe_bytes,
-                        excel_nombre=st.session_state.informe_nombre,
-                        ppm_bytes=st.session_state.ppm_bytes,
-                        ppm_nombre=(st.session_state.informe_nombre or "").replace("REP", "PPM"),
-                        creado_por="PCC")
+                    _ppm_nombre = (st.session_state.informe_nombre or "").replace("REP", "PPM")
+                    if _tipo_pub == "CIPS":
+                        _id = db.guardar_inspeccion_cips(
+                            _info, data['cips'], cips_a_hallazgos(data['cips']),
+                            excel_bytes=st.session_state.informe_bytes,
+                            excel_nombre=st.session_state.informe_nombre,
+                            ppm_bytes=st.session_state.ppm_bytes,
+                            ppm_nombre=_ppm_nombre, creado_por="PCC")
+                    elif _tipo_pub == "DCVG":
+                        _id = db.guardar_inspeccion_dcvg(
+                            _info, data['dcvg_postes'], data['dcvg_defectos'],
+                            data['dcvg_resist'], cips_a_hallazgos(data['dcvg_hallazgos']),
+                            excel_bytes=st.session_state.informe_bytes,
+                            excel_nombre=st.session_state.informe_nombre, creado_por="PCC")
+                    else:  # PAP
+                        _id = db.guardar_inspeccion_pap(
+                            _info, data['potenciales'], data['hallazgos'],
+                            excel_bytes=st.session_state.informe_bytes,
+                            excel_nombre=st.session_state.informe_nombre,
+                            ppm_bytes=st.session_state.ppm_bytes,
+                            ppm_nombre=_ppm_nombre, creado_por="PCC")
                     st.session_state.publicado_id = _id
                     st.rerun()
                 except Exception as e:

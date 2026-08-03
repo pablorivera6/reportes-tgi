@@ -7,3 +7,7 @@ dist/
 .venv_build/
 .venv/
 shapefiles.zip
+
+# Secrets (NUNCA subir)
+.streamlit/secrets.toml
+secrets.toml

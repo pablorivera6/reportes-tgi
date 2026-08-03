@@ -71,6 +71,7 @@ st.markdown("""
     font-size:0.75rem; font-weight:700; }
   .chip-ok { background:#E5F3EC; color:#1A7A4A; }
   .chip-warn { background:#FDECEC; color:#C7113A; }
+  .chip-tipo { background:#C7113A; color:#FFFFFF; font-size:0.7rem; }
   #MainMenu, footer { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -177,12 +178,16 @@ _DEMO = not db.disponible(write=False)
 def cargar_lista():
     if _DEMO:
         return _demo_dataset()
-    return db.listar_inspecciones("CIPS")
+    return db.listar_inspecciones(None)     # todos los tipos (CIPS/PAP/DCVG)
 
 
-def cargar_detalle(insp_id):
+def cargar_detalle(insp_id, tipo):
     if _DEMO:
         return _demo_detalle(insp_id)
+    if tipo == "PAP":
+        return db.cargar_inspeccion_pap(insp_id)
+    if tipo == "DCVG":
+        return db.cargar_inspeccion_dcvg(insp_id)
     return db.cargar_inspeccion_cips(insp_id)
 
 
@@ -212,14 +217,36 @@ def _abscisa_txt(v):
     return f"K {v // 1000:03d}+{v % 1000:03d}"
 
 
-# ── Render del dashboard de UNA inspección ───────────────────────────────────
-def render_dashboard(detalle):
+# ── Encabezado común (datos del informe) ─────────────────────────────────────
+def _encabezado(insp, subtitulo=""):
+    if st.button("← Volver al listado"):
+        st.session_state.sel = None
+        st.session_state.sel_tipo = None
+        st.rerun()
+    st.markdown(f"## {insp.get('tramo') or 'Inspección'} · {insp.get('tipo','')}")
+    meta = [
+        ("Gasoducto", insp.get("gasoducto")), ("Tramo", insp.get("tramo")),
+        ("Fecha", insp.get("fecha")), ("Inspector", insp.get("inspector")),
+        ("OT", insp.get("ot")), ("Ciclo", insp.get("ciclo")),
+        ("Punto inicial", _abscisa_txt(insp.get("abscisa_ini"))),
+        ("Punto final", _abscisa_txt(insp.get("abscisa_fin"))),
+    ]
+    cols = st.columns(4)
+    for i, (k, v) in enumerate([m for m in meta if m[1]]):
+        cols[i % 4].markdown(f"<div class='insp-meta'><b>{k}</b><br>{v}</div>",
+                             unsafe_allow_html=True)
+    st.divider()
+
+
+# ── Render del dashboard CIPS ────────────────────────────────────────────────
+def render_dashboard_cips(detalle):
     insp = detalle["inspeccion"]
     dfp = _df_puntos(detalle["puntos"])
     res = insp.get("resumen") or {}
 
     if st.button("← Volver al listado"):
         st.session_state.sel = None
+        st.session_state.sel_tipo = None
         st.rerun()
 
     st.markdown(f"## {insp.get('tramo') or 'Inspección'} · {insp.get('tipo','CIPS')}")
@@ -357,6 +384,225 @@ def _grafica_vac(dfp):
         st.caption(f"(gráfica VAC no disponible: {e})")
 
 
+# ── Render del dashboard PAP (poste a poste) ─────────────────────────────────
+def render_dashboard_pap(detalle):
+    insp = detalle["inspeccion"]
+    res = insp.get("resumen") or {}
+    _encabezado(insp)
+    dfp = _df_puntos(detalle["puntos"])
+
+    total = res.get("total", len(dfp))
+    pct = res.get("pct_cumple")
+    if pct is None and not dfp.empty:
+        cd = dfp["off"].dropna()
+        pct = round(100 * (cd <= -850).sum() / len(cd), 1) if len(cd) else 0.0
+    long_km = (res.get("longitud_m") or 0) / 1000
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Postes medidos", total)
+    k2.metric("% Cumple ≤ −850 mV", f"{pct:.1f}%" if pct is not None else "—")
+    k3.metric("Longitud", f"{long_km:.2f} km" if long_km else "—")
+    k4.metric("Hallazgos", res.get("n_hallazgos", len(detalle["hallazgos"])))
+
+    cmap, cpot = st.columns([1, 1])
+    with cmap:
+        st.markdown("**Mapa — estado de protección**")
+        mp = dfp.dropna(subset=["lat", "lon"])
+        if not mp.empty:
+            st.map(mp.rename(columns={"lat": "latitude", "lon": "longitude"}),
+                   latitude="latitude", longitude="longitude", color="color", size=8)
+            st.caption("🟢 Protegido · 🔴 Desprotegido · 🔵 Sobreprotegido")
+        else:
+            st.info("Los postes no tienen coordenadas.")
+    with cpot:
+        st.markdown("**Potencial ON/OFF por poste vs abscisa**")
+        _grafica_potenciales_pap(dfp)
+
+    st.markdown("**Potenciales PAP**")
+    tp = dfp.copy()
+    tp["Abscisa"] = tp["abscisa"].apply(_abscisa_txt)
+    tp = tp.rename(columns={"on": "ON [mV]", "off": "OFF [mV]", "estado": "Estado",
+                            "observaciones": "Observaciones", "lat": "Latitud",
+                            "lon": "Longitud"})
+    st.dataframe(tp[["Abscisa", "ON [mV]", "OFF [mV]", "Estado",
+                     "Latitud", "Longitud", "Observaciones"]],
+                 use_container_width=True, height=300)
+
+    st.markdown("**Hallazgos**")
+    _tabla_hallazgos(detalle["hallazgos"])
+    _descarga_informe(insp)
+
+
+def _grafica_potenciales_pap(dfp):
+    try:
+        import plotly.graph_objects as go
+        d = dfp.dropna(subset=["abscisa", "off"]).sort_values("abscisa")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=d["abscisa"], y=d["on"], mode="lines+markers",
+                      name="ON", line=dict(color="#374151", width=1),
+                      marker=dict(size=5)))
+        fig.add_trace(go.Scatter(x=d["abscisa"], y=d["off"], mode="lines+markers",
+                      name="OFF", line=dict(color="#C7113A", width=1.5),
+                      marker=dict(size=5)))
+        fig.add_hline(y=-850, line=dict(color="#1A7A4A", dash="dash"),
+                      annotation_text="−850 mV")
+        fig.add_hline(y=-1200, line=dict(color="#F59E0B", dash="dash"),
+                      annotation_text="−1200 mV")
+        fig.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=10),
+                          xaxis_title="Abscisa [m]", yaxis_title="mV",
+                          legend=dict(orientation="h", y=-0.25))
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.caption(f"(gráfica no disponible: {e})")
+
+
+# ── Render del dashboard DCVG (defectos + resistividad) ──────────────────────
+COLOR_CLAS = {"Muy Pequeño": "#1A7A4A", "Pequeño": "#84B84C",
+              "Mediano": "#F59E0B", "Grande": "#C7113A"}
+
+
+def render_dashboard_dcvg(detalle):
+    insp = detalle["inspeccion"]
+    res = insp.get("resumen") or {}
+    _encabezado(insp)
+
+    dfd = pd.DataFrame(detalle["defectos"])
+    conteo = res.get("por_clasificacion") or {}
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Defectos", res.get("n_defectos", len(dfd)))
+    k2.metric("Críticos (Med+Gr)", res.get("n_criticos",
+              (conteo.get("Mediano", 0) + conteo.get("Grande", 0))))
+    k3.metric("Postes", res.get("n_postes", len(detalle["postes"])))
+    k4.metric("Resistividades", res.get("n_resist", len(detalle["resistividades"])))
+    k5.metric("Hallazgos", res.get("n_hallazgos", len(detalle["hallazgos"])))
+
+    # distribución por clasificación (severidad del informe)
+    if conteo:
+        st.markdown("**Distribución de defectos por severidad**")
+        cc = st.columns(4)
+        for i, clas in enumerate(["Muy Pequeño", "Pequeño", "Mediano", "Grande"]):
+            cc[i].markdown(
+                f"<div class='insp-meta'><b style='color:{COLOR_CLAS[clas]}'>"
+                f"● {clas}</b><br><span style='font-size:1.4rem'>"
+                f"{conteo.get(clas, 0)}</span></div>", unsafe_allow_html=True)
+        st.divider()
+
+    cmap, csev = st.columns([1, 1])
+    with cmap:
+        st.markdown("**Mapa — defectos por severidad**")
+        if not dfd.empty and dfd[["lat", "lon"]].notna().all(axis=1).any():
+            mp = dfd.dropna(subset=["lat", "lon"]).copy()
+            mp["color"] = mp["clasificacion"].map(COLOR_CLAS).fillna("#9CA3AF")
+            st.map(mp.rename(columns={"lat": "latitude", "lon": "longitude"}),
+                   latitude="latitude", longitude="longitude", color="color", size=10)
+            st.caption("🟢 Muy pequeño · 🟩 Pequeño · 🟧 Mediano · 🔴 Grande")
+        else:
+            st.info("Los defectos no tienen coordenadas.")
+    with csev:
+        st.markdown("**Severidad %IR vs abscisa**")
+        _grafica_severidad_dcvg(dfd)
+
+    # resistividad del suelo
+    if detalle["resistividades"]:
+        st.markdown("**Resistividad del suelo vs abscisa**")
+        _grafica_resistividad(pd.DataFrame(detalle["resistividades"]))
+
+    # tabla de defectos (Inspección DCVG)
+    st.markdown("**Defectos**")
+    if not dfd.empty:
+        td = dfd.copy()
+        td["Abscisa"] = td["abscisa"].apply(_abscisa_txt)
+        td = td.rename(columns={
+            "caracter": "Carácter", "ol_re": "OL/RE [mV]", "p_re": "P/RE [mV]",
+            "severidad_pct": "Severidad %IR", "clasificacion": "Clasificación",
+            "profundidad": "Profundidad", "posicion_reloj": "Posición reloj",
+            "comentarios": "Comentarios"})
+        cols = ["Abscisa", "Carácter", "OL/RE [mV]", "P/RE [mV]", "Severidad %IR",
+                "Clasificación", "Profundidad", "Posición reloj", "Comentarios"]
+        st.dataframe(td[[c for c in cols if c in td.columns]],
+                     use_container_width=True, height=300)
+    else:
+        st.caption("Sin defectos registrados.")
+
+    # tabla de resistividades
+    if detalle["resistividades"]:
+        st.markdown("**Resistividades (Wenner 1/2/3 m)**")
+        tr = pd.DataFrame(detalle["resistividades"])
+        tr["Abscisa"] = tr["abscisa"].apply(_abscisa_txt)
+        tr = tr.rename(columns={"r1": "1 m [Ω·m]", "r2": "2 m [Ω·m]",
+                                "r3": "3 m [Ω·m]", "sector": "Sector"})
+        st.dataframe(tr[[c for c in ["Abscisa", "Sector", "1 m [Ω·m]", "2 m [Ω·m]",
+                         "3 m [Ω·m]"] if c in tr.columns]],
+                     use_container_width=True, height=200)
+
+    st.markdown("**Hallazgos**")
+    _tabla_hallazgos(detalle["hallazgos"])
+    _descarga_informe(insp)
+
+
+def _grafica_severidad_dcvg(dfd):
+    try:
+        import plotly.graph_objects as go
+        if dfd.empty or dfd["severidad_pct"].dropna().empty:
+            st.caption("Sin datos de severidad.")
+            return
+        d = dfd.dropna(subset=["abscisa", "severidad_pct"]).sort_values("abscisa")
+        colors = d["clasificacion"].map(COLOR_CLAS).fillna("#9CA3AF")
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=d["abscisa"], y=d["severidad_pct"],
+                      marker_color=list(colors), name="Severidad %IR",
+                      width=[15] * len(d)))
+        for y, txt, col in [(15, "15%", "#84B84C"), (35, "35%", "#F59E0B"),
+                            (60, "60%", "#C7113A")]:
+            fig.add_hline(y=y, line=dict(color=col, dash="dash"),
+                          annotation_text=txt)
+        fig.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=10),
+                          xaxis_title="Abscisa [m]", yaxis_title="Severidad %IR",
+                          showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.caption(f"(gráfica no disponible: {e})")
+
+
+def _grafica_resistividad(dfr):
+    try:
+        import plotly.graph_objects as go
+        d = dfr.dropna(subset=["abscisa"]).sort_values("abscisa")
+        fig = go.Figure()
+        for col, nombre, color in [("r1", "1 m", "#374151"), ("r2", "2 m", "#1F6FEB"),
+                                   ("r3", "3 m", "#C7113A")]:
+            if col in d.columns and d[col].notna().any():
+                fig.add_trace(go.Scatter(x=d["abscisa"], y=d[col], mode="lines+markers",
+                              name=nombre, line=dict(color=color, width=1.2),
+                              marker=dict(size=5)))
+        fig.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10),
+                          xaxis_title="Abscisa [m]", yaxis_title="Resistividad [Ω·m]",
+                          legend=dict(orientation="h", y=-0.3))
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.caption(f"(gráfica resistividad no disponible: {e})")
+
+
+# ── Utilidades compartidas de render ─────────────────────────────────────────
+def _tabla_hallazgos(hallazgos):
+    if hallazgos:
+        dh = pd.DataFrame([{
+            "Abscisa inicio": _abscisa_txt(h.get("abscisa_ini")),
+            "Abscisa fin": _abscisa_txt(h.get("abscisa_fin")),
+            "Tipo": h.get("tipo"), "Descripción": h.get("descripcion"),
+            "Latitud": h.get("lat_ini"), "Longitud": h.get("lon_ini"),
+        } for h in hallazgos])
+        st.dataframe(dh, use_container_width=True, height=200)
+    else:
+        st.caption("Sin hallazgos registrados.")
+
+
+def _descarga_informe(insp):
+    if not _DEMO and insp.get("excel_path"):
+        url = db.url_descarga(insp["excel_path"])
+        if url:
+            st.link_button("⬇️ Descargar informe (Excel)", url)
+
+
 # ── Listado de inspecciones ──────────────────────────────────────────────────
 def render_listado():
     st.markdown("## Inspecciones publicadas")
@@ -369,31 +615,54 @@ def render_listado():
         st.info("Aún no hay inspecciones publicadas.")
         return
 
-    # filtro por tramo
+    # filtros por tipo y tramo
+    cf1, cf2 = st.columns(2)
+    tipos = sorted({i.get("tipo") for i in lista if i.get("tipo")})
+    ft = cf1.selectbox("Tipo de inspección", ["Todos"] + tipos, index=0)
+    if ft != "Todos":
+        lista = [i for i in lista if i.get("tipo") == ft]
     tramos = sorted({i.get("tramo") for i in lista if i.get("tramo")})
-    f = st.selectbox("Filtrar por tramo", ["Todos"] + tramos, index=0)
-    if f != "Todos":
-        lista = [i for i in lista if i.get("tramo") == f]
+    fx = cf2.selectbox("Tramo", ["Todos"] + tramos, index=0)
+    if fx != "Todos":
+        lista = [i for i in lista if i.get("tramo") == fx]
 
     for insp in lista:
         res = insp.get("resumen") or {}
-        pct = res.get("pct_cumple")
-        chip = (f"<span class='chip chip-ok'>Cumple {pct:.0f}%</span>"
-                if (pct is not None and pct >= 85)
-                else f"<span class='chip chip-warn'>Cumple {pct:.0f}%</span>"
-                if pct is not None else "")
+        tipo = insp.get("tipo", "CIPS")
+        st.markdown("", unsafe_allow_html=True)
+        chip, extra = _chips_listado(tipo, res)
         c1, c2 = st.columns([5, 1])
         with c1:
             st.markdown(f"""<div class="insp-card">
-              <h4>{insp.get('tramo','—')} · {insp.get('gasoducto','')}</h4>
+              <h4><span class="chip chip-tipo">{tipo}</span> &nbsp;
+                 {insp.get('tramo','—')} · {insp.get('gasoducto','')}</h4>
               <p class="insp-meta">📅 {insp.get('fecha','—')} &nbsp;·&nbsp;
                  👷 {insp.get('inspector','—')} &nbsp;·&nbsp; OT {insp.get('ot','—')}
-                 &nbsp;·&nbsp; {res.get('total','?')} lecturas &nbsp; {chip}</p>
+                 &nbsp;·&nbsp; {extra} &nbsp; {chip}</p>
             </div>""", unsafe_allow_html=True)
         with c2:
             if st.button("Ver dashboard", key=f"ver-{insp['id']}"):
                 st.session_state.sel = insp["id"]
+                st.session_state.sel_tipo = tipo
                 st.rerun()
+
+
+def _chips_listado(tipo, res):
+    """Devuelve (chip_estado, texto_extra) según el tipo de inspección."""
+    if tipo == "DCVG":
+        crit = res.get("n_criticos", 0)
+        extra = f"{res.get('n_defectos', '?')} defectos"
+        chip = (f"<span class='chip chip-warn'>{crit} críticos</span>" if crit
+                else "<span class='chip chip-ok'>Sin críticos</span>")
+        return chip, extra
+    # CIPS / PAP: cumplimiento -850
+    pct = res.get("pct_cumple")
+    extra = f"{res.get('total', '?')} lecturas"
+    chip = (f"<span class='chip chip-ok'>Cumple {pct:.0f}%</span>"
+            if (pct is not None and pct >= 85)
+            else f"<span class='chip chip-warn'>Cumple {pct:.0f}%</span>"
+            if pct is not None else "")
+    return chip, extra
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -414,13 +683,22 @@ st.markdown(f"""<div class="pcc-hero">{_logo}
   <div class="pcc-badge">fits<br>you_</div></div>""", unsafe_allow_html=True)
 
 st.session_state.setdefault("sel", None)
+st.session_state.setdefault("sel_tipo", None)
 if st.session_state.sel:
     try:
-        render_dashboard(cargar_detalle(st.session_state.sel))
+        _tipo = st.session_state.sel_tipo or "CIPS"
+        _det = cargar_detalle(st.session_state.sel, _tipo)
+        if _tipo == "PAP":
+            render_dashboard_pap(_det)
+        elif _tipo == "DCVG":
+            render_dashboard_dcvg(_det)
+        else:
+            render_dashboard_cips(_det)
     except Exception as e:
         st.error(f"No se pudo cargar la inspección: {e}")
         if st.button("← Volver"):
             st.session_state.sel = None
+            st.session_state.sel_tipo = None
             st.rerun()
 else:
     render_listado()
