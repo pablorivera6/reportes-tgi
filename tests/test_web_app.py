@@ -31,7 +31,7 @@ def test_estado_inicial():
 
 def test_tabs_y_boton_generar():
     at = _monta()
-    assert len(at.tabs) == 13
+    assert len(at.tabs) == 12
     # El botón GENERAR existe y está deshabilitado sin datos
     botones = [b for b in at.button if "GENERAR" in str(b.label).upper()]
     assert botones, "No se encontró el botón GENERAR INFORME"

@@ -19,6 +19,7 @@ from generator import ReportGenerator, resource_path
 from conclusions import ConclusionGenerator
 from ppm_generator import PPMGenerator
 from cips_infra import InfraTramos
+import db
 
 def _b64_img(nombre):
     ruta = resource_path(nombre)
@@ -161,6 +162,7 @@ def init_state():
     st.session_state.setdefault("informe_bytes", None)
     st.session_state.setdefault("ppm_bytes", None)
     st.session_state.setdefault("informe_nombre", "")
+    st.session_state.setdefault("publicado_id", None)
 
 
 @st.cache_resource(show_spinner="Cargando KMZ de infraestructura...")
@@ -364,7 +366,7 @@ st.markdown(f"""
 tabs = st.tabs(["📝 Datos Generales", "📂 Cargar Archivos", "📊 Potenciales PAP",
                 "📉 CIPS", "⚠️ Hallazgos", "🔌 Rectificadores", "🛠️ Insp. Especiales",
                 "🔗 Aislamientos", "🖼️ Fotos IA", "📋 Conclusiones", "✍️ Firmas",
-                "🚀 Generar", "🗺️ Dashboard"])
+                "🚀 Generar"])
 
 FIELD_LABELS = [('gasoducto', 'Gasoducto'), ('tramo', 'Tramo'),
                 ('tipo_ducto', 'Tipo Ducto'), ('contrato', 'Contrato'),
@@ -837,6 +839,7 @@ with tabs[11]:
     if not _hay_datos:
         st.info("Carga FASTFIELD, CIPS o DCVG antes de generar.")
     if st.button("🚀 GENERAR INFORME", disabled=not _hay_datos):
+        st.session_state.publicado_id = None   # nuevo informe → permite republicar
         try:
             prog = st.progress(5, text="Iniciando...")
             info = dict(data['info'])
@@ -986,76 +989,32 @@ with tabs[11]:
             st.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
                                file_name=st.session_state.informe_nombre, mime=_mime)
 
-# ── Tab 13: Dashboard (visualización CIPS) ────────────────────────────────────
-with tabs[12]:
-    st.subheader("Dashboard CIPS_")
-    st.caption("Visualización de la inspección procesada: estado de protección, "
-               "mapa georreferenciado y hallazgos. (Toma la data de la sesión.)")
-    if not data['cips']:
-        st.info("Procesa data CIPS (pestaña Cargar Archivos) para ver el dashboard.")
-    else:
-        import pandas as _pd
-        from dashboard import resumen_cips, COLOR_ESTADO
-        r = resumen_cips(data['cips'])
-
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Puntos", r['total'])
-        c2.metric("% Protegido", f"{r['pct_protegido']:.1f}%")
-        c3.metric("Protegidos", r['protegido'])
-        c4.metric("Desprotegidos", r['desprotegido'])
-        c5.metric("Sobreprotegidos", r['sobreprotegido'])
-
-        tramo_txt = data['info'].get('tramo', '')
-        if tramo_txt:
-            st.markdown(f"**Tramo:** {tramo_txt}")
-
-        pts = _pd.DataFrame([p for p in r['puntos']
-                             if p['lat'] is not None and p['lon'] is not None])
-        colm, colg = st.columns([1, 1])
-        with colm:
-            st.markdown("**Mapa — estado de protección**")
-            if not pts.empty:
-                st.map(pts.rename(columns={'lat': 'latitude', 'lon': 'longitude'}),
-                       latitude='latitude', longitude='longitude',
-                       color='color', size=8)
-                st.caption("🟢 Protegido · 🔴 Desprotegido · 🔵 Sobreprotegido")
-            else:
-                st.info("Los puntos no tienen coordenadas para el mapa.")
-        with colg:
-            st.markdown("**Potencial Instant-OFF vs abscisa**")
-            try:
-                import plotly.graph_objects as go
-                dfg = _pd.DataFrame(r['puntos']).dropna(subset=['abscisa_val', 'off'])
-                dfg = dfg.sort_values('abscisa_val')
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=dfg['abscisa_val'], y=dfg['on'],
-                              mode='lines', name='ON', line=dict(color='#374151', width=1)))
-                fig.add_trace(go.Scatter(x=dfg['abscisa_val'], y=dfg['off'],
-                              mode='lines', name='OFF (Instant)', line=dict(color='#C7113A', width=1.5)))
-                fig.add_hline(y=-850, line=dict(color='#1A7A4A', dash='dash'),
-                              annotation_text='-850 mV')
-                fig.add_hline(y=-1200, line=dict(color='#F59E0B', dash='dash'),
-                              annotation_text='-1200 mV')
-                fig.update_layout(height=320, margin=dict(t=10, b=10, l=10, r=10),
-                                  xaxis_title='Abscisa [m]', yaxis_title='mV',
-                                  legend=dict(orientation='h', y=-0.2))
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.caption(f"(gráfica no disponible: {e})")
-
-        st.markdown("**Hallazgos**")
-        from cips_adapter import cips_a_hallazgos
-        hall = cips_a_hallazgos(data['cips'])
-        if hall:
-            dh = _pd.DataFrame([{
-                'Abscisa': f"K {h['abscisa_val']//1000:03d}+{h['abscisa_val']%1000:03d}"
-                           if h.get('abscisa_val') is not None else '',
-                'Tipo': h.get('tipo', ''), 'Descripción': h.get('descripcion', ''),
-                'Lat': h.get('lat'), 'Lon': h.get('lon'),
-            } for h in hall])
-            st.dataframe(dh, use_container_width=True, height=280)
-        else:
-            st.caption("Sin hallazgos en esta inspección.")
+        # ── Publicar al portal TGI (solo CIPS por ahora) ──────────────────────
+        if data['cips']:
+            st.divider()
+            st.markdown("**Portal TGI**")
+            if not db.disponible(write=True):
+                st.caption("ℹ️ Configura Supabase (`[supabase] service_key`) en los "
+                           "Secrets para poder publicar la inspección al portal.")
+            elif st.session_state.get("publicado_id"):
+                st.success(f"Publicado en el portal ✓ (id {st.session_state.publicado_id})")
+            elif st.button("📤 Publicar al portal"):
+                try:
+                    from cips_adapter import cips_a_hallazgos
+                    _info = dict(data['info'])
+                    _info['tramo'] = re.sub(r'\s*\(?PK.*', '',
+                                            _info.get('tramo', '')).strip()
+                    _id = db.guardar_inspeccion_cips(
+                        _info, data['cips'], cips_a_hallazgos(data['cips']),
+                        excel_bytes=st.session_state.informe_bytes,
+                        excel_nombre=st.session_state.informe_nombre,
+                        ppm_bytes=st.session_state.ppm_bytes,
+                        ppm_nombre=(st.session_state.informe_nombre or "").replace("REP", "PPM"),
+                        creado_por="PCC")
+                    st.session_state.publicado_id = _id
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"No se pudo publicar al portal: {e}")
 
 # ── Pie de página de marca ────────────────────────────────────────────────────
 st.markdown("""
