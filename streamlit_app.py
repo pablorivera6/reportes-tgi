@@ -1031,7 +1031,9 @@ with tabs[11]:
                 st.caption("ℹ️ Configura Supabase (`[supabase] service_key`) en los "
                            "Secrets para poder publicar la inspección al portal.")
             elif st.session_state.get("publicado_id"):
-                st.success(f"Publicado en el portal ✓ (id {st.session_state.publicado_id})")
+                st.success(f"Enviado al portal ✓ — queda **En revisión** (id "
+                           f"{st.session_state.publicado_id}). Un ingeniero debe "
+                           f"aprobarlo en el portal para que TGI lo vea.")
             elif st.button(f"📤 Publicar {_tipo_pub} al portal"):
                 try:
                     from cips_adapter import cips_a_hallazgos

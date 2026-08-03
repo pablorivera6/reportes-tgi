@@ -221,19 +221,39 @@ def _insert_lotes(cli, tabla, filas, tam=500):
 
 
 # ── Leer (portal TGI) ───────────────────────────────────────────────────────
-def listar_inspecciones(tipo: str | None = "CIPS") -> list[dict]:
-    cli = _client(write=False)
+def listar_inspecciones(tipo: str | None = "CIPS", estado: str | None = None,
+                        revisor: bool = False) -> list[dict]:
+    """Lista inspecciones. Con revisor=True usa service_role (ve todas, incluidas
+    'en_revision'); si no, usa anon y la RLS limita a las aprobadas."""
+    cli = _client(write=revisor)
     q = cli.table("inspecciones").select(
         "id, tipo, gasoducto, tramo, fecha, inspector, ot, ciclo, "
-        "abscisa_ini, abscisa_fin, resumen, excel_path, ppm_path, creado_en"
+        "abscisa_ini, abscisa_fin, resumen, excel_path, ppm_path, "
+        "estado, revisado_por, nota_revision, creado_en"
     ).order("creado_en", desc=True)
     if tipo:
         q = q.eq("tipo", tipo)
+    if estado:
+        q = q.eq("estado", estado)
     return q.execute().data or []
 
 
-def cargar_inspeccion_cips(insp_id: str) -> dict:
-    cli = _client(write=False)
+def aprobar_inspeccion(insp_id: str, revisor: str = "PCC"):
+    _client(write=True).table("inspecciones").update(
+        {"estado": "aprobada", "revisado_por": revisor,
+         "revisado_en": _dt.datetime.utcnow().isoformat(), "nota_revision": None}
+    ).eq("id", insp_id).execute()
+
+
+def rechazar_inspeccion(insp_id: str, revisor: str = "PCC", nota: str = ""):
+    _client(write=True).table("inspecciones").update(
+        {"estado": "rechazada", "revisado_por": revisor,
+         "revisado_en": _dt.datetime.utcnow().isoformat(), "nota_revision": nota or None}
+    ).eq("id", insp_id).execute()
+
+
+def cargar_inspeccion_cips(insp_id: str, write: bool = False) -> dict:
+    cli = _client(write=write)
     insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
     puntos = (cli.table("puntos_cips").select("*")
               .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
@@ -244,11 +264,11 @@ def cargar_inspeccion_cips(insp_id: str) -> dict:
     return {"inspeccion": insp, "puntos": puntos, "hallazgos": hall, "tramos": tramos}
 
 
-def url_descarga(path: str, expira_seg: int = 3600) -> str | None:
+def url_descarga(path: str, expira_seg: int = 3600, write: bool = False) -> str | None:
     """URL firmada temporal para descargar un archivo del bucket."""
     if not path:
         return None
-    cli = _client(write=False)
+    cli = _client(write=write)
     try:
         r = cli.storage.from_(_BUCKET).create_signed_url(path, expira_seg)
         return r.get("signedURL") or r.get("signedUrl")
@@ -463,8 +483,8 @@ def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
 
 
 # ── Cargar detalle PAP / DCVG (portal) ──────────────────────────────────────
-def cargar_inspeccion_pap(insp_id):
-    cli = _client(write=False)
+def cargar_inspeccion_pap(insp_id, write: bool = False):
+    cli = _client(write=write)
     insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
     pts = (cli.table("puntos_pap").select("*")
            .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
@@ -473,8 +493,8 @@ def cargar_inspeccion_pap(insp_id):
     return {"inspeccion": insp, "puntos": pts, "hallazgos": hall}
 
 
-def cargar_inspeccion_dcvg(insp_id):
-    cli = _client(write=False)
+def cargar_inspeccion_dcvg(insp_id, write: bool = False):
+    cli = _client(write=write)
     insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
     postes = (cli.table("postes_dcvg").select("*")
               .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []

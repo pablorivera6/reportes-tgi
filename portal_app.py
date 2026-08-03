@@ -88,7 +88,15 @@ def _pwd_portal():
         return ""
 
 
+def _pwd_revisor():
+    try:
+        return str(st.secrets.get("portal", {}).get("reviewer_password", ""))
+    except Exception:
+        return ""
+
+
 _PWD = _pwd_portal()
+_PWD_REV = _pwd_revisor()
 if _PWD and not st.session_state.get("portal_ok"):
     st.markdown(f"""<div class="pcc-hero" style="max-width:520px;margin:3rem auto 1rem;">
       {_logo}<div><h1>Portal TGI_</h1>
@@ -100,12 +108,21 @@ if _PWD and not st.session_state.get("portal_ok"):
             clave = st.text_input("Contraseña de acceso", type="password")
             if st.form_submit_button("Entrar"):
                 import hmac
-                if hmac.compare_digest(clave, _PWD):
+                if _PWD_REV and hmac.compare_digest(clave, _PWD_REV):
                     st.session_state.portal_ok = True
+                    st.session_state.rol = "revisor"
+                    st.rerun()
+                elif hmac.compare_digest(clave, _PWD):
+                    st.session_state.portal_ok = True
+                    st.session_state.rol = "tgi"
                     st.rerun()
                 else:
                     st.error("Contraseña incorrecta.")
     st.stop()
+
+# rol activo: 'revisor' (ingeniero PCC, ve y aprueba) o 'tgi' (cliente, solo aprobadas)
+_ROL = st.session_state.get("rol", "tgi")
+_ES_REVISOR = (_ROL == "revisor")
 
 
 # ── Data de DEMOSTRACIÓN (cuando no hay Supabase) ────────────────────────────
@@ -178,17 +195,19 @@ _DEMO = not db.disponible(write=False)
 def cargar_lista():
     if _DEMO:
         return _demo_dataset()
-    return db.listar_inspecciones(None)     # todos los tipos (CIPS/PAP/DCVG)
+    # revisor ve TODAS (incl. en revisión); TGI solo aprobadas (RLS)
+    return db.listar_inspecciones(None, revisor=_ES_REVISOR)
 
 
 def cargar_detalle(insp_id, tipo):
     if _DEMO:
         return _demo_detalle(insp_id)
+    w = _ES_REVISOR
     if tipo == "PAP":
-        return db.cargar_inspeccion_pap(insp_id)
+        return db.cargar_inspeccion_pap(insp_id, write=w)
     if tipo == "DCVG":
-        return db.cargar_inspeccion_dcvg(insp_id)
-    return db.cargar_inspeccion_cips(insp_id)
+        return db.cargar_inspeccion_dcvg(insp_id, write=w)
+    return db.cargar_inspeccion_cips(insp_id, write=w)
 
 
 # ── Normalización de puntos para mapa/gráficas ───────────────────────────────
@@ -217,6 +236,53 @@ def _abscisa_txt(v):
     return f"K {v // 1000:03d}+{v % 1000:03d}"
 
 
+# ── Barra de revisión/aprobación (solo rol revisor) ──────────────────────────
+def _barra_revision(insp):
+    estado = insp.get("estado", "aprobada")
+    # etiqueta de estado (visible para todos)
+    _badge = {"aprobada": ("✅ Aprobada", "#1A7A4A"),
+              "en_revision": ("🕓 En revisión", "#F59E0B"),
+              "rechazada": ("✋ Rechazada", "#C7113A")}.get(estado, (estado, "#666"))
+    st.markdown(f"<span style='background:{_badge[1]}22;color:{_badge[1]};"
+                f"padding:.2rem .6rem;border-radius:999px;font-weight:700;"
+                f"font-size:.8rem'>{_badge[0]}</span>", unsafe_allow_html=True)
+    if insp.get("nota_revision"):
+        st.caption(f"Nota de revisión: {insp['nota_revision']}")
+    if not _ES_REVISOR or _DEMO:
+        return
+    if estado == "en_revision":
+        st.info("Revisa el dashboard y el informe descargable. Al **aprobar**, "
+                "el cliente TGI podrá verlo en el portal.")
+        ca, cb, _ = st.columns([1, 1, 3])
+        if ca.button("✅ Aprobar y publicar", key=f"apr_{insp['id']}"):
+            db.aprobar_inspeccion(insp["id"], revisor="PCC")
+            st.session_state.sel = None
+            st.session_state.sel_tipo = None
+            st.success("Inspección aprobada. Ya es visible para TGI.")
+            st.rerun()
+        with cb.popover("✋ Rechazar"):
+            _nota = st.text_input("Motivo del rechazo", key=f"nota_{insp['id']}")
+            if st.button("Confirmar rechazo", key=f"rej_{insp['id']}"):
+                db.rechazar_inspeccion(insp["id"], revisor="PCC", nota=_nota)
+                st.session_state.sel = None
+                st.session_state.sel_tipo = None
+                st.rerun()
+    elif estado == "rechazada":
+        if st.button("↩️ Reabrir para revisión", key=f"reab_{insp['id']}"):
+            _client_reabrir(insp["id"])
+            st.rerun()
+    st.divider()
+
+
+def _client_reabrir(insp_id):
+    # vuelve a 'en_revision' (usa la API de db con update directo)
+    try:
+        db._client(write=True).table("inspecciones").update(
+            {"estado": "en_revision", "nota_revision": None}).eq("id", insp_id).execute()
+    except Exception as e:
+        st.error(f"No se pudo reabrir: {e}")
+
+
 # ── Encabezado común (datos del informe) ─────────────────────────────────────
 def _encabezado(insp, subtitulo=""):
     if st.button("← Volver al listado"):
@@ -235,6 +301,7 @@ def _encabezado(insp, subtitulo=""):
     for i, (k, v) in enumerate([m for m in meta if m[1]]):
         cols[i % 4].markdown(f"<div class='insp-meta'><b>{k}</b><br>{v}</div>",
                              unsafe_allow_html=True)
+    _barra_revision(insp)
     st.divider()
 
 
@@ -263,6 +330,7 @@ def render_dashboard_cips(detalle):
     for i, (k, v) in enumerate([m for m in meta if m[1]]):
         cols[i % 4].markdown(f"<div class='insp-meta'><b>{k}</b><br>{v}</div>",
                              unsafe_allow_html=True)
+    _barra_revision(insp)
     st.divider()
 
     # KPIs de cumplimiento (criterio -850 mV del informe)
@@ -598,7 +666,7 @@ def _tabla_hallazgos(hallazgos):
 
 def _descarga_informe(insp):
     if not _DEMO and insp.get("excel_path"):
-        url = db.url_descarga(insp["excel_path"])
+        url = db.url_descarga(insp["excel_path"], write=_ES_REVISOR)
         if url:
             st.link_button("⬇️ Descargar informe (Excel)", url)
 
@@ -626,22 +694,42 @@ def render_listado():
     if fx != "Todos":
         lista = [i for i in lista if i.get("tramo") == fx]
 
+    # El revisor puede filtrar por estado (para ver lo que falta aprobar)
+    if _ES_REVISOR:
+        fe = st.radio("Estado", ["Todas", "🕓 En revisión", "✅ Aprobadas",
+                                 "✋ Rechazadas"], horizontal=True, index=0)
+        mapa_e = {"🕓 En revisión": "en_revision", "✅ Aprobadas": "aprobada",
+                  "✋ Rechazadas": "rechazada"}
+        if fe in mapa_e:
+            lista = [i for i in lista if i.get("estado") == mapa_e[fe]]
+        pend = sum(1 for i in cargar_lista() if i.get("estado") == "en_revision")
+        if pend:
+            st.warning(f"🕓 {pend} inspección(es) esperando tu aprobación.")
+
+    _EST = {"aprobada": ("✅", "#1A7A4A"), "en_revision": ("🕓", "#F59E0B"),
+            "rechazada": ("✋", "#C7113A")}
     for insp in lista:
         res = insp.get("resumen") or {}
         tipo = insp.get("tipo", "CIPS")
-        st.markdown("", unsafe_allow_html=True)
         chip, extra = _chips_listado(tipo, res)
+        est = insp.get("estado", "aprobada")
+        est_chip = ""
+        if _ES_REVISOR:
+            e = _EST.get(est, ("", "#666"))
+            est_chip = (f"<span class='chip' style='background:{e[1]}22;"
+                        f"color:{e[1]}'>{e[0]} {est.replace('_',' ')}</span>")
         c1, c2 = st.columns([5, 1])
         with c1:
             st.markdown(f"""<div class="insp-card">
               <h4><span class="chip chip-tipo">{tipo}</span> &nbsp;
-                 {insp.get('tramo','—')} · {insp.get('gasoducto','')}</h4>
+                 {insp.get('tramo','—')} · {insp.get('gasoducto','')} &nbsp; {est_chip}</h4>
               <p class="insp-meta">📅 {insp.get('fecha','—')} &nbsp;·&nbsp;
                  👷 {insp.get('inspector','—')} &nbsp;·&nbsp; OT {insp.get('ot','—')}
                  &nbsp;·&nbsp; {extra} &nbsp; {chip}</p>
             </div>""", unsafe_allow_html=True)
         with c2:
-            if st.button("Ver dashboard", key=f"ver-{insp['id']}"):
+            _lbl = "Revisar" if (_ES_REVISOR and est == "en_revision") else "Ver dashboard"
+            if st.button(_lbl, key=f"ver-{insp['id']}"):
                 st.session_state.sel = insp["id"]
                 st.session_state.sel_tipo = tipo
                 st.rerun()
@@ -891,6 +979,13 @@ with st.sidebar:
                    "de ejemplo.", icon="⚠️")
     else:
         st.success("Conectado al histórico", icon="✅")
+    if _ES_REVISOR:
+        st.info("👷 Rol: **Revisor PCC**\n\nVes también las inspecciones en "
+                "revisión y puedes aprobarlas.", icon="🛠️")
+    if st.session_state.get("portal_ok") and st.button("Salir"):
+        for k in ("portal_ok", "rol", "sel", "sel_tipo"):
+            st.session_state.pop(k, None)
+        st.rerun()
 
 st.markdown(f"""<div class="pcc-hero">{_logo}
   <div><h1>Portal de Inspecciones TGI_</h1>
