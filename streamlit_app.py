@@ -417,6 +417,37 @@ with tabs[0]:
 
 # ── Tab 2: Cargar Archivos ────────────────────────────────────────────────────
 with tabs[1]:
+    # ── Cargas pendientes (enviadas por los técnicos desde la app de campo) ────
+    if db.disponible(write=True):
+        with st.expander("📥 Cargas pendientes de los técnicos", expanded=False):
+            try:
+                _cargas = db.listar_cargas("pendiente")
+            except Exception as e:
+                _cargas = []
+                st.caption(f"(no se pudieron leer las cargas: {e})")
+            if not _cargas:
+                st.caption("No hay cargas pendientes.")
+            for _cg in _cargas:
+                st.markdown(
+                    f"**{_cg.get('tramo','—')}** · {_cg.get('tipo','')} · "
+                    f"{_cg.get('fecha','—')} · 👷 {_cg.get('tecnico','—')} · "
+                    f"{len(_cg.get('archivos') or [])} archivo(s)"
+                    + ("  · SharePoint ✓" if _cg.get('sharepoint_ok') else ""))
+                for _a in (_cg.get('archivos') or []):
+                    try:
+                        _bytes = db.descargar_carga_archivo(_a['path'])
+                        st.download_button(
+                            f"⬇️ [{_a.get('categoria')}] {_a.get('nombre')}",
+                            data=_bytes, file_name=_a.get('nombre'),
+                            key=f"dl_{_cg['id']}_{_a['path']}")
+                    except Exception as e:
+                        st.caption(f"  · {_a.get('nombre')} (error: {e})")
+                cca, ccb = st.columns([1, 3])
+                if cca.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
+                    db.marcar_carga_procesada(_cg['id'])
+                    st.rerun()
+                st.divider()
+
     c1, c2 = st.columns(2)
 
     with c1:

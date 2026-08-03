@@ -19,6 +19,7 @@ except Exception:                       # permite importar el módulo sin stream
 from dashboard import estado_cp        # criterio de estado ya testeado
 
 _BUCKET = "informes"
+_BUCKET_CARGAS = "cargas"
 
 
 # ── Configuración / cliente ─────────────────────────────────────────────────
@@ -485,3 +486,72 @@ def cargar_inspeccion_dcvg(insp_id):
             .eq("inspeccion_id", insp_id).order("abscisa_ini").execute().data) or []
     return {"inspeccion": insp, "postes": postes, "defectos": defectos,
             "resistividades": resist, "hallazgos": hall}
+
+
+# ── Cargas de campo (formulario de técnicos) ────────────────────────────────
+def _slug(txt):
+    import re as _re
+    s = _re.sub(r"[^0-9A-Za-z._-]+", "_", str(txt or "").strip())
+    return s.strip("_") or "x"
+
+
+def guardar_carga(tramo, tipo, fecha, tecnico, archivos_por_categoria, nota=""):
+    """Sube al Storage (bucket 'cargas') los archivos de cada categoría y crea la
+    fila `cargas`. Además intenta el espejo a SharePoint (si está configurado).
+
+    `archivos_por_categoria`: dict {categoria: [(nombre, bytes), ...]}.
+    Devuelve (carga_id, sharepoint_ok, n_archivos)."""
+    cli = _client(write=True)
+    fecha_s = _fecha(fecha) or "sin_fecha"
+    base = f"{_slug(tramo)}/{fecha_s}/{_slug(tipo)}"
+    indice = []
+    sp_ok = True
+    sp_intentos = 0
+
+    try:
+        import sharepoint as _sp
+        sp_activo = _sp.disponible()
+    except Exception:
+        sp_activo, _sp = False, None
+
+    for categoria, archivos in (archivos_por_categoria or {}).items():
+        for nombre, contenido in archivos:
+            path = f"{base}/{_slug(categoria)}/{_slug(nombre)}"
+            cli.storage.from_(_BUCKET_CARGAS).upload(
+                path, contenido, {"content-type": "application/octet-stream",
+                                  "upsert": "true"})
+            indice.append({"categoria": categoria, "nombre": nombre,
+                           "path": path, "size": len(contenido)})
+            if sp_activo:
+                sp_intentos += 1
+                if not _sp.enviar_archivo(tramo, tipo, fecha_s, tecnico,
+                                          categoria, nombre, contenido):
+                    sp_ok = False
+
+    sharepoint_ok = bool(sp_activo and sp_intentos and sp_ok)
+    fila = {"tramo": tramo, "tipo": tipo, "fecha": _fecha(fecha), "tecnico": tecnico,
+            "estado": "pendiente", "archivos": indice, "nota": nota or None,
+            "sharepoint_ok": sharepoint_ok}
+    carga_id = cli.table("cargas").insert(fila).execute().data[0]["id"]
+    return carga_id, sharepoint_ok, len(indice)
+
+
+def listar_cargas(estado="pendiente"):
+    cli = _client(write=True)          # cargas no son visibles al anon (RLS)
+    q = cli.table("cargas").select("*").order("creado_en", desc=True)
+    if estado:
+        q = q.eq("estado", estado)
+    return q.execute().data or []
+
+
+def descargar_carga_archivo(path) -> bytes:
+    """Descarga un archivo del bucket de cargas (para la app de procesamiento)."""
+    cli = _client(write=True)
+    return cli.storage.from_(_BUCKET_CARGAS).download(path)
+
+
+def marcar_carga_procesada(carga_id):
+    cli = _client(write=True)
+    cli.table("cargas").update(
+        {"estado": "procesada", "procesada_en": _dt.datetime.utcnow().isoformat()}
+    ).eq("id", carga_id).execute()
