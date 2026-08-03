@@ -1525,26 +1525,27 @@ class AppWindow(QMainWindow):
         """Carga el FastField DCVG (postes+defectos) y, opcionalmente, el de
         Resistividades. Autollena el técnico/equipos igual que CIPS."""
         try:
-            dcvg_f, _ = QFileDialog.getOpenFileName(
-                self, "Seleccionar FastField DCVG", "", "Excel (*.xlsx)")
-            if not dcvg_f:
-                return
-            resist_f, _ = QFileDialog.getOpenFileName(
-                self, "Seleccionar FastField Resistividades (opcional)", "",
+            dcvg_fs, _ = QFileDialog.getOpenFileNames(
+                self, "Seleccionar FastField DCVG (uno o varios)", "",
                 "Excel (*.xlsx)")
-            campo_f, _ = QFileDialog.getOpenFileName(
-                self, "Seleccionar data cruda de campo / logger (para hallazgos)",
+            if not dcvg_fs:
+                return
+            resist_fs, _ = QFileDialog.getOpenFileNames(
+                self, "Seleccionar FastField Resistividades (uno o varios, opcional)",
                 "", "Excel (*.xlsx)")
-            from dcvg_reader import (leer_dcvg_fastfield,
-                                     leer_resistividades_fastfield,
-                                     leer_hallazgos_logger)
-            d = leer_dcvg_fastfield(dcvg_f)
+            campo_fs, _ = QFileDialog.getOpenFileNames(
+                self, "Seleccionar data cruda de campo / logger (uno o varios, hallazgos)",
+                "", "Excel (*.xlsx)")
+            from dcvg_reader import (leer_dcvg_fastfield_varios,
+                                     leer_resistividades_fastfield_varios,
+                                     leer_hallazgos_logger_varios)
+            d = leer_dcvg_fastfield_varios(dcvg_fs)
             self.data['dcvg_postes'] = d['postes']
             self.data['dcvg_defectos'] = d['defectos']
             self.data['dcvg_resist'] = (
-                leer_resistividades_fastfield(resist_f) if resist_f else [])
+                leer_resistividades_fastfield_varios(resist_fs) if resist_fs else [])
             self.data['dcvg_hallazgos'] = (
-                leer_hallazgos_logger(campo_f) if campo_f else [])
+                leer_hallazgos_logger_varios(campo_fs) if campo_fs else [])
             tecnico = d['meta'].get('tecnico', '')
             msg_tec = ""
             if tecnico:

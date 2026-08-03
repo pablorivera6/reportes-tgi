@@ -174,6 +174,35 @@ _RE_SOLO_RESIST = re.compile(
     r'^\s*(pk\s*\d+\s*\+?\s*\d*\s*)?toma\s+resistivida[d]?\s*$', re.IGNORECASE)
 
 
+def leer_dcvg_fastfield_varios(rutas):
+    """Combina varios FastField DCVG en un solo dict (postes/defectos unidos;
+    meta del primero que traiga técnico)."""
+    postes, defectos, meta = [], [], {}
+    for r in rutas:
+        d = leer_dcvg_fastfield(r)
+        postes += d["postes"]
+        defectos += d["defectos"]
+        if not meta.get("tecnico") and d["meta"].get("tecnico"):
+            meta = d["meta"]
+        elif not meta:
+            meta = d["meta"]
+    return {"meta": meta, "postes": postes, "defectos": defectos}
+
+
+def leer_resistividades_fastfield_varios(rutas):
+    out = []
+    for r in rutas:
+        out += leer_resistividades_fastfield(r)
+    return out
+
+
+def leer_hallazgos_logger_varios(rutas):
+    out = []
+    for r in rutas:
+        out += leer_hallazgos_logger(r)
+    return out
+
+
 def leer_hallazgos_logger(ruta):
     """Hallazgos del informe DCVG desde la data cruda del logger (hoja DCP
     Data): filas con comentario de campo (cruces, tramos enmontados, saltos,

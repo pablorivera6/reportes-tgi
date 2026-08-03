@@ -632,28 +632,30 @@ with tabs[1]:
         if st.session_state.get("flash_dcvg"):
             st.success(st.session_state.flash_dcvg)
             st.session_state.flash_dcvg = None
-        dcvg_ff = st.file_uploader("FastField DCVG", type=["xlsx"], key="up_dcvg")
+        dcvg_ff = st.file_uploader("FastField DCVG", type=["xlsx"],
+                                   accept_multiple_files=True, key="up_dcvg")
         resist_ff = st.file_uploader("FastField Resistividades", type=["xlsx"],
-                                     key="up_resist")
+                                     accept_multiple_files=True, key="up_resist")
         campo_ff = st.file_uploader("Data cruda de campo (logger, para hallazgos)",
-                                    type=["xlsx"], key="up_dcvg_campo")
+                                    type=["xlsx"], accept_multiple_files=True,
+                                    key="up_dcvg_campo")
         if st.button("Procesar DCVG"):
             if not dcvg_ff:
                 st.warning("Sube al menos el FastField de DCVG.")
             else:
                 try:
-                    from dcvg_reader import (leer_dcvg_fastfield,
-                                             leer_resistividades_fastfield,
-                                             leer_hallazgos_logger)
-                    d = leer_dcvg_fastfield(_tmp_files([dcvg_ff])[0])
+                    from dcvg_reader import (leer_dcvg_fastfield_varios,
+                                             leer_resistividades_fastfield_varios,
+                                             leer_hallazgos_logger_varios)
+                    d = leer_dcvg_fastfield_varios(_tmp_files(dcvg_ff))
                     data['dcvg_postes'] = d['postes']
                     data['dcvg_defectos'] = d['defectos']
                     if resist_ff:
-                        data['dcvg_resist'] = leer_resistividades_fastfield(
-                            _tmp_files([resist_ff])[0])
+                        data['dcvg_resist'] = leer_resistividades_fastfield_varios(
+                            _tmp_files(resist_ff))
                     if campo_ff:
-                        data['dcvg_hallazgos'] = leer_hallazgos_logger(
-                            _tmp_files([campo_ff])[0])
+                        data['dcvg_hallazgos'] = leer_hallazgos_logger_varios(
+                            _tmp_files(campo_ff))
                     tecnico = d['meta'].get('tecnico', '')
                     if tecnico:
                         data['info']['inspector'] = tecnico
