@@ -665,6 +665,221 @@ def _chips_listado(tipo, res):
     return chip, extra
 
 
+# ── Vista consolidada por tramo (CIPS + PAP + DCVG juntos) ───────────────────
+def _off_de_punto(p):
+    o = p.get("off_limpio") if p.get("off_limpio") is not None else p.get("off_mv")
+    return o if o is not None else p.get("off")
+
+
+def render_vista_tramo():
+    st.markdown("## Vista consolidada por tramo")
+    st.caption("Cruza protección catódica (CIPS/PAP) y defectos de recubrimiento "
+               "(DCVG) del mismo tramo, alineados por abscisa, para priorizar.")
+    try:
+        lista = cargar_lista()
+    except Exception as e:
+        st.error(f"No se pudo leer el histórico: {e}")
+        return
+    if not lista:
+        st.info("Aún no hay inspecciones publicadas.")
+        return
+
+    # agrupar por tramo -> tipo -> inspecciones (más recientes primero)
+    por_tramo = {}
+    for i in lista:
+        por_tramo.setdefault(i.get("tramo") or "—", {}).setdefault(i.get("tipo"), []).append(i)
+    tramos = sorted(por_tramo)
+    tramo = st.selectbox("Tramo", tramos, index=0)
+    grupos = por_tramo[tramo]
+
+    # elegir una inspección por tipo (por defecto la más reciente)
+    st.markdown("**Inspecciones del tramo**")
+    cols = st.columns(3)
+    elegidas = {}
+    for j, tp in enumerate(["CIPS", "PAP", "DCVG"]):
+        insps = sorted(grupos.get(tp, []), key=lambda x: x.get("fecha") or "",
+                       reverse=True)
+        with cols[j]:
+            if insps:
+                op = {f"{x.get('fecha','—')} · OT {x.get('ot','—')}": x for x in insps}
+                sel = st.selectbox(f"{tp}", list(op.keys()), key=f"vt_{tp}")
+                elegidas[tp] = op[sel]
+            else:
+                st.selectbox(f"{tp}", ["— sin data —"], key=f"vt_{tp}", disabled=True)
+
+    if not elegidas:
+        st.info("Este tramo aún no tiene inspecciones para consolidar.")
+        return
+
+    # cargar detalles
+    det = {}
+    if _DEMO:
+        for tp, insp in elegidas.items():
+            det[tp] = _demo_detalle(insp["id"])
+    else:
+        for tp, insp in elegidas.items():
+            if tp == "CIPS":
+                det[tp] = db.cargar_inspeccion_cips(insp["id"])
+            elif tp == "PAP":
+                det[tp] = db.cargar_inspeccion_pap(insp["id"])
+            else:
+                det[tp] = db.cargar_inspeccion_dcvg(insp["id"])
+
+    st.divider()
+    # KPIs por tipo
+    kcols = st.columns(3)
+    for j, tp in enumerate(["CIPS", "PAP", "DCVG"]):
+        with kcols[j]:
+            if tp in elegidas:
+                r = elegidas[tp].get("resumen") or {}
+                if tp == "DCVG":
+                    st.metric(f"{tp} · defectos críticos",
+                              r.get("n_criticos", 0),
+                              help="Defectos Mediano + Grande")
+                else:
+                    pct = r.get("pct_cumple")
+                    st.metric(f"{tp} · % cumple −850",
+                              f"{pct:.0f}%" if pct is not None else "—")
+            else:
+                st.metric(f"{tp}", "sin data")
+
+    # gráfica alineada por abscisa (potencial arriba, severidad DCVG abajo)
+    st.markdown("**Protección vs defectos — alineado por abscisa**")
+    _grafica_consolidada(det)
+
+    # mapa combinado
+    st.markdown("**Mapa combinado**")
+    _mapa_consolidado(det)
+
+    # zonas críticas: desprotegido + defecto DCVG cercano
+    st.markdown("**🚩 Zonas críticas** (ducto desprotegido con defecto de recubrimiento)")
+    _zonas_criticas(det)
+
+
+def _grafica_consolidada(det):
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        tiene_dcvg = "DCVG" in det and det["DCVG"]["defectos"]
+        filas = 2 if tiene_dcvg else 1
+        fig = make_subplots(rows=filas, cols=1, shared_xaxes=True,
+                            vertical_spacing=0.08,
+                            row_heights=[0.6, 0.4] if tiene_dcvg else [1.0],
+                            subplot_titles=(["Potencial OFF (protección)",
+                                             "Severidad de defectos DCVG"]
+                                            if tiene_dcvg else ["Potencial OFF (protección)"]))
+        # CIPS (línea)
+        if "CIPS" in det:
+            d = pd.DataFrame(det["CIPS"]["puntos"])
+            if not d.empty:
+                d["off"] = d.apply(_off_de_punto, axis=1)
+                d = d.dropna(subset=["abscisa", "off"]).sort_values("abscisa")
+                fig.add_trace(go.Scatter(x=d["abscisa"], y=d["off"], mode="lines",
+                              name="CIPS OFF", line=dict(color="#C7113A", width=1.3)),
+                              row=1, col=1)
+        # PAP (marcadores)
+        if "PAP" in det:
+            d = pd.DataFrame(det["PAP"]["puntos"])
+            if not d.empty:
+                d["off"] = d.apply(_off_de_punto, axis=1)
+                d = d.dropna(subset=["abscisa", "off"]).sort_values("abscisa")
+                fig.add_trace(go.Scatter(x=d["abscisa"], y=d["off"], mode="markers",
+                              name="PAP OFF", marker=dict(color="#1F6FEB", size=6)),
+                              row=1, col=1)
+        fig.add_hline(y=-850, line=dict(color="#1A7A4A", dash="dash"), row=1, col=1)
+        fig.update_yaxes(title_text="mV", row=1, col=1)
+        # DCVG severidad (barras)
+        if tiene_dcvg:
+            dd = pd.DataFrame(det["DCVG"]["defectos"]).dropna(subset=["abscisa"])
+            if "severidad_pct" in dd:
+                dd = dd.dropna(subset=["severidad_pct"])
+                colores = dd["clasificacion"].map(COLOR_CLAS).fillna("#9CA3AF")
+                fig.add_trace(go.Bar(x=dd["abscisa"], y=dd["severidad_pct"],
+                              marker_color=list(colores), name="Severidad %IR",
+                              width=[15] * len(dd)), row=2, col=1)
+                for y, col in [(15, "#84B84C"), (35, "#F59E0B"), (60, "#C7113A")]:
+                    fig.add_hline(y=y, line=dict(color=col, dash="dash"), row=2, col=1)
+                fig.update_yaxes(title_text="%IR", row=2, col=1)
+            fig.update_xaxes(title_text="Abscisa [m]", row=2, col=1)
+        else:
+            fig.update_xaxes(title_text="Abscisa [m]", row=1, col=1)
+        fig.update_layout(height=520 if tiene_dcvg else 340, showlegend=True,
+                          margin=dict(t=40, b=10, l=10, r=10),
+                          legend=dict(orientation="h", y=-0.12))
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.caption(f"(gráfica consolidada no disponible: {e})")
+
+
+def _mapa_consolidado(det):
+    filas = []
+    if "CIPS" in det:
+        for p in det["CIPS"]["puntos"]:
+            est = p.get("estado") or estado_cp(_off_de_punto(p))
+            filas.append({"lat": p.get("lat"), "lon": p.get("lon"),
+                          "color": COLOR_ESTADO.get(est, "#9CA3AF")})
+    if "PAP" in det:
+        for p in det["PAP"]["puntos"]:
+            est = p.get("estado") or estado_cp(_off_de_punto(p))
+            filas.append({"lat": p.get("lat"), "lon": p.get("lon"),
+                          "color": COLOR_ESTADO.get(est, "#9CA3AF")})
+    if "DCVG" in det:
+        for d in det["DCVG"]["defectos"]:
+            filas.append({"lat": d.get("lat"), "lon": d.get("lon"),
+                          "color": COLOR_CLAS.get(d.get("clasificacion"), "#111111")})
+    mp = pd.DataFrame(filas).dropna(subset=["lat", "lon"])
+    if not mp.empty:
+        st.map(mp.rename(columns={"lat": "latitude", "lon": "longitude"}),
+               latitude="latitude", longitude="longitude", color="color", size=7)
+        st.caption("Protección 🟢🔴🔵 (CIPS/PAP) · Defectos DCVG 🟩🟧🔴 por severidad")
+    else:
+        st.info("No hay coordenadas para el mapa combinado.")
+
+
+def _zonas_criticas(det, umbral_m=25):
+    """Defectos DCVG Mediano/Grande cuyo potencial CIPS/PAP más cercano indica
+    desprotección (OFF > −850 mV): máxima prioridad de intervención."""
+    if "DCVG" not in det or not det["DCVG"]["defectos"]:
+        st.caption("No hay defectos DCVG en este tramo para cruzar.")
+        return
+    # potenciales disponibles (CIPS + PAP) como (abscisa, off)
+    pots = []
+    for tp in ("CIPS", "PAP"):
+        if tp in det:
+            for p in det[tp]["puntos"]:
+                a, o = p.get("abscisa"), _off_de_punto(p)
+                if a is not None and o is not None:
+                    pots.append((a, o))
+    filas = []
+    for d in det["DCVG"]["defectos"]:
+        if d.get("clasificacion") not in ("Mediano", "Grande"):
+            continue
+        a = d.get("abscisa")
+        if a is None:
+            continue
+        cerc = min(pots, key=lambda t: abs(t[0] - a)) if pots else None
+        off = cerc[1] if cerc else None
+        desprot = off is not None and off > -850
+        filas.append({
+            "Abscisa": _abscisa_txt(a), "Severidad": d.get("clasificacion"),
+            "%IR": d.get("severidad_pct"),
+            "OFF cercano [mV]": round(off, 1) if off is not None else None,
+            "Estado CP": "Desprotegido" if desprot else (
+                "Protegido" if off is not None else "sin dato"),
+            "Prioridad": "🔴 ALTA" if desprot else "🟠 Media",
+        })
+    if not filas:
+        st.success("Sin zonas críticas: no hay defectos medianos/grandes en zonas "
+                   "desprotegidas.")
+        return
+    dfz = pd.DataFrame(filas)
+    altas = (dfz["Prioridad"] == "🔴 ALTA").sum()
+    if altas:
+        st.error(f"⚠️ {altas} zona(s) de prioridad ALTA: defecto grande/mediano "
+                 f"donde el ducto está desprotegido.")
+    st.dataframe(dfz.sort_values("Prioridad"), use_container_width=True, height=240)
+
+
 # ── App ──────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"<div style='text-align:center'>{_logo}<br>"
@@ -679,11 +894,25 @@ with st.sidebar:
 
 st.markdown(f"""<div class="pcc-hero">{_logo}
   <div><h1>Portal de Inspecciones TGI_</h1>
-  <p>PCC Integrity — Protección catódica · CIPS</p></div>
+  <p>PCC Integrity — Protección catódica · CIPS · PAP · DCVG</p></div>
   <div class="pcc-badge">fits<br>you_</div></div>""", unsafe_allow_html=True)
 
 st.session_state.setdefault("sel", None)
 st.session_state.setdefault("sel_tipo", None)
+st.session_state.setdefault("vista", "inspeccion")
+
+# Navegación: por inspección individual o vista consolidada por tramo
+if not st.session_state.sel:
+    nv1, nv2, _ = st.columns([1.2, 1.4, 3])
+    if nv1.button("📋 Por inspección",
+                  type=("primary" if st.session_state.vista == "inspeccion" else "secondary")):
+        st.session_state.vista = "inspeccion"
+        st.rerun()
+    if nv2.button("🔎 Vista por tramo",
+                  type=("primary" if st.session_state.vista == "tramo" else "secondary")):
+        st.session_state.vista = "tramo"
+        st.rerun()
+
 if st.session_state.sel:
     try:
         _tipo = st.session_state.sel_tipo or "CIPS"
@@ -700,6 +929,8 @@ if st.session_state.sel:
             st.session_state.sel = None
             st.session_state.sel_tipo = None
             st.rerun()
+elif st.session_state.vista == "tramo":
+    render_vista_tramo()
 else:
     render_listado()
 
