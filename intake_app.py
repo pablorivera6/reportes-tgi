@@ -106,24 +106,14 @@ def _tramos_disponibles():
 # Casillas por tipo de inspección: (clave, etiqueta, requerido, tipos_archivo)
 _XLS = ["xlsx", "xls"]
 _IMG = ["jpg", "jpeg", "png", "heic"]
-CATEGORIAS = {
-    "CIPS": [
-        ("cips", "Archivo CIPS (iBTVM)", True, _XLS),
-        ("fotos", "Fotos de la inspección", False, _IMG),
-    ],
-    "PAP": [
-        ("huellas", "Archivo de huellas (FastField)", True, _XLS),
-        ("equipos", "Listado de equipos (opcional)", False, _XLS),
-        ("rectificador", "Rectificador URPC (opcional)", False, _XLS),
-        ("aislamientos", "Aislamientos FastField (opcional)", False, _XLS),
-        ("fotos", "Fotos de la inspección", False, _IMG),
-    ],
-    "DCVG": [
-        ("dcvg", "FastField DCVG", True, _XLS),
-        ("resistividades", "Resistividades", True, _XLS),
-        ("logger", "Data cruda del logger", True, _XLS),
-        ("fotos", "Fotos de la inspección", False, _IMG),
-    ],
+# El catálogo de casillas (mapeadas a las carpetas del entregable 6.3.5) vive en
+# entrega.py y lo comparten el formulario y el armador del paquete.
+from entrega import CATALOGO
+
+_GRUPO_TITULO = {
+    "proc": "📊 Datos para procesar el informe",
+    "crudo": "🗄️ Crudos para el dossier (huellas, GPS, data logger)",
+    "rf": "📷 Registro fotográfico (RF) — mín. 5 fotos por elemento",
 }
 
 
@@ -161,18 +151,27 @@ tecnico = col4.text_input("Tu nombre (técnico) *")
 
 st.divider()
 st.markdown(f"**Archivos para inspección {tipo}** "
-            f"<span class='slot-req'>(*) obligatorio</span>", unsafe_allow_html=True)
+            f"<span class='slot-req'>(*) obligatorio</span> — cada casilla se "
+            f"guarda en su carpeta del entregable.", unsafe_allow_html=True)
 
+_casillas = CATALOGO[tipo]
 uploads = {}
-for clave, etiqueta, requerido, tipos in CATEGORIAS[tipo]:
-    label = f"{etiqueta}{' *' if requerido else ''}"
-    uploads[clave] = st.file_uploader(label, type=tipos,
-                                      accept_multiple_files=True, key=f"up_{tipo}_{clave}")
+# agrupar casillas por grupo (proc / crudo / RF) con su título
+for grupo in ("proc", "crudo", "rf"):
+    delg = [c for c in _casillas if c["grupo"] == grupo]
+    if not delg:
+        continue
+    st.markdown(f"##### {_GRUPO_TITULO[grupo]}")
+    for c in delg:
+        label = f"{c['etiqueta']}{' *' if c['req'] else ''}"
+        uploads[c["clave"]] = st.file_uploader(
+            label, type=c["tipos"], accept_multiple_files=True,
+            key=f"up_{tipo}_{c['clave']}")
 
 nota = st.text_area("Nota / observaciones (opcional)", height=70)
 
 # validación
-_faltan_req = [et for (cl, et, req, _t) in CATEGORIAS[tipo] if req and not uploads.get(cl)]
+_faltan_req = [c["etiqueta"] for c in _casillas if c["req"] and not uploads.get(c["clave"])]
 _falta_meta = not (tramo and tecnico)
 
 if st.button("📤 Enviar carga", disabled=(_falta_meta or bool(_faltan_req))):

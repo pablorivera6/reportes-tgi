@@ -412,12 +412,12 @@ def autocargar_carga(cg):
     if cg.get("tipo"):
         data['info']['tipo_inspeccion'] = cg["tipo"]
 
-    # PAP / huellas (FASTFIELD)
-    if cats.get("huellas"):
+    # PAP (FastField de potenciales)
+    if cats.get("fastfield_pap"):
         try:
             reader = FastFieldReader()
             n = 0
-            for ruta in cats["huellas"]:
+            for ruta in cats["fastfield_pap"]:
                 d = reader.read(ruta)
                 data['potenciales'].extend(d['potenciales'])
                 n += len(d['potenciales'])
@@ -507,10 +507,73 @@ def autocargar_carga(cg):
         except Exception as e:
             avisos.append(f"CIPS: {e}")
 
-    if cats.get("fotos"):
-        avisos.append(f"{sum(len(v) for k,v in cats.items() if k=='fotos')} foto(s): "
-                      "cárgalas en la pestaña 'Fotos IA' (no se auto-procesan).")
+    n_fotos = sum(len(v) for k, v in cats.items() if k.startswith("foto"))
+    if n_fotos:
+        avisos.append(f"{n_fotos} foto(s) quedan para el paquete de entrega (RF).")
+    # recordar la carga para armar el paquete de entrega en 'Generar'
+    st.session_state.carga_actual = cg
     return msgs, avisos
+
+
+def _construir_kmz_sesion():
+    """Arma el KMZ de la inspección desde la data en sesión (según el tipo)."""
+    try:
+        import entrega
+        from cips_adapter import cips_a_hallazgos
+        tipo = data['info'].get('tipo_inspeccion', '')
+        cp, defectos, hall = [], [], []
+        if data['cips']:
+            for c in data['cips']:
+                off = c.get('off_limpio') if c.get('off_limpio') is not None else c.get('off_mv')
+                on = c.get('on_limpio') if c.get('on_limpio') is not None else c.get('on_mv')
+                cp.append({'lat': c.get('lat'), 'lon': c.get('lon'),
+                           'abscisa': c.get('abscisa_val'), 'on': on, 'off': off})
+            hall = cips_a_hallazgos(data['cips'])
+        elif data['potenciales']:
+            for p in data['potenciales']:
+                cp.append({'lat': p.get('lat'), 'lon': p.get('lon'),
+                           'abscisa': p.get('abscisa') if p.get('abscisa') is not None else p.get('pk_m'),
+                           'on': p.get('on_mv') or p.get('on'),
+                           'off': p.get('off_mv') or p.get('off')})
+            hall = data['hallazgos']
+        if data['dcvg_defectos']:
+            import db as _db
+            sev = _db._severidad_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
+            for d, s in zip(data['dcvg_defectos'], sev):
+                defectos.append({'lat': d.get('lat'), 'lon': d.get('lon'),
+                                 'abscisa': d.get('pk_m'),
+                                 'severidad_pct': s['severidad_pct'],
+                                 'clasificacion': s['clasificacion']})
+            hall = cips_a_hallazgos(data['dcvg_hallazgos'])
+        if not (cp or defectos or hall):
+            return None
+        nombre = f"{data['info'].get('tramo','')} {tipo}".strip() or "Inspección TGI"
+        return entrega.construir_kmz(nombre, cp_puntos=cp, defectos=defectos, hallazgos=hall)
+    except Exception:
+        return None
+
+
+def _armar_paquete_entrega(codigo, kmz_bytes):
+    """Reúne la carga del técnico (crudos + fotos, re-descargados de Supabase) +
+    informe + PPM + KMZ, y arma el ZIP con la estructura del contrato."""
+    import entrega
+    tipo = data['info'].get('tipo_inspeccion', 'CIPS')
+    archivos_por_categoria = {}
+    cg = st.session_state.get('carga_actual')
+    if cg:
+        for a in (cg.get('archivos') or []):
+            try:
+                contenido = db.descargar_carga_archivo(a['path'])
+                archivos_por_categoria.setdefault(a.get('categoria'), []).append(
+                    (a.get('nombre'), contenido))
+            except Exception:
+                continue
+    informe = ((st.session_state.informe_nombre, st.session_state.informe_bytes)
+               if st.session_state.informe_bytes else None)
+    ppm = ((st.session_state.informe_nombre.replace("REP", "PPM"), st.session_state.ppm_bytes)
+           if st.session_state.ppm_bytes else None)
+    return entrega.construir_paquete(codigo, tipo, archivos_por_categoria,
+                                     informe=informe, ppm=ppm, kmz=kmz_bytes)
 
 
 tabs = st.tabs(["📝 Datos Generales", "📂 Cargar Archivos", "📊 Potenciales PAP",
@@ -1186,6 +1249,35 @@ with tabs[11]:
         else:
             st.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
                                file_name=st.session_state.informe_nombre, mime=_mime)
+
+        # ── KMZ de la inspección + Paquete de entrega (numeral 6.3.5) ─────────
+        st.divider()
+        _kmz_bytes = _construir_kmz_sesion()
+        _codigo = os.path.splitext(st.session_state.informe_nombre or "inspeccion")[0]
+        if _kmz_bytes:
+            e1, e2 = st.columns(2)
+            e1.download_button("🗺️ Descargar KMZ de la inspección", data=_kmz_bytes,
+                               file_name=f"{_codigo}.kmz",
+                               mime="application/vnd.google-earth.kmz")
+            with e2:
+                if st.button("📦 Generar paquete de entrega (ZIP)"):
+                    try:
+                        with st.spinner("Armando el paquete con la estructura del contrato..."):
+                            zip_bytes, resumen = _armar_paquete_entrega(_codigo, _kmz_bytes)
+                        st.session_state.paquete_zip = zip_bytes
+                        st.session_state.paquete_nombre = f"{_codigo}_ENTREGA.zip"
+                        st.session_state.paquete_resumen = resumen
+                    except Exception as e:
+                        st.error(f"No se pudo armar el paquete: {e}")
+        if st.session_state.get("paquete_zip"):
+            st.success("Paquete listo — carpetas: "
+                       + " · ".join(f"{c} ({n})" for c, n in st.session_state.paquete_resumen))
+            st.download_button("⬇️ Descargar paquete de entrega",
+                               data=st.session_state.paquete_zip,
+                               file_name=st.session_state.paquete_nombre,
+                               mime="application/zip")
+            st.caption("Incluye informe, PPM, KMZ y los crudos/fotos que subió el "
+                       "técnico, organizados según el numeral 6.3.5.")
 
         # ── Publicar al portal TGI (CIPS / PAP / DCVG) ────────────────────────
         _tipo_pub = ("CIPS" if data['cips'] else
