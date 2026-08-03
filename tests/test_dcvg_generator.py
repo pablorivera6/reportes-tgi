@@ -63,9 +63,8 @@ def test_fill_dcvg_ordena_y_mapea(tmp_path):
     assert ws.cell(row=9, column=11).value == 52.9   # K (O)
     assert ws.cell(row=9, column=12).value == "CC"   # L caracter
     assert ws.cell(row=9, column=13).value == 95.7   # M OL/RE
-    # %IR en U (porque CC) = OL/RE como fracción para el formato '0%' (=M/100),
-    # y P/RE (Q) interpolada
-    assert str(ws.cell(row=9, column=21).value) == "=M9/100"              # U
+    # %IR en U (porque CC) = OL/RE ÷ P/RE (=M/Q), formato '0%' lo muestra como %
+    assert str(ws.cell(row=9, column=21).value) == "=M9/Q9"              # U
     assert str(ws.cell(row=9, column=17).value).startswith("=((P")        # Q interpolación
     # clasificación V con umbrales en fracción (0.15/0.35/0.6)
     v = str(ws.cell(row=9, column=22).value)

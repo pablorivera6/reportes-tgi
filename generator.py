@@ -1136,19 +1136,19 @@ class ReportGenerator:
                 # P/RE (Q): pulso interpolado entre los postes que rodean
                 pa = max([fp for fp in fila_poste if fp < row], default=None)
                 ps = min([fp for fp in fila_poste if fp > row], default=None)
+                tiene_pre = bool(pa or ps)
                 if pa and ps:
                     self._safe_write(ws, row, 17,
                         f"=((P{ps}-P{pa})/(D{ps}-D{pa})*(D{row}-D{pa}))+P{pa}")
                 elif pa or ps:
                     self._safe_write(ws, row, 17, f"=P{pa or ps}")           # extremo
-                # SEVERIDAD %IR: el OL/RE del FastField ya viene como % (0-100).
-                # La celda S/T/U tiene formato '0%' (multiplica ×100 al mostrar),
-                # así que se guarda como fracción (=M/100) para que aparezca
-                # "95.7%". La clasificación compara contra fracciones
-                # (0.15/0.35/0.60), no contra 15/35/60.
+                # SEVERIDAD %IR = OL/RE ÷ P/RE (=M/Q). La celda S/T/U tiene
+                # formato '0%', así que la fracción M/Q se muestra como
+                # porcentaje. La clasificación compara contra fracciones
+                # (0.15/0.35/0.60).
                 col_sev = _COLSEV.get(car)
-                if col_sev and r.get('ol_re') is not None:
-                    self._safe_write(ws, row, col_sev, f"=M{row}/100")
+                if col_sev and r.get('ol_re') is not None and tiene_pre:
+                    self._safe_write(ws, row, col_sev, f"=M{row}/Q{row}")
                     letra = _gcl(col_sev)
                     self._safe_write(ws, row, 22,
                         f'=IF({letra}{row}="","",IF({letra}{row}<=0.15,"Muy Pequeño",'
