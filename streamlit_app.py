@@ -363,6 +363,156 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+def _resolver_shapefile_por_tramo(nombre_tramo):
+    """Busca el shapefile de un tramo por su nombre (para auto-cargar CIPS sin
+    que el ingeniero elija empresa/distrito). Devuelve (shp, emp, dist, tramo)."""
+    if not infra_tramos or not nombre_tramo:
+        return None
+    objetivo = str(nombre_tramo).strip().lower()
+    for emp in infra_tramos.empresas():
+        distritos = infra_tramos.distritos_tgi() if emp == "TGI" else [None]
+        for dist in distritos:
+            try:
+                for t in infra_tramos.tramos(emp, dist):
+                    if str(t).strip().lower() == objetivo:
+                        shp = infra_tramos.shapefile(empresa=emp, tramo=t, distrito=dist)
+                        if shp:
+                            return shp, emp, dist, t
+            except Exception:
+                continue
+    return None
+
+
+def _descargar_carga_a_temp(cg):
+    """Descarga los archivos de una carga a un tmp, agrupados por categoría.
+    Devuelve {categoria: [rutas]}."""
+    tmpdir = tempfile.mkdtemp(prefix="tgi_carga_")
+    por_cat = {}
+    for a in (cg.get("archivos") or []):
+        contenido = db.descargar_carga_archivo(a["path"])
+        ruta = os.path.join(tmpdir, a.get("nombre") or os.path.basename(a["path"]))
+        with open(ruta, "wb") as f:
+            f.write(contenido)
+        por_cat.setdefault(a.get("categoria"), []).append(ruta)
+    return por_cat
+
+
+def autocargar_carga(cg):
+    """Baja los archivos de la carga y los mete al pipeline usando los mismos
+    readers que los uploaders. Devuelve (mensajes, avisos)."""
+    msgs, avisos = [], []
+    cats = _descargar_carga_a_temp(cg)
+    # Datos generales desde la carga
+    if cg.get("tramo"):
+        data['info']['tramo'] = cg["tramo"]
+    if cg.get("fecha"):
+        data['info']['fecha'] = str(cg["fecha"])
+    if cg.get("tecnico"):
+        data['info'].setdefault('inspector', cg["tecnico"])
+    if cg.get("tipo"):
+        data['info']['tipo_inspeccion'] = cg["tipo"]
+
+    # PAP / huellas (FASTFIELD)
+    if cats.get("huellas"):
+        try:
+            reader = FastFieldReader()
+            n = 0
+            for ruta in cats["huellas"]:
+                d = reader.read(ruta)
+                data['potenciales'].extend(d['potenciales'])
+                n += len(d['potenciales'])
+                for k_src, k_dst in [('tramo', 'tramo'), ('contrato', 'contrato'),
+                                     ('tecnico', 'inspector'), ('fecha', 'fecha')]:
+                    if d.get(k_src):
+                        data['info'][k_dst] = d[k_src]
+                if d['potenciales']:
+                    st.session_state.current_route_id = d['potenciales'][0].get('route_id', '')
+            msgs.append(f"{n} potenciales (huellas/FASTFIELD)")
+        except Exception as e:
+            avisos.append(f"Huellas: {e}")
+
+    # Equipos → hallazgos
+    if cats.get("equipos"):
+        try:
+            for ruta in cats["equipos"]:
+                d = EquipoReader().read(ruta)
+                data['hallazgos'].extend(d['hallazgos'])
+            msgs.append(f"{len(data['hallazgos'])} hallazgos (equipos)")
+        except Exception as e:
+            avisos.append(f"Equipos: {e}")
+
+    # Rectificadores
+    if cats.get("rectificador"):
+        try:
+            for ruta in cats["rectificador"]:
+                d = RectificadorReader().read(ruta)
+                if d:
+                    data['rectificadores'].append(d)
+            msgs.append(f"{len(data['rectificadores'])} rectificadores")
+        except Exception as e:
+            avisos.append(f"Rectificadores: {e}")
+
+    # Aislamientos
+    if cats.get("aislamientos"):
+        try:
+            data['aislamientos'] = AislamientoReader().read_files(cats["aislamientos"])
+            msgs.append(f"{len(data['aislamientos'])} aislamientos")
+        except Exception as e:
+            avisos.append(f"Aislamientos: {e}")
+
+    # DCVG (fastfield + resistividades + logger)
+    if cats.get("dcvg"):
+        try:
+            from dcvg_reader import (leer_dcvg_fastfield_varios,
+                                     leer_resistividades_fastfield_varios,
+                                     leer_hallazgos_logger_varios)
+            d = leer_dcvg_fastfield_varios(cats["dcvg"])
+            data['dcvg_postes'] = d['postes']
+            data['dcvg_defectos'] = d['defectos']
+            if cats.get("resistividades"):
+                data['dcvg_resist'] = leer_resistividades_fastfield_varios(cats["resistividades"])
+            if cats.get("logger"):
+                data['dcvg_hallazgos'] = leer_hallazgos_logger_varios(cats["logger"])
+            msgs.append(f"DCVG: {len(d['postes'])} postes, {len(d['defectos'])} defectos, "
+                        f"{len(data['dcvg_resist'])} resist., {len(data['dcvg_hallazgos'])} hallazgos")
+        except Exception as e:
+            avisos.append(f"DCVG: {e}")
+
+    # CIPS (necesita shapefile; se resuelve por el nombre del tramo)
+    if cats.get("cips"):
+        try:
+            res = _resolver_shapefile_por_tramo(cg.get("tramo"))
+            if not res:
+                avisos.append("CIPS: no pude resolver el shapefile del tramo "
+                              f"'{cg.get('tramo')}'. Procésalo en la sección "
+                              "'Data CIPS' eligiendo empresa/distrito/tramo "
+                              "(los archivos ya están descargados abajo).")
+            else:
+                shp, emp, dist, tramo_ok = res
+                from cips_lrs import procesar_cips_lrs, tecnico_de_archivos
+                from cips_adapter import lrs_df_a_cips_dicts
+                df = procesar_cips_lrs(cats["cips"], shp)
+                data['cips'] = lrs_df_a_cips_dicts(df)
+                tec = tecnico_de_archivos(cats["cips"])
+                if tec:
+                    data['info']['inspector'] = tec
+                    serial, fc, eqs = get_equipos_for_inspector(tec)
+                    if serial:
+                        data['info']['serial_equipo'] = serial
+                    if fc:
+                        data['info']['fecha_calibracion'] = fc
+                    if eqs:
+                        st.session_state.equipos_inspector = eqs
+                msgs.append(f"{len(data['cips'])} registros CIPS (tramo {tramo_ok})")
+        except Exception as e:
+            avisos.append(f"CIPS: {e}")
+
+    if cats.get("fotos"):
+        avisos.append(f"{sum(len(v) for k,v in cats.items() if k=='fotos')} foto(s): "
+                      "cárgalas en la pestaña 'Fotos IA' (no se auto-procesan).")
+    return msgs, avisos
+
+
 tabs = st.tabs(["📝 Datos Generales", "📂 Cargar Archivos", "📊 Potenciales PAP",
                 "📉 CIPS", "⚠️ Hallazgos", "🔌 Rectificadores", "🛠️ Insp. Especiales",
                 "🔗 Aislamientos", "🖼️ Fotos IA", "📋 Conclusiones", "✍️ Firmas",
@@ -425,6 +575,9 @@ with tabs[1]:
             except Exception as e:
                 _cargas = []
                 st.caption(f"(no se pudieron leer las cargas: {e})")
+            if st.session_state.get("flash_autocarga"):
+                st.success(st.session_state.flash_autocarga)
+                st.session_state.flash_autocarga = None
             if not _cargas:
                 st.caption("No hay cargas pendientes.")
             for _cg in _cargas:
@@ -433,19 +586,33 @@ with tabs[1]:
                     f"{_cg.get('fecha','—')} · 👷 {_cg.get('tecnico','—')} · "
                     f"{len(_cg.get('archivos') or [])} archivo(s)"
                     + ("  · SharePoint ✓" if _cg.get('sharepoint_ok') else ""))
-                for _a in (_cg.get('archivos') or []):
-                    try:
-                        _bytes = db.descargar_carga_archivo(_a['path'])
-                        st.download_button(
-                            f"⬇️ [{_a.get('categoria')}] {_a.get('nombre')}",
-                            data=_bytes, file_name=_a.get('nombre'),
-                            key=f"dl_{_cg['id']}_{_a['path']}")
-                    except Exception as e:
-                        st.caption(f"  · {_a.get('nombre')} (error: {e})")
-                cca, ccb = st.columns([1, 3])
-                if cca.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
+                cca, ccb, ccc = st.columns([1.4, 1, 2])
+                # Auto-carga: baja los archivos y los mete al pipeline solo
+                if cca.button("⚙️ Traer a la app y procesar", key=f"auto_{_cg['id']}"):
+                    with st.spinner("Descargando y procesando la carga..."):
+                        try:
+                            msgs, avisos = autocargar_carga(_cg)
+                            resumen = " · ".join(msgs) if msgs else "sin datos reconocidos"
+                            st.session_state.flash_autocarga = (
+                                f"Carga de {_cg.get('tramo','')} traída: {resumen}."
+                                + ("  ⚠️ " + " ".join(avisos) if avisos else "")
+                                + "  Revisa las pestañas y ve a Generar.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"No se pudo auto-cargar: {e}")
+                if ccb.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
                     db.marcar_carga_procesada(_cg['id'])
                     st.rerun()
+                with ccc.popover("⬇️ Descargar archivos"):
+                    for _a in (_cg.get('archivos') or []):
+                        try:
+                            _bytes = db.descargar_carga_archivo(_a['path'])
+                            st.download_button(
+                                f"[{_a.get('categoria')}] {_a.get('nombre')}",
+                                data=_bytes, file_name=_a.get('nombre'),
+                                key=f"dl_{_cg['id']}_{_a['path']}")
+                        except Exception as e:
+                            st.caption(f"  · {_a.get('nombre')} (error: {e})")
                 st.divider()
 
     c1, c2 = st.columns(2)
