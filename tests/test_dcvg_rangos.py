@@ -42,3 +42,20 @@ def test_rangos_dcvg_crea_hojas_por_segmento(tmp_path):
 def test_rangos_dcvg_sin_datos_no_rompe():
     gen = ReportGenerator(resource_path("DCVG_REP.xlsx"))
     assert gen.fill_rangos_dcvg([], []) == 0
+
+
+def test_graficas_dcvg_criterios_en_porcentaje(tmp_path):
+    gen = ReportGenerator(resource_path("DCVG_REP.xlsx"))
+    postes, defectos = _datos()
+    gen.fill_dcvg(postes, defectos)
+    n = sum(1 for x in postes + defectos if x.get('pk_m') is not None)
+    gen.fill_graficas_dcvg(n, 0)
+    out = os.path.join(tmp_path, "g.xlsx")
+    gen.save(out)
+    ws = openpyxl.load_workbook(out)["GRAFICA DCVG"]
+    # criterios como fracción (no 15/35/60)
+    assert ws.cell(row=39, column=5).value == 0.15
+    assert ws.cell(row=39, column=6).value == 0.35
+    assert ws.cell(row=39, column=7).value == 0.6
+    # eje Y en porcentaje
+    assert ws._charts[0].y_axis.numFmt.formatCode == '0%'

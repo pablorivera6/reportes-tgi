@@ -1218,8 +1218,13 @@ class ReportGenerator:
 
     def fill_graficas_dcvg(self, n_inspeccion, n_resist):
         """Ajusta el rango de las series de datos de las 2 gráficas DCVG a las
-        filas realmente escritas (Inspección DCVG y Resistividad)."""
+        filas realmente escritas (Inspección DCVG y Resistividad). En la
+        gráfica DCVG la severidad se grafica como PORCENTAJE: las líneas de
+        criterio se ponen en fracción (0.15/0.35/0.60, no 15/35/60) y el eje Y
+        se formatea como '0%', para que cuadren con el %IR (=M/Q) que es
+        fracción."""
         import re
+        from openpyxl.chart.data_source import NumFmt
         planes = [
             ('GRAFICA DCVG', 'Inspección DCVG', 8, n_inspeccion),
             ('Gráfica Resistividad', 'Resistividad', 9, n_resist),
@@ -1231,7 +1236,7 @@ class ReportGenerator:
             if not getattr(ws, '_charts', None):
                 continue
             last = inicio + n - 1
-            for s in self.wb[hoja_g]._charts[0].series:
+            for s in ws._charts[0].series:
                 for ref in (s.xVal, s.yVal):
                     f = ref.numRef.f if (ref and ref.numRef) else None
                     if not f or hoja_dato not in f:
@@ -1240,6 +1245,24 @@ class ReportGenerator:
                                           lambda m: f"{m.group(1)}{inicio}:{m.group(2)}{last}", f)
                     if ref.numRef.numCache:
                         ref.numRef.numCache = None
+
+            if hoja_g == 'GRAFICA DCVG':
+                insp = self.wb['Inspección DCVG']
+                d_ini = insp.cell(row=inicio, column=4).value
+                d_fin = insp.cell(row=last, column=4).value
+                # extremos de abscisa de las líneas de criterio (D39:D40)
+                self._safe_write(ws, 39, 4, d_ini if d_ini is not None else 0)
+                self._safe_write(ws, 40, 4, d_fin if d_fin is not None else 0)
+                # criterios como fracción (%): 15%→0.15, 35%→0.35, 60%→0.60
+                for rc in (39, 40):
+                    self._safe_write(ws, rc, 5, 0.15)   # E
+                    self._safe_write(ws, rc, 6, 0.35)   # F
+                    self._safe_write(ws, rc, 7, 0.60)   # G
+                try:
+                    ws._charts[0].y_axis.numFmt = NumFmt(formatCode='0%',
+                                                         sourceLinked=False)
+                except Exception:
+                    pass
 
     def fill_rangos_dcvg(self, postes, defectos, seg_m=5000, max_hojas=60):
         """Crea las hojas por rango (~5 km) del informe DCVG: cada una es una
