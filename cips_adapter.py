@@ -103,28 +103,31 @@ def lrs_df_a_cips_dicts(df):
             "lat": _num(row.get("Lat_corr")),
             "lon": _num(row.get("Long_corr")),
         })
-    return _un_punto_por_abscisa(salida)
+    return _quitar_duplicados(salida)
 
 
 _CLAVES_COMPLETAR = ("metal_on", "metal_off", "far_on", "far_off",
                      "near_on", "near_off", "vac")
 
 
-def _un_punto_por_abscisa(salida):
-    """Deja UN punto por abscisa (metro). El GPS quieto hace que 2-3 lecturas
-    caigan en el mismo metro de la traza y el informe salía con filas
-    repetidas. Se conserva la primera lectura de cada abscisa; los comentarios
-    y lecturas DCP (Metal/Far/Near) de los duplicados se traspasan al punto
-    que queda para no perder información."""
-    por_absc = {}
+def _quitar_duplicados(salida):
+    """Elimina ÚNICAMENTE lecturas repetidas exactas — misma abscisa Y mismos
+    potenciales/coordenadas — que aparecen cuando dos exportes del logger se
+    solapan. Las lecturas DISTINTAS que caen en el mismo metro se CONSERVAN
+    (una inspección CIPS densa tiene varias lecturas por metro; colapsarlas
+    perdía calidad de data). Al eliminar un repetido, su comentario y sus
+    lecturas DCP (Metal/Far/Near) se traspasan a la que queda."""
+    vistos = {}
     orden = []
     for d in salida:
-        a = d.get("abscisa_val")
-        if a not in por_absc:
-            por_absc[a] = d
-            orden.append(a)
+        clave = (d.get("abscisa_val"), d.get("on_mv"), d.get("off_mv"),
+                 d.get("on_limpio"), d.get("off_limpio"),
+                 d.get("lat"), d.get("lon"))
+        if clave not in vistos:
+            vistos[clave] = d
+            orden.append(clave)
             continue
-        base = por_absc[a]
+        base = vistos[clave]              # repetido exacto: fusionar y descartar
         for k in _CLAVES_COMPLETAR:
             if base.get(k) is None and d.get(k) is not None:
                 base[k] = d[k]
@@ -132,4 +135,4 @@ def _un_punto_por_abscisa(salida):
             txt = d.get(k)
             if txt and txt not in (base.get(k) or ""):
                 base[k] = f"{base[k]} | {txt}" if base.get(k) else txt
-    return [por_absc[a] for a in orden]
+    return [vistos[c] for c in orden]
