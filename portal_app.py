@@ -120,6 +120,12 @@ if _PWD and not st.session_state.get("portal_ok"):
                     st.error("Contraseña incorrecta.")
     st.stop()
 
+# Modo local sin candado: selector de rol para poder ver ambas vistas sin login.
+if not _PWD:
+    _sel = st.sidebar.radio("Ver como (modo local)", ["Cliente TGI", "Revisor PCC"],
+                            key="rol_local")
+    st.session_state.rol = "revisor" if _sel == "Revisor PCC" else "tgi"
+
 # rol activo: 'revisor' (ingeniero PCC, ve y aprueba) o 'tgi' (cliente, solo aprobadas)
 _ROL = st.session_state.get("rol", "tgi")
 _ES_REVISOR = (_ROL == "revisor")
