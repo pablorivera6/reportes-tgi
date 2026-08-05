@@ -1,19 +1,19 @@
-# Versiones FIJADAS (reproducibilidad en Streamlit Cloud).
-# Estas son exactamente las que funcionan en el entorno probado.
-streamlit==1.51.0
-openpyxl==3.1.5
-pandas==2.3.3
-numpy==2.3.5
-scipy==1.16.3
-pyproj==3.7.2
-shapely==2.1.2
-pyshp==3.0.3
-scikit-learn==1.7.2
-pillow==12.0.0
-plotly==6.3.0
-supabase==2.31.0
+# Rangos amplios (sin pins exactos) para que Streamlit Cloud use sus wheels
+# pre-compilados y NO intente compilar pyarrow/streamlit desde cero.
+# Solo límites superiores en los majors que rompen (pandas 3, numpy 3, supabase 3).
+# NOTA: no fijar streamlit ni pyarrow — la nube ya trae versiones funcionales.
+openpyxl>=3.1
+pandas>=2.0,<3
+numpy>=1.26,<3
+scipy>=1.12
+pyproj>=3.6
+shapely>=2.0
+pyshp>=2.3
+scikit-learn>=1.4
+pillow>=10
+plotly>=5.18
+supabase>=2,<3
 
-# google-generativeai (Fotos IA) se deja FUERA a propósito: arrastra
-# grpcio/protobuf/google-api-core que rompían el build en la nube, y la
-# clasificación con IA es opcional (requiere llave Gemini). El código maneja
-# su ausencia sin fallar. Para reactivarla, agregar una versión FIJA aquí.
+# google-generativeai (Fotos IA) queda FUERA a propósito: arrastra
+# grpcio/protobuf/google-api-core que rompían el build. El código maneja su
+# ausencia sin fallar. Para reactivar Fotos IA, añadir aquí una versión probada.
