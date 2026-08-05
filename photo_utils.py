@@ -1,12 +1,18 @@
 import os
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
-import google.generativeai as genai
+
+# google-generativeai es OPCIONAL (Fotos IA). Si no está instalado, la app
+# funciona igual; solo la clasificación con IA queda deshabilitada.
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
 
 class PhotoProcessor:
     def __init__(self, api_key: str = None):
         self.api_key = api_key
-        if api_key:
+        if api_key and genai is not None:
             genai.configure(api_key=api_key)
             # Try multiple models if one is not found
             self.model_name = 'gemini-1.5-flash'

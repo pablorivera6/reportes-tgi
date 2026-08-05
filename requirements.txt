@@ -1,13 +1,19 @@
-streamlit>=1.32.0
-openpyxl>=3.1.0
-pandas>=2.0.0
-numpy>=1.26.0
-scipy>=1.12.0
-pyproj>=3.6.0
-shapely>=2.0.0
-pyshp>=2.3.1
-scikit-learn>=1.4.0
-pillow>=10.0.0
-google-generativeai>=0.7.0
-plotly>=5.18.0
-supabase>=2.0.0
+# Versiones FIJADAS (reproducibilidad en Streamlit Cloud).
+# Estas son exactamente las que funcionan en el entorno probado.
+streamlit==1.51.0
+openpyxl==3.1.5
+pandas==2.3.3
+numpy==2.3.5
+scipy==1.16.3
+pyproj==3.7.2
+shapely==2.1.2
+pyshp==3.0.3
+scikit-learn==1.7.2
+pillow==12.0.0
+plotly==6.3.0
+supabase==2.31.0
+
+# google-generativeai (Fotos IA) se deja FUERA a propósito: arrastra
+# grpcio/protobuf/google-api-core que rompían el build en la nube, y la
+# clasificación con IA es opcional (requiere llave Gemini). El código maneja
+# su ausencia sin fallar. Para reactivarla, agregar una versión FIJA aquí.
