@@ -39,6 +39,9 @@ def disponible(write: bool = False) -> bool:
     return bool(s.get("url")) and bool(s.get(key))
 
 
+_CLIENTES = {}                       # cache de clientes (reusa conexiones HTTP)
+
+
 def _client(write: bool = False):
     s = _secrets()
     url = s.get("url")
@@ -51,8 +54,11 @@ def _client(write: bool = False):
             "Supabase no está configurado. Falta url/"
             + ("service_key" if write else "anon_key")
             + " en st.secrets['supabase'].")
-    from supabase import create_client   # import perezoso (tras validar config)
-    return create_client(url, key)
+    cli = _CLIENTES.get((url, key))
+    if cli is None:
+        from supabase import create_client   # import perezoso (tras validar config)
+        cli = _CLIENTES[(url, key)] = create_client(url, key)
+    return cli
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -568,6 +574,18 @@ def descargar_carga_archivo(path) -> bytes:
     """Descarga un archivo del bucket de cargas (para la app de procesamiento)."""
     cli = _client(write=True)
     return cli.storage.from_(_BUCKET_CARGAS).download(path)
+
+
+def url_descarga_carga(path, expira_seg: int = 3600) -> str | None:
+    """URL firmada para un archivo del bucket de cargas (sin bajar los bytes)."""
+    if not path:
+        return None
+    cli = _client(write=True)
+    try:
+        r = cli.storage.from_(_BUCKET_CARGAS).create_signed_url(path, expira_seg)
+        return r.get("signedURL") or r.get("signedUrl")
+    except Exception:
+        return None
 
 
 def marcar_carga_procesada(carga_id):

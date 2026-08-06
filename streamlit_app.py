@@ -652,28 +652,108 @@ with tabs[0]:
 
 # ── Tab 2: Cargar Archivos ────────────────────────────────────────────────────
 with tabs[1]:
-    # ── Cargas pendientes (enviadas por los técnicos desde la app de campo) ────
+    # ── Bandeja de entrada: envíos FastField + cargas de los técnicos ─────────
+    # Rendimiento: una sola consulta cacheada (45 s) y descargas por enlace
+    # firmado (nada de bajar bytes en cada rerun).
     if db.disponible(write=True):
-        with st.expander("📥 Cargas pendientes de los técnicos", expanded=False):
+
+        @st.cache_data(ttl=45, show_spinner=False)
+        def _bandeja_datos():
+            errs = []
             try:
-                _cargas = db.listar_cargas("pendiente")
+                cargas = db.listar_cargas("pendiente")
             except Exception as e:
-                _cargas = []
-                st.caption(f"(no se pudieron leer las cargas: {e})")
-            if st.session_state.get("flash_autocarga"):
-                st.success(st.session_state.flash_autocarga)
-                st.session_state.flash_autocarga = None
-            if not _cargas:
-                st.caption("No hay cargas pendientes.")
-            for _cg in _cargas:
-                st.markdown(
-                    f"**{_cg.get('tramo','—')}** · {_cg.get('tipo','')} · "
-                    f"{_cg.get('fecha','—')} · 👷 {_cg.get('tecnico','—')} · "
-                    f"{len(_cg.get('archivos') or [])} archivo(s)"
-                    + ("  · SharePoint ✓" if _cg.get('sharepoint_ok') else ""))
-                cca, ccb, ccc = st.columns([1.4, 1, 2])
+                cargas = []
+                errs.append(f"cargas: {e}")
+            try:
+                cola = db.listar_cola_fastfield("nuevo")
+            except Exception as e:
+                cola = []
+                errs.append(f"FastField: {e}")
+            return cargas, cola, errs
+
+        _cargas, _cola, _errs = _bandeja_datos()
+
+        _hb1, _hb2 = st.columns([5, 1.2])
+        _hb1.markdown("#### 📬 Bandeja de entrada")
+        _hb1.caption(f"📡 {len(_cola)} envío(s) FastField · 📥 {len(_cargas)} carga(s) pendiente(s)")
+        if _hb2.button("🔄 Actualizar", key="bandeja_refresh",
+                       help="Vuelve a consultar FastField y las cargas"):
+            _bandeja_datos.clear()
+            st.rerun()
+        for _e in _errs:
+            st.caption(f"⚠️ {_e}")
+        if st.session_state.get("flash_fastfield"):
+            st.success(st.session_state.flash_fastfield)
+            st.session_state.flash_fastfield = None
+        if st.session_state.get("flash_autocarga"):
+            st.success(st.session_state.flash_autocarga)
+            st.session_state.flash_autocarga = None
+        if not _cola and not _cargas:
+            st.caption("✅ Sin novedades por ahora.")
+
+        # — Paso 1 · Envíos de FastField: traerlos y convertirlos en carga —
+        if _cola:
+            st.markdown("**📡 Nuevos envíos de FastField**")
+            import fastfield_ingest as _ffi
+            _ffi_ok = _ffi.disponible()
+            if not _ffi_ok:
+                st.warning("Faltan credenciales de FastField en secrets "
+                           "(`[fastfield]`: email, password, api_key).")
+            for _q in _cola:
+                with st.container(border=True):
+                    _qa, _qb = st.columns([4.2, 1.8])
+                    _qa.markdown(f"**{_q.get('form_name') or 'Formulario FastField'}**")
+                    _qa.caption(f"🧾 Envío `{str(_q.get('submission_id'))[:8]}…` · "
+                                f"📅 {str(_q.get('recibido_en', ''))[:16].replace('T', ' ')}")
+                    if _qb.button("⚙️ Traer y crear carga", key=f"ffi_{_q['id']}",
+                                  disabled=not _ffi_ok):
+                        with st.spinner("Bajando envío + fotos de FastField..."):
+                            try:
+                                r = _ffi.procesar_submission(_q.get("submission_id"),
+                                                             _q.get("form_id"))
+                                db.marcar_cola_fastfield(_q["id"], "procesada",
+                                                         carga_id=r["carga_id"])
+                                cc = r.get("conteos") or {}
+                                det = ", ".join(f"{v} {k}" for k, v in cc.items() if v)
+                                st.session_state.flash_fastfield = (
+                                    f"📡 {r['tipo']} de '{r['tramo']}' convertida en "
+                                    f"carga ({det or 'sin registros'}; {r['n_fotos']} "
+                                    "fotos). Ya aparece abajo como carga pendiente.")
+                                _bandeja_datos.clear()
+                                st.rerun()
+                            except Exception as e:
+                                db.marcar_cola_fastfield(_q["id"], "error", error=str(e))
+                                _bandeja_datos.clear()
+                                st.error(f"No se pudo traer: {e}")
+                    if _qb.button("🗑️ Descartar", key=f"ffd_{_q['id']}"):
+                        db.marcar_cola_fastfield(_q["id"], "error",
+                                                 error="descartada manualmente")
+                        _bandeja_datos.clear()
+                        st.rerun()
+
+        # — Paso 2 · Cargas pendientes: meterlas al pipeline del informe —
+        _ICONO_TIPO = {"CIPS": "📈", "PAP": "⚡", "DCVG": "🔎"}
+        if _cargas:
+            st.markdown("**📥 Cargas pendientes**")
+        for _cg in _cargas:
+            _arch = _cg.get('archivos') or []
+            _cats = {}
+            for _a in _arch:
+                _c = _a.get('categoria') or 'otros'
+                _cats[_c] = _cats.get(_c, 0) + 1
+            with st.container(border=True):
+                _ca, _cb = st.columns([4.2, 1.8])
+                _ca.markdown(f"**{_ICONO_TIPO.get(_cg.get('tipo'), '📦')} "
+                             f"{_cg.get('tramo', '—')}** · {_cg.get('tipo', '')} · "
+                             f"{_cg.get('fecha', '—')}")
+                _ca.caption(f"👷 {_cg.get('tecnico', '—')} · {len(_arch)} archivo(s)"
+                            + ("  · SharePoint ✓" if _cg.get('sharepoint_ok') else ""))
+                if _cats:
+                    _ca.caption("🗂 " + " · ".join(
+                        f"{c} ×{n}" for c, n in sorted(_cats.items())))
                 # Auto-carga: baja los archivos y los mete al pipeline solo
-                if cca.button("⚙️ Traer a la app y procesar", key=f"auto_{_cg['id']}"):
+                if _cb.button("⚙️ Traer y procesar", key=f"auto_{_cg['id']}"):
                     with st.spinner("Descargando y procesando la carga..."):
                         try:
                             msgs, avisos = autocargar_carga(_cg)
@@ -685,67 +765,25 @@ with tabs[1]:
                             st.rerun()
                         except Exception as e:
                             st.error(f"No se pudo auto-cargar: {e}")
-                if ccb.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
+                if _cb.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
                     db.marcar_carga_procesada(_cg['id'])
+                    _bandeja_datos.clear()
                     st.rerun()
-                with ccc.popover("⬇️ Descargar archivos"):
-                    for _a in (_cg.get('archivos') or []):
-                        try:
-                            _bytes = db.descargar_carga_archivo(_a['path'])
-                            st.download_button(
-                                f"[{_a.get('categoria')}] {_a.get('nombre')}",
-                                data=_bytes, file_name=_a.get('nombre'),
-                                key=f"dl_{_cg['id']}_{_a['path']}")
-                        except Exception as e:
-                            st.caption(f"  · {_a.get('nombre')} (error: {e})")
-                st.divider()
-
-    # ── Inspecciones nuevas de FastField (llegan solas por el webhook) ─────────
-    if db.disponible(write=True):
-        with st.expander("📡 Inspecciones nuevas de FastField", expanded=False):
-            try:
-                _cola = db.listar_cola_fastfield("nuevo")
-            except Exception as e:
-                _cola = []
-                st.caption(f"(no se pudo leer la cola: {e})")
-            if st.session_state.get("flash_fastfield"):
-                st.success(st.session_state.flash_fastfield)
-                st.session_state.flash_fastfield = None
-            import fastfield_ingest as _ffi
-            if not _ffi.disponible():
-                st.warning("Faltan credenciales de FastField en secrets "
-                           "(`fastfield`: email, password, api_key).")
-            if not _cola:
-                st.caption("No hay inspecciones nuevas de FastField.")
-            for _q in _cola:
-                st.markdown(
-                    f"**{_q.get('form_name','(formulario)')}** · "
-                    f"envío `{str(_q.get('submission_id'))[:8]}…` · "
-                    f"{str(_q.get('recibido_en',''))[:16]}")
-                qa, qb = st.columns([1.6, 1])
-                if qa.button("⚙️ Traer de FastField y crear carga",
-                             key=f"ffi_{_q['id']}", disabled=not _ffi.disponible()):
-                    with st.spinner("Bajando envío + fotos de FastField..."):
-                        try:
-                            r = _ffi.procesar_submission(_q.get("submission_id"),
-                                                         _q.get("form_id"))
-                            db.marcar_cola_fastfield(_q["id"], "procesada",
-                                                     carga_id=r["carga_id"])
-                            cc = r.get("conteos") or {}
-                            det = ", ".join(f"{v} {k}" for k, v in cc.items() if v)
-                            st.session_state.flash_fastfield = (
-                                f"{r['tipo']} de '{r['tramo']}' creada como carga "
-                                f"({det or 'sin registros'}; {r['n_fotos']} fotos). "
-                                "Búscala en 'Cargas pendientes' y dale "
-                                "'Traer a la app y procesar'.")
-                            st.rerun()
-                        except Exception as e:
-                            db.marcar_cola_fastfield(_q["id"], "error", error=str(e))
-                            st.error(f"No se pudo traer: {e}")
-                if qb.button("🗑️ Descartar", key=f"ffd_{_q['id']}"):
-                    db.marcar_cola_fastfield(_q["id"], "error", error="descartada manualmente")
-                    st.rerun()
-                st.divider()
+                with _cb.popover("⬇️ Archivos"):
+                    _lk_key = f"links_{_cg['id']}"
+                    if st.button("🔗 Preparar enlaces de descarga",
+                                 key=f"lk_{_cg['id']}"):
+                        st.session_state[_lk_key] = [
+                            (_a.get('nombre'), db.url_descarga_carga(_a.get('path')))
+                            for _a in _arch]
+                    _links = st.session_state.get(_lk_key)
+                    if _links:
+                        for _n, _u in _links:
+                            st.markdown(f"- [{_n}]({_u})" if _u
+                                        else f"- {_n} (sin enlace)")
+                    else:
+                        for _a in _arch[:60]:
+                            st.caption(f"[{_a.get('categoria')}] {_a.get('nombre')}")
 
     c1, c2 = st.columns(2)
 
