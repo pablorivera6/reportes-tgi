@@ -317,6 +317,30 @@ def get_equipos_for_inspector(inspector_name):
         return None, None, []
 
 
+def _autollenar_tramo(tramo, inspector=""):
+    """Reúne todo lo derivable de un tramo (+inspector): infraestructura,
+    OT/distrito/km y equipos del inspector. Devuelve (cambios, equipos)."""
+    cambios = {}
+    tramo = re.sub(r'\s*\(?PK.*', '', str(tramo or '')).strip()
+    equipos = []
+    if not tramo:
+        return cambios, equipos
+    cambios.update(autofill_from_infrastructure(tramo))
+    extra = autofill_ot_km(tramo)
+    for k in ('ot', 'distrito', 'longitud_km'):
+        if k in extra:
+            cambios[k] = extra[k]
+    if inspector:
+        serial, fc, eqs = get_equipos_for_inspector(inspector)
+        if serial:
+            cambios['serial_equipo'] = serial
+        if fc:
+            cambios['fecha_calibracion'] = fc
+        equipos = eqs or []
+        cambios.setdefault('contratista', 'PCC')
+    return cambios, equipos
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
 init_state()
@@ -621,27 +645,15 @@ with tabs[0]:
         "Tipo Inspección", ["PAP", "CIPS", "DCVG"],
         index=["PAP", "CIPS", "DCVG"].index(data['info'].get('tipo_inspeccion', 'PAP')))
     if st.button("🔄 Autollenar desde el tramo"):
-        tramo = re.sub(r'\s*\(?PK.*', '', data['info'].get('tramo', '')).strip()
-        if tramo:
-            cambios = autofill_from_infrastructure(tramo)
-            extra = autofill_ot_km(tramo)
-            if 'ot' in extra:
-                cambios['ot'] = extra['ot']
-            if 'distrito' in extra:
-                data['info']['distrito'] = extra['distrito']
-            if 'longitud_km' in extra:
-                data['info']['longitud_km'] = extra['longitud_km']
-            insp = data['info'].get('inspector', '')
-            if insp:
-                serial, fc, eqs = get_equipos_for_inspector(insp)
-                if serial:
-                    cambios['serial_equipo'] = serial
-                if fc:
-                    cambios['fecha_calibracion'] = fc
-                if eqs:
-                    st.session_state.equipos_inspector = eqs
-                if not data['info'].get('contratista'):
-                    cambios['contratista'] = 'PCC'
+        tramo = data['info'].get('tramo', '')
+        if tramo.strip():
+            cambios, eqs = _autollenar_tramo(tramo, data['info'].get('inspector', ''))
+            if 'distrito' in cambios:
+                data['info']['distrito'] = cambios['distrito']
+            if 'longitud_km' in cambios:
+                data['info']['longitud_km'] = cambios['longitud_km']
+            if eqs:
+                st.session_state.equipos_inspector = eqs
             data['info'].update(cambios)
             # Los text_input con key conservan su estado: los actualizamos vía
             # pending_autofill al inicio del próximo run.
@@ -856,6 +868,7 @@ with tabs[1]:
             try:
                 reader = FastFieldReader()
                 nuevos = 0
+                _ff_cambios = {}          # campos detectados -> se aplican a los widgets
                 for ruta in _tmp_files(ff):
                     d = reader.read(ruta)
                     pots = d['potenciales']
@@ -870,6 +883,7 @@ with tabs[1]:
                                          ('tipo_tramo', 'tipo_ducto')]:
                         if d.get(k_src):
                             data['info'][k_dst] = d[k_src]
+                            _ff_cambios[k_dst] = d[k_src]
                     if pots:
                         st.session_state.current_route_id = pots[0].get('route_id', '')
                 # Post-proceso: marco H y tramos aéreos (igual que escritorio)
@@ -903,9 +917,29 @@ with tabs[1]:
                         tramos_aereos.append(current)
                         current = None
                 data['inspecciones']['tramos_aereos'] = tramos_aereos
-                st.success(f"{nuevos} potenciales cargados.")
+                # Autollenado automático de Datos Generales (como la app antigua):
+                # infraestructura + OT/distrito/km + equipos del inspector.
+                _tramo_det = _ff_cambios.get('tramo') or data['info'].get('tramo', '')
+                _insp_det = _ff_cambios.get('inspector') or data['info'].get('inspector', '')
+                if _tramo_det:
+                    _auto, _eqs = _autollenar_tramo(_tramo_det, _insp_det)
+                    data['info'].update(_auto)
+                    _ff_cambios.update(_auto)
+                    if _eqs:
+                        st.session_state.equipos_inspector = _eqs
+                if _ff_cambios:
+                    # Los widgets con key solo se refrescan vía pending_autofill.
+                    st.session_state.pending_autofill = _ff_cambios
+                st.session_state.flash_ff = (
+                    f"{nuevos} potenciales cargados."
+                    + (f" · Datos Generales autollenados desde el tramo "
+                       f"'{_tramo_det}'." if _tramo_det else ""))
+                st.rerun()
             except Exception as e:
                 st.error(f"Error cargando FASTFIELD: {e}")
+        if st.session_state.get("flash_ff"):
+            st.success(st.session_state.flash_ff)
+            st.session_state.flash_ff = None
         if st.session_state.get('ff_pendiente'):
             d, tramos_unicos = st.session_state.ff_pendiente[0]
             sel = st.multiselect("El archivo tiene varios tramos; elige cuál(es) importar:",
@@ -913,8 +947,19 @@ with tabs[1]:
             if st.button("Importar tramos elegidos"):
                 pots = [p for p in d['potenciales'] if p.get('tramo') in sel]
                 data['potenciales'].extend(pots)
+                _camb = {}
+                for k_src, k_dst in [('contrato', 'contrato'), ('tecnico', 'inspector'),
+                                     ('fecha', 'fecha'), ('tipo_tramo', 'tipo_ducto')]:
+                    if d.get(k_src):
+                        _camb[k_dst] = d[k_src]
                 if sel:
-                    data['info']['tramo'] = sel[0]
+                    _camb['tramo'] = sel[0]
+                    _auto, _eqs = _autollenar_tramo(sel[0], _camb.get('inspector', ''))
+                    _camb.update(_auto)
+                    if _eqs:
+                        st.session_state.equipos_inspector = _eqs
+                data['info'].update(_camb)
+                st.session_state.pending_autofill = _camb
                 st.session_state.ff_pendiente.pop(0)
                 st.rerun()
 
