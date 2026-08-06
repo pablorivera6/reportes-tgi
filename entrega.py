@@ -45,6 +45,14 @@ _CRUDOS = [
     _c("logger_crudo", "Data logger (crudo diario)", False, _CRUDO, "logger", "crudo"),
 ]
 
+# Anexos de inspecciones adicionales (van a 04_Anexos en su subcarpeta).
+# Comunes a todos los tipos porque la inspección visual de interfases se pide
+# junto con CIPS/PAP/DCVG del mismo tramo.
+_ANEXOS_COMUNES = [
+    _c("anexo_interfases", "Inspección Visual de Interfases (FastField)",
+       False, _IMG, "anexos", "anexo", "Inspeccion_Visual_Interfases"),
+]
+
 # Registro fotográfico (mín. 5 fotos por elemento, en orden de abscisado)
 _RF_COMUNES = [
     _c("foto_postes", "Fotos — postes de medición", False, _IMG, "rf", "rf", "Postes"),
@@ -57,7 +65,7 @@ _RF_COMUNES = [
 CATALOGO = {
     "CIPS": [
         _c("cips", "Archivo CIPS (iBTVM)", True, _XLS, "logger", "proc"),
-    ] + _CRUDOS + _RF_COMUNES,
+    ] + _CRUDOS + _ANEXOS_COMUNES + _RF_COMUNES,
     "PAP": [
         _c("fastfield_pap", "Potenciales PAP (FastField)", True, _XLS, "anexos", "proc"),
         _c("equipos", "Listado de equipos (opcional)", False, _XLS, "anexos", "proc"),
@@ -65,14 +73,14 @@ CATALOGO = {
         _c("aislamientos", "Aislamientos FastField (opcional)", False, _XLS, "anexos", "proc"),
     ] + _CRUDOS + [
         _c("foto_rectificadores", "Fotos — rectificadores", False, _IMG, "rf", "rf", "Rectificadores"),
-    ] + _RF_COMUNES,
+    ] + _ANEXOS_COMUNES + _RF_COMUNES,
     "DCVG": [
         _c("dcvg", "FastField DCVG", True, _XLS, "anexos", "proc"),
         _c("resistividades", "Resistividades", True, _XLS, "anexos", "proc"),
         _c("logger", "Data cruda del logger (hallazgos)", True, _XLS, "logger", "proc"),
     ] + _CRUDOS + [
         _c("foto_defectos", "Fotos — defectos DCVG", False, _IMG, "rf", "rf", "Defectos"),
-    ] + _RF_COMUNES,
+    ] + _ANEXOS_COMUNES + _RF_COMUNES,
 }
 
 

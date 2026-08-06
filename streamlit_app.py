@@ -433,7 +433,9 @@ def autocargar_carga(cg):
         data['info']['fecha'] = str(cg["fecha"])
     if cg.get("tecnico"):
         data['info'].setdefault('inspector', cg["tecnico"])
-    if cg.get("tipo"):
+    # Solo los tipos de INFORME fijan el tipo de inspección; los anexos
+    # (INTERFASES, etc.) no deben sobreescribirlo.
+    if cg.get("tipo") in ("PAP", "CIPS", "DCVG"):
         data['info']['tipo_inspeccion'] = cg["tipo"]
 
     # FastField vía API (datos ya estructurados en un datos.json)
@@ -553,6 +555,25 @@ def autocargar_carga(cg):
         except Exception as e:
             avisos.append(f"CIPS: {e}")
 
+    # Anexos (p.ej. Inspección Visual de Interfases): sus fotos van al ZIP de
+    # entrega en 04_Anexos. Se acumulan en un bucket de sesión para incluirlas
+    # aunque vengan en una carga distinta a la inspección principal.
+    for _catx in ("anexo_interfases",):
+        if cats.get(_catx):
+            bucket = st.session_state.setdefault("anexos_paquete", {})
+            dest = bucket.setdefault(_catx, [])
+            n = 0
+            for ruta in cats[_catx]:
+                try:
+                    with open(ruta, "rb") as _fh:
+                        dest.append((os.path.basename(ruta), _fh.read()))
+                        n += 1
+                except Exception:
+                    continue
+            if n:
+                msgs.append(f"{n} foto(s) de {_catx.replace('anexo_', '')} "
+                            "(anexo del paquete)")
+
     n_fotos = sum(len(v) for k, v in cats.items() if k.startswith("foto"))
     if n_fotos:
         avisos.append(f"{n_fotos} foto(s) quedan para el paquete de entrega (RF).")
@@ -614,6 +635,9 @@ def _armar_paquete_entrega(codigo, kmz_bytes):
                     (a.get('nombre'), contenido))
             except Exception:
                 continue
+    # Anexos acumulados (Inspección Visual de Interfases, etc.) de otras cargas
+    for _cat, _files in (st.session_state.get("anexos_paquete") or {}).items():
+        archivos_por_categoria.setdefault(_cat, []).extend(_files)
     informe = ((st.session_state.informe_nombre, st.session_state.informe_bytes)
                if st.session_state.informe_bytes else None)
     ppm = ((st.session_state.informe_nombre.replace("REP", "PPM"), st.session_state.ppm_bytes)

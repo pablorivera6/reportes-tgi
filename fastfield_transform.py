@@ -270,9 +270,40 @@ def dcvg_submission(sub: dict):
     }
 
 
+def interfases_submission(sub: dict):
+    """FastField 'Inspección Visual interfases-' (form 1242703) -> anexo.
+
+    subform_1 = 'Inspección' (repetible): PK, Ubicación GPS, Observación, Registro
+    Fotográfico. Es un ANEXO (fotos), no data del informe.
+    """
+    items = sub.get("subform_1") or []
+    inspecciones = []
+    for it in items:
+        lat, lon = _loc(it)
+        inspecciones.append({
+            "pk": it.get("alpha_1"),
+            "observacion": it.get("multiline_1") or "",
+            "lat": lat, "lon": lon,
+            "fotos": _fotos_de_item(it),
+        })
+    fecha = (sub.get("datepicker_1") or sub.get("submissionTimeStamp") or "")[:10]
+    info = {
+        "tipo_inspeccion": "INTERFASES",
+        "tramo": _v(sub.get("lookuplistpicker_1")),
+        "fecha": fecha,
+        "tecnico": sub.get("alpha_1"),
+        "contratista": sub.get("alpha_2"),
+        "submissionId": sub.get("submissionId"),
+        "formName": sub.get("formName"),
+        "conteos": {"interfases": len(inspecciones)},
+    }
+    return {"info": info, "inspecciones": inspecciones}
+
+
 # Mapa formId -> (tipo, funcion_transform).  Completar con los ids reales.
 FORM_MAP = {
     "1199286": ("PAP", pap_submission),               # Inspeccion PAP-PBI
     "1240049": ("AISLAMIENTOS", aislamientos_submission),  # Aislamientos..
     "1160295": ("DCVG", dcvg_submission),             # "Inspección DCVG" (form completo: postes+hallazgos+resistividades+defectos)
+    "1242703": ("INTERFASES", interfases_submission),  # "Inspección Visual interfases-" (anexo fotográfico)
 }

@@ -120,6 +120,14 @@ _ADAPTADORES = {
     # "PAP": _adaptar_pap, "AISLAMIENTOS": _adaptar_aisl,  # pendientes
 }
 
+# Tipos que NO son data del informe sino ANEXOS (fotos que van al ZIP de
+# entrega). Se guardan como carga con las fotos en la categoría indicada, sin
+# datos.json de informe.
+_ANEXOS = {
+    "INTERFASES": {"categoria": "anexo_interfases",
+                   "titulo": "Inspección Visual Interfases"},
+}
+
 
 # ── Recolección de fotos ─────────────────────────────────────────────────────
 def _fotos_de_resultado(res: dict):
@@ -156,18 +164,26 @@ def procesar_submission(submission_id, form_id=None, descargar_fotos=True):
     tipo, transform = T.FORM_MAP[fid]
     res = transform(sub)
 
-    if tipo not in _ADAPTADORES:
+    # ¿Es un ANEXO (solo fotos al ZIP) o data de informe (adaptador)?
+    es_anexo = tipo in _ANEXOS
+    if not es_anexo and tipo not in _ADAPTADORES:
         raise RuntimeError(f"Tipo {tipo} sin adaptador a la app todavía.")
-    datos = _ADAPTADORES[tipo](res)
 
-    info = datos.get("info", {})
+    if es_anexo:
+        info = res.get("info", {})
+        cat_fotos = _ANEXOS[tipo]["categoria"]
+        archivos = {}
+    else:
+        datos = _ADAPTADORES[tipo](res)
+        info = datos.get("info", {})
+        cat_fotos = "fotos_rf"
+        archivos = {"fastfield_datos": [("datos.json",
+                    json.dumps(datos, ensure_ascii=False).encode("utf-8"))]}
+
     tramo = info.get("tramo") or "sin_tramo"
     fecha = info.get("fecha") or ""
-    tecnico = info.get("inspector") or info.get("contratista") or ""
+    tecnico = info.get("inspector") or info.get("tecnico") or info.get("contratista") or ""
 
-    # armar archivos: datos.json + fotos
-    archivos = {"fastfield_datos": [("datos.json",
-                json.dumps(datos, ensure_ascii=False).encode("utf-8"))]}
     n_fotos, fallidas = 0, 0
     if descargar_fotos:
         fotos = []
@@ -179,7 +195,7 @@ def procesar_submission(submission_id, form_id=None, descargar_fotos=True):
             else:
                 fallidas += 1
         if fotos:
-            archivos["fotos_rf"] = fotos
+            archivos[cat_fotos] = fotos
 
     nota = f"FastField {tipo} · submission {submission_id}"
     carga_id, sp_ok, n_arch = db.guardar_carga(tramo, tipo, fecha, tecnico,
