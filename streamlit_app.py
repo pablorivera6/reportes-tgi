@@ -1049,6 +1049,43 @@ with tabs[1]:
                 except Exception as e:
                     st.error(f"Error procesando DCVG: {e}")
 
+        # ── Previsualizador DCVG (lo cargado, venga de FastField o de Excel) ───
+        _n_post = len(data.get('dcvg_postes') or [])
+        _n_def = len(data.get('dcvg_defectos') or [])
+        _n_res = len(data.get('dcvg_resist') or [])
+        _n_hall = len(data.get('dcvg_hallazgos') or [])
+        if _n_post or _n_def or _n_res or _n_hall:
+            st.markdown("##### 🔎 DCVG cargado")
+            _m1, _m2, _m3, _m4 = st.columns(4)
+            _m1.metric("Postes", _n_post)
+            _m2.metric("Defectos", _n_def)
+            _m3.metric("Resistividades", _n_res)
+            _m4.metric("Hallazgos", _n_hall)
+            if _n_post:
+                with st.expander(f"Postes ({_n_post})", expanded=False):
+                    st.dataframe(pd.DataFrame(data['dcvg_postes']),
+                                 use_container_width=True, hide_index=True)
+            if _n_def:
+                with st.expander(f"Defectos ({_n_def})", expanded=True):
+                    _dfd = pd.DataFrame(data['dcvg_defectos'])
+                    try:
+                        _sev = db._severidad_dcvg(data['dcvg_postes'],
+                                                  data['dcvg_defectos'])
+                        _dfd = _dfd.assign(
+                            severidad_pct=[s.get('severidad_pct') for s in _sev],
+                            severidad=[s.get('clasificacion') for s in _sev])
+                    except Exception:
+                        pass
+                    st.dataframe(_dfd, use_container_width=True, hide_index=True)
+            if _n_res:
+                with st.expander(f"Resistividades ({_n_res})", expanded=False):
+                    st.dataframe(pd.DataFrame(data['dcvg_resist']),
+                                 use_container_width=True, hide_index=True)
+            if _n_hall:
+                with st.expander(f"Hallazgos ({_n_hall})", expanded=False):
+                    st.dataframe(pd.DataFrame(data['dcvg_hallazgos']),
+                                 use_container_width=True, hide_index=True)
+
 # ── Tabs 3-6, 8: tablas ───────────────────────────────────────────────────────
 with tabs[2]:
     if data['potenciales']:
