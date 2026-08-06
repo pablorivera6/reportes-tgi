@@ -230,9 +230,13 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
    `cd "<proyecto>/TGI_V1_Codigo_Fuente" && /private/tmp/venv_tgi/bin/python -m pytest tests/ -q --ignore=tests/test_ui_cips_selector.py --ignore=tests/test_cips_duplicados.py`
    (ignora los que requieren PyQt6). Deben pasar todos los de lógica.
 3. Valida end-to-end con datos reales (DCVG: `/private/tmp/dcvg_ref/*`).
-4. Copia los archivos cambiados a `/private/tmp/tgi_push_new/`, commit y push
-   (mensaje claro, `Co-Authored-By: Claude ...`). NO push desde el Desktop.
-5. La nube redespliega en ~1 min.
+4. El clon git vive en `/private/tmp/` (p.ej. `tgi_repo2`) pero **/private/tmp se
+   limpia** a veces (se pierde el clon Y paquetes del venv como `supabase`/`pip`).
+   Si `git -C` falla o falta un módulo: `git clone https://github.com/pablorivera6/reportes-tgi.git /private/tmp/tgi_repo2`
+   y `/private/tmp/venv_tgi/bin/python -m pip install <lo que falte>`. Copia los
+   archivos cambiados al clon, commit y push. NO push desde el Desktop.
+5. La nube redespliega en ~1 min. OJO: las **3 apps salen del mismo repo**, así que
+   cada push las reconstruye a las 3 (no hagas push durante una demo del cliente).
 
 ---
 
@@ -245,3 +249,78 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
 - Deuda técnica: VAC falso negativo (`readers.py` conversión mV solo si >1.0),
   `find_sheet(['pe'])` ambiguo, métodos duplicados en `app.py`, `cips_reader.py`
   huérfano, migrar `google.generativeai`→`google-genai`.
+
+---
+
+## 10. Ecosistema web: Supabase + 3 apps + FastField (2026-08)
+
+El proyecto pasó de 1 app a un **ecosistema de 3 apps Streamlit** sobre **Supabase**
+(mismo repo público `pablorivera6/reportes-tgi`, distinto `main file` cada una).
+
+### 10.1 Las 3 apps (Streamlit Cloud)
+- `streamlit_app.py` — **Procesamiento (PCC)**. Genera informes + publica al portal.
+  Secrets: `[supabase] service_key`, `[app] password`.
+- `portal_app.py` — **Portal (TGI, solo lectura)**. Dashboards CIPS/PAP/DCVG +
+  "Vista por tramo" (cruza los 3 + zonas críticas). Secrets: `[supabase] anon_key`
+  **y** `service_key` (el rol revisor lo necesita), `[portal] password` (TGI) +
+  `reviewer_password` (revisor). En local sin password → selector de rol.
+- `intake_app.py` — **Carga de campo (técnicos)**. Formulario con casillas por
+  carpeta del entregable. Secrets: `[supabase] service_key`, `[intake] password`.
+
+### 10.2 Supabase (proyecto `nvsnovulwtnbgopyiyal`)
+- Llaves formato NUEVO: `sb_publishable_...` (anon/lectura), `sb_secret_...` (service/
+  escritura). Van SOLO en `.streamlit/secrets.toml` (gitignored) o Secrets de la nube.
+- SQL corridos (en `portal/`): `schema.sql` (CIPS), `schema_v2.sql` (PAP+DCVG),
+  `schema_v3.sql` (cargas), `schema_v4.sql` (estado de aprobación). Todos aplicados.
+- Tablas: `inspecciones` (+ estado en_revision/aprobada/rechazada), `puntos_cips`,
+  `hallazgos`, `tramos_no_inspeccionados`, `puntos_pap`, `postes_dcvg`,
+  `defectos_dcvg`, `resistividades_dcvg`, `cargas`. Buckets: `informes`, `cargas`.
+- `db.py` = capa Supabase (guardar/listar/cargar por tipo, aprobar/rechazar,
+  cargas, `_severidad_dcvg`). Import perezoso; `disponible(write=)` chequea secrets.
+
+### 10.3 Flujo completo (pipeline)
+Técnico sube en **intake** → carga a Supabase (bucket organizado) →
+Procesamiento: pestaña Cargar Archivos → **"📥 Cargas pendientes" → "⚙️ Traer a la
+app y procesar"** (auto-carga: baja de Supabase y enruta por los readers;
+`autocargar_carga` en streamlit_app.py) → Generar → **KMZ + paquete de entrega
+(ZIP)** + **"📤 Publicar al portal"** (queda **En revisión**) → Portal rol
+**revisor** aprueba → Portal rol **TGI** lo ve. Nada llega al cliente sin aprobación
+(RLS: anon solo ve `estado='aprobada'`).
+
+### 10.4 Cumplimiento contrato TGI (numeral 6.3.5) — `entrega.py`
+- `CATALOGO` (por tipo) = casillas del intake mapeadas a las carpetas del entregable
+  (01 Huellas Osc · 02 GPS · 03 Data Logger · 04 Anexos[informe+KMZ] · 05 PPM · 06 RF).
+- `construir_kmz` (traza + puntos por estado + defectos por severidad + hallazgos)
+  y `construir_paquete` (ZIP con la estructura, fotos por elemento en orden).
+- El intake organiza el paquete SOLO por cómo el técnico sube cada cosa.
+
+### 10.5 Shapefiles CIPS: generar el faltante desde el survey
+Si un tramo NO tiene shapefile (p.ej. Ramal Termodorada = `R_TRD`), se puede
+GENERAR desde la traza GPS del propio survey CIPS: ordenar por "Dist From Start",
+dedupe, `shapely.simplify(0.00002)`, escribir PolyLine WGS84 con `pyshp` (mismos
+campos que los demás; ver commit 9f46bbf). El GPS-proyectado corrige inflación de
+odómetro del equipo. Idea futura: generar shapefile on-the-fly si falta.
+
+### 10.6 FastField (API v3) — conector EN CURSO (ver memoria fastfield-api)
+- Base `https://api.fastfieldforms.com/services/v3`. Auth: `POST /authenticate`
+  (Basic email:password + header `FastField-API-Key`) → sessionToken → header
+  `X-Gatekeeper-SessionToken`. La API key es OBLIGATORIA.
+- **NO hay endpoint para LISTAR submissions** (solo `GET /formresults/submission/{id}`)
+  → la integración es por **WEBHOOK** (FastField avisa cada envío), no polling.
+- `fastfield_api.py` (cliente, reusa código probado del user) + `fastfield_transform.py`
+  (`pap_submission`, `aislamientos_submission` probados con data real; FORM_MAP
+  formId→tipo). Fotos: `/media/download` en 2 pasos.
+- Forms reales: PAP=1199286 (subform_1=postes), Aislamientos=1240049 (subform_1=juntas),
+  "Inspección DCVG"=1160295 (¡ES resistividades!), DCVG-defectos=por identificar.
+- PENDIENTE: receptor webhook (Supabase Edge Function) + transforms resistividades/
+  DCVG-defectos + configurar webhooks en FastField. Credenciales NUNCA al repo.
+
+### 10.7 Lecciones de despliegue (Streamlit Cloud)
+- `requirements.txt`: **NO fijar versiones exactas** (sobre todo `streamlit`) →
+  fuerza recompilar `pyarrow` ("Could not build wheels for pyarrow") y rompe el
+  build. Usar rangos con tope solo en majors que rompen: `pandas<3, numpy<3,
+  supabase<3`. Dejar que la nube use sus wheels.
+- `google-generativeai` FUERA de requirements (arrastra grpcio/protobuf y rompía
+  el build; Fotos IA es opcional; `photo_utils` lo importa guardado con try/except).
+- Diagnóstico: consola del navegador "RUNNING" = script colgado; el error real está
+  en Manage app → logs (build). Status oficial: streamlitstatus.com / githubstatus.com.
