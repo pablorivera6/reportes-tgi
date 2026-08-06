@@ -785,13 +785,23 @@ with tabs[1]:
                         for _a in _arch[:60]:
                             st.caption(f"[{_a.get('categoria')}] {_a.get('nombre')}")
 
-    c1, c2 = st.columns(2)
+    # ── Carga manual, organizada por tipo de informe ──────────────────────────
+    st.markdown("#### 🗂 Carga manual")
+    _tipo_act = data['info'].get('tipo_inspeccion', 'PAP')
+    st.caption("Si la data no llegó por la bandeja, súbela en la pestaña de su "
+               f"tipo de informe. Tipo actual: **{_tipo_act}** "
+               "(se cambia en Datos Generales).")
+    sub_pap, sub_cips, sub_dcvg = st.tabs(["⚡ PAP", "📈 CIPS", "🔎 DCVG"])
 
-    with c1:
-        st.subheader("FASTFIELD — Potenciales_")
+    with sub_pap:
+        st.caption(f"En memoria: {len(data['potenciales'])} potenciales · "
+                   f"{len(data['hallazgos'])} hallazgos · "
+                   f"{len(data['rectificadores'])} rectificadores · "
+                   f"{len(data['aislamientos'])} aislamientos")
+        st.markdown("**Potenciales (Excel FastField)** — la base del informe PAP")
         ff = st.file_uploader("Excel FASTFIELD", type=["xlsx"],
                               accept_multiple_files=True, key="up_ff")
-        if ff and st.button("Procesar FASTFIELD"):
+        if ff and st.button("Procesar potenciales"):
             try:
                 reader = FastFieldReader()
                 nuevos = 0
@@ -857,10 +867,12 @@ with tabs[1]:
                 st.session_state.ff_pendiente.pop(0)
                 st.rerun()
 
-        st.subheader("Equipos — Hallazgos DCP_")
+        st.divider()
+        st.markdown("**Hallazgos de equipos (DCP)** · opcional")
+        st.caption("Excel de equipos: aporta hallazgos, gasoducto y ciclo ON/OFF.")
         eq = st.file_uploader("Excel EQUIPOS", type=["xlsx"],
                               accept_multiple_files=True, key="up_eq")
-        if eq and st.button("Procesar EQUIPOS"):
+        if eq and st.button("Procesar equipos"):
             try:
                 reader = EquipoReader()
                 calc = get_abscisa_calculator(kmz, st.session_state.current_route_id or None)
@@ -888,8 +900,11 @@ with tabs[1]:
             except Exception as e:
                 st.error(f"Error cargando EQUIPOS: {e}")
 
-    with c2:
-        st.subheader("Data CIPS — Motor LRS_")
+    with sub_cips:
+        st.caption(f"En memoria: {len(data['cips'])} registros CIPS")
+        st.markdown("**Data cruda del logger (Excel)**")
+        st.caption("Elige el tramo: la abscisa se calcula proyectando el GPS "
+                   "sobre su trazado oficial (LRS).")
         if st.session_state.get("flash_cips"):
             st.success(st.session_state.flash_cips)
             st.session_state.flash_cips = None
@@ -972,10 +987,12 @@ with tabs[1]:
         else:
             st.warning("No se encontró la base de infraestructura de tramos.")
 
-        st.subheader("Rectificadores_")
+    with sub_pap:
+        st.divider()
+        st.markdown("**Rectificadores (URPC)** · opcional")
         rec = st.file_uploader("Excel Rectificador (URPC)", type=["xlsx"],
                                accept_multiple_files=True, key="up_rec")
-        if rec and st.button("Procesar Rectificadores"):
+        if rec and st.button("Procesar rectificadores"):
             try:
                 reader = RectificadorReader()
                 for ruta in _tmp_files(rec):
@@ -986,19 +1003,25 @@ with tabs[1]:
             except Exception as e:
                 st.error(f"Error cargando rectificadores: {e}")
 
-        st.subheader("Aislamientos_")
+        st.divider()
+        st.markdown("**Aislamientos (Excel FastField)** · opcional")
         ais = st.file_uploader("Excel Aislamientos FastField", type=["xlsx"],
                                accept_multiple_files=True, key="up_ais")
-        if ais and st.button("Procesar Aislamientos"):
+        if ais and st.button("Procesar aislamientos"):
             try:
                 data['aislamientos'] = AislamientoReader().read_files(_tmp_files(ais))
                 st.success(f"{len(data['aislamientos'])} aislamientos cargados.")
             except Exception as e:
                 st.error(f"Error cargando aislamientos: {e}")
 
-        st.subheader("Data DCVG_")
-        st.caption("Para informe DCVG: sube el FastField de DCVG y el de "
-                   "Resistividades. (Pon Tipo Inspección = DCVG en Datos Generales.)")
+    with sub_dcvg:
+        st.caption(f"En memoria: {len(data['dcvg_postes'])} postes · "
+                   f"{len(data['dcvg_defectos'])} defectos · "
+                   f"{len(data['dcvg_resist'])} resistividades · "
+                   f"{len(data['dcvg_hallazgos'])} hallazgos")
+        st.markdown("**Inspección DCVG (Excel FastField)**")
+        st.caption("Sube el FastField de DCVG y el de resistividades. "
+                   "Recuerda poner Tipo Inspección = DCVG en Datos Generales.")
         if st.session_state.get("flash_dcvg"):
             st.success(st.session_state.flash_dcvg)
             st.session_state.flash_dcvg = None
