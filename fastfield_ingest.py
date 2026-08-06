@@ -185,17 +185,32 @@ def procesar_submission(submission_id, form_id=None, descargar_fotos=True):
     tecnico = info.get("inspector") or info.get("tecnico") or info.get("contratista") or ""
 
     n_fotos, fallidas = 0, 0
+    fotos_map = {}
     if descargar_fotos:
         fotos = []
         for fn in _fotos_de_resultado(res):
             b = api.get_photo_bytes(fn, token, cred["api_key"])
             if b:
                 fotos.append((fn, b))
+                fotos_map[fn] = b
                 n_fotos += 1
             else:
                 fallidas += 1
         if fotos:
             archivos[cat_fotos] = fotos
+
+    # Anexos con documento generado (Excel con fotos incrustadas)
+    if es_anexo and tipo == "INTERFASES":
+        try:
+            import interfases_doc
+            xlsx = interfases_doc.construir_excel(
+                info, res.get("inspecciones", []), fotos_map)
+            _tr = (info.get("tramo") or "tramo").replace("/", "-")
+            nombre = f"Inspeccion_Visual_Interfases_{_tr}.xlsx"
+            archivos.setdefault(cat_fotos, [])
+            archivos[cat_fotos].insert(0, (nombre, xlsx))
+        except Exception as e:
+            print(f"interfases_doc falló: {e}")
 
     nota = f"FastField {tipo} · submission {submission_id}"
     carga_id, sp_ok, n_arch = db.guardar_carga(tramo, tipo, fecha, tecnico,
