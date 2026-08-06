@@ -412,6 +412,28 @@ def autocargar_carga(cg):
     if cg.get("tipo"):
         data['info']['tipo_inspeccion'] = cg["tipo"]
 
+    # FastField vía API (datos ya estructurados en un datos.json)
+    if cats.get("fastfield_datos"):
+        try:
+            import json as _json
+            with open(cats["fastfield_datos"][0], "r", encoding="utf-8") as _f:
+                dj = _json.load(_f)
+            for k_src, k_dst in [('tramo', 'tramo'), ('fecha', 'fecha'),
+                                 ('inspector', 'inspector'), ('cliente', 'contrato')]:
+                if dj.get('info', {}).get(k_src):
+                    data['info'][k_dst] = dj['info'][k_src]
+            if dj.get('tipo'):
+                data['info']['tipo_inspeccion'] = dj['tipo']
+            partes = []
+            for k in ('potenciales', 'hallazgos', 'aislamientos', 'cips',
+                      'dcvg_postes', 'dcvg_defectos', 'dcvg_resist', 'dcvg_hallazgos'):
+                if dj.get(k):
+                    data[k] = dj[k]
+                    partes.append(f"{len(dj[k])} {k}")
+            msgs.append("FastField: " + (", ".join(partes) if partes else "sin registros"))
+        except Exception as e:
+            avisos.append(f"FastField (datos.json): {e}")
+
     # PAP (FastField de potenciales)
     if cats.get("fastfield_pap"):
         try:
@@ -676,6 +698,53 @@ with tabs[1]:
                                 key=f"dl_{_cg['id']}_{_a['path']}")
                         except Exception as e:
                             st.caption(f"  · {_a.get('nombre')} (error: {e})")
+                st.divider()
+
+    # ── Inspecciones nuevas de FastField (llegan solas por el webhook) ─────────
+    if db.disponible(write=True):
+        with st.expander("📡 Inspecciones nuevas de FastField", expanded=False):
+            try:
+                _cola = db.listar_cola_fastfield("nuevo")
+            except Exception as e:
+                _cola = []
+                st.caption(f"(no se pudo leer la cola: {e})")
+            if st.session_state.get("flash_fastfield"):
+                st.success(st.session_state.flash_fastfield)
+                st.session_state.flash_fastfield = None
+            import fastfield_ingest as _ffi
+            if not _ffi.disponible():
+                st.warning("Faltan credenciales de FastField en secrets "
+                           "(`fastfield`: email, password, api_key).")
+            if not _cola:
+                st.caption("No hay inspecciones nuevas de FastField.")
+            for _q in _cola:
+                st.markdown(
+                    f"**{_q.get('form_name','(formulario)')}** · "
+                    f"envío `{str(_q.get('submission_id'))[:8]}…` · "
+                    f"{str(_q.get('recibido_en',''))[:16]}")
+                qa, qb = st.columns([1.6, 1])
+                if qa.button("⚙️ Traer de FastField y crear carga",
+                             key=f"ffi_{_q['id']}", disabled=not _ffi.disponible()):
+                    with st.spinner("Bajando envío + fotos de FastField..."):
+                        try:
+                            r = _ffi.procesar_submission(_q.get("submission_id"),
+                                                         _q.get("form_id"))
+                            db.marcar_cola_fastfield(_q["id"], "procesada",
+                                                     carga_id=r["carga_id"])
+                            cc = r.get("conteos") or {}
+                            det = ", ".join(f"{v} {k}" for k, v in cc.items() if v)
+                            st.session_state.flash_fastfield = (
+                                f"{r['tipo']} de '{r['tramo']}' creada como carga "
+                                f"({det or 'sin registros'}; {r['n_fotos']} fotos). "
+                                "Búscala en 'Cargas pendientes' y dale "
+                                "'Traer a la app y procesar'.")
+                            st.rerun()
+                        except Exception as e:
+                            db.marcar_cola_fastfield(_q["id"], "error", error=str(e))
+                            st.error(f"No se pudo traer: {e}")
+                if qb.button("🗑️ Descartar", key=f"ffd_{_q['id']}"):
+                    db.marcar_cola_fastfield(_q["id"], "error", error="descartada manualmente")
+                    st.rerun()
                 st.divider()
 
     c1, c2 = st.columns(2)

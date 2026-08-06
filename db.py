@@ -575,3 +575,40 @@ def marcar_carga_procesada(carga_id):
     cli.table("cargas").update(
         {"estado": "procesada", "procesada_en": _dt.datetime.utcnow().isoformat()}
     ).eq("id", carga_id).execute()
+
+
+# ── Cola de FastField (webhook) ──────────────────────────────────────────────
+def listar_cola_fastfield(estado="nuevo"):
+    """Envíos de FastField pendientes de procesar (los mete la Edge Function)."""
+    cli = _client(write=True)          # RLS: solo service_role ve la cola
+    q = cli.table("fastfield_cola").select("*").order("recibido_en", desc=True)
+    if estado:
+        q = q.eq("estado", estado)
+    return q.execute().data or []
+
+
+def guardar_cola_fastfield(submission_id, form_id=None, form_name=None, payload=None):
+    """Inserta un envío en la cola (uso manual/pruebas; en prod lo hace el webhook).
+    Idempotente: si el submission ya existe, no falla."""
+    cli = _client(write=True)
+    fila = {"submission_id": str(submission_id), "form_id": form_id,
+            "form_name": form_name, "payload": payload}
+    try:
+        r = cli.table("fastfield_cola").insert(fila).execute()
+        return r.data[0]["id"] if r.data else None
+    except Exception:
+        # ya existe (unique submission_id) -> devolver el existente
+        r = (cli.table("fastfield_cola").select("id")
+             .eq("submission_id", str(submission_id)).limit(1).execute())
+        return r.data[0]["id"] if r.data else None
+
+
+def marcar_cola_fastfield(cola_id, estado, carga_id=None, error=None):
+    """estado: 'procesada' | 'error'. Guarda la carga creada o el detalle del error."""
+    cli = _client(write=True)
+    upd = {"estado": estado, "procesada_en": _dt.datetime.utcnow().isoformat()}
+    if carga_id:
+        upd["carga_id"] = carga_id
+    if error:
+        upd["error"] = str(error)[:1000]
+    cli.table("fastfield_cola").update(upd).eq("id", cola_id).execute()

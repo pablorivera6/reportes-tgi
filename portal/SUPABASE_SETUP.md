@@ -58,3 +58,35 @@ y el portal.
   [portal]
   password = "clave-cliente-TGI"
   ```
+
+---
+
+## FastField → app (webhook automático)
+
+**Objetivo:** que las inspecciones enviadas en FastField lleguen solas a la
+bandeja de la app, sin pegar `submissionId` a mano.
+
+Pasos (una sola vez):
+1. **SQL:** correr `portal/schema_v5.sql` (crea la cola `fastfield_cola`).
+2. **Edge Function:** desplegar el "buzón" siguiendo
+   `portal/functions/fastfield-webhook/README.md` y setear `WEBHOOK_SECRET`.
+3. **Webhooks en FastField:** en cada formulario (DCVG 1160295, PAP 1199286,
+   Aislamientos 1240049) → Data Destinations → Webhook → URL de la función +
+   header `x-webhook-secret`.
+4. **Secrets de la app de procesamiento** — añadir la sección:
+   ```toml
+   [fastfield]
+   email = "data.ingenieria@proteccioncatodica.com"
+   password = "..."          # ROTAR esta contraseña
+   api_key = "67d6b9f74c3648af958327b0dc26ca54"
+   ```
+
+**Flujo:** técnico envía en FastField → webhook mete el envío en `fastfield_cola`
+→ en la app, expander **"📡 Inspecciones nuevas de FastField"** → botón trae el
+envío + fotos, lo traduce y lo deja como **carga pendiente** → de ahí sigue el
+flujo normal (⚙️ Traer a la app y procesar → Generar → Publicar/Aprobar).
+
+Estado de los transforms: **DCVG completo** (postes, defectos, resistividades,
+hallazgos), **PAP** y **Aislamientos** ya mapeados en `fastfield_transform.py`.
+El adaptador a la forma del generador está listo para **DCVG**; PAP/Aislamientos
+por API quedan como siguiente paso (hoy entran por Excel).
