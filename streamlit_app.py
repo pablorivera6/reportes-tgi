@@ -732,58 +732,109 @@ with tabs[1]:
                         _bandeja_datos.clear()
                         st.rerun()
 
-        # — Paso 2 · Cargas pendientes: meterlas al pipeline del informe —
+        # — Paso 2 · Cargas pendientes, agrupadas por tramo ————————————————
+        # Un informe suele unir varias cargas del MISMO tramo (CIPS + postes
+        # PAP + aislamientos...). Se agrupan por tramo normalizado y se pueden
+        # traer todas juntas con un clic.
         _ICONO_TIPO = {"CIPS": "📈", "PAP": "⚡", "DCVG": "🔎"}
-        if _cargas:
-            st.markdown("**📥 Cargas pendientes**")
+
+        def _tramo_norm(t):
+            t = str(t or "").strip()
+            t = re.sub(r"\s*\(.*?\)", "", t)                     # "(9+600)"
+            t = re.sub(r"\s*PK\s*[\d+ ]+.*$", "", t, flags=re.I)  # "PK 260+504"
+            t = re.sub(r"\s+", " ", t).strip().lower()
+            return t or "sin tramo"
+
+        _grupos = {}
         for _cg in _cargas:
-            _arch = _cg.get('archivos') or []
-            _cats = {}
-            for _a in _arch:
-                _c = _a.get('categoria') or 'otros'
-                _cats[_c] = _cats.get(_c, 0) + 1
+            _grupos.setdefault(_tramo_norm(_cg.get('tramo')), []).append(_cg)
+
+        if _cargas:
+            st.markdown(f"**📥 Cargas pendientes** · {len(_grupos)} tramo(s)")
+
+        for _gk, _lista in _grupos.items():
+            _tipos = {}
+            for _c in _lista:
+                _t = _c.get('tipo') or '¿?'
+                _tipos[_t] = _tipos.get(_t, 0) + 1
+            _n_arch_g = sum(len(_c.get('archivos') or []) for _c in _lista)
             with st.container(border=True):
-                _ca, _cb = st.columns([4.2, 1.8])
-                _ca.markdown(f"**{_ICONO_TIPO.get(_cg.get('tipo'), '📦')} "
-                             f"{_cg.get('tramo', '—')}** · {_cg.get('tipo', '')} · "
-                             f"{_cg.get('fecha', '—')}")
-                _ca.caption(f"👷 {_cg.get('tecnico', '—')} · {len(_arch)} archivo(s)"
-                            + ("  · SharePoint ✓" if _cg.get('sharepoint_ok') else ""))
-                if _cats:
-                    _ca.caption("🗂 " + " · ".join(
-                        f"{c} ×{n}" for c, n in sorted(_cats.items())))
-                # Auto-carga: baja los archivos y los mete al pipeline solo
-                if _cb.button("⚙️ Traer y procesar", key=f"auto_{_cg['id']}"):
-                    with st.spinner("Descargando y procesando la carga..."):
-                        try:
-                            msgs, avisos = autocargar_carga(_cg)
-                            resumen = " · ".join(msgs) if msgs else "sin datos reconocidos"
-                            st.session_state.flash_autocarga = (
-                                f"Carga de {_cg.get('tramo','')} traída: {resumen}."
-                                + ("  ⚠️ " + " ".join(avisos) if avisos else "")
-                                + "  Revisa las pestañas y ve a Generar.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"No se pudo auto-cargar: {e}")
-                if _cb.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
-                    db.marcar_carga_procesada(_cg['id'])
-                    _bandeja_datos.clear()
-                    st.rerun()
-                with _cb.popover("⬇️ Archivos"):
-                    _lk_key = f"links_{_cg['id']}"
-                    if st.button("🔗 Preparar enlaces de descarga",
-                                 key=f"lk_{_cg['id']}"):
-                        st.session_state[_lk_key] = [
-                            (_a.get('nombre'), db.url_descarga_carga(_a.get('path')))
-                            for _a in _arch]
-                    _links = st.session_state.get(_lk_key)
-                    if _links:
-                        for _n, _u in _links:
-                            st.markdown(f"- [{_n}]({_u})" if _u
-                                        else f"- {_n} (sin enlace)")
-                    else:
-                        for _a in _arch[:60]:
-                            st.caption(f"[{_a.get('categoria')}] {_a.get('nombre')}")
+                _ga, _gb = st.columns([4.2, 1.8])
+                _ga.markdown(f"**🧭 {_lista[0].get('tramo', '—')}**")
+                _ga.caption(" · ".join(
+                    f"{_ICONO_TIPO.get(t, '📦')} {t} ×{n}"
+                    for t, n in sorted(_tipos.items()))
+                    + f" · {_n_arch_g} archivo(s) en total")
+                # Traer TODAS las cargas del tramo de una vez (informe unificado)
+                if len(_lista) > 1 and _gb.button(
+                        f"⚙️ Traer TODO el tramo ({len(_lista)})",
+                        key=f"all_{_gk}"):
+                    with st.spinner(f"Trayendo {len(_lista)} cargas del tramo..."):
+                        _msgs_t, _avisos_t = [], []
+                        for _c in _lista:
+                            try:
+                                _m, _a = autocargar_carga(_c)
+                                _msgs_t += _m
+                                _avisos_t += _a
+                            except Exception as e:
+                                _avisos_t.append(f"{_c.get('tipo','')}: {e}")
+                        st.session_state.flash_autocarga = (
+                            f"Tramo {_lista[0].get('tramo','')}: "
+                            + (" · ".join(_msgs_t) if _msgs_t else "sin datos reconocidos")
+                            + ("  ⚠️ " + " ".join(_avisos_t) if _avisos_t else "")
+                            + "  Verifica el Tipo de Inspección en Datos "
+                              "Generales y ve a Generar.")
+                        st.rerun()
+
+                for _i, _cg in enumerate(_lista):
+                    if _i:
+                        st.divider()
+                    _arch = _cg.get('archivos') or []
+                    _cats = {}
+                    for _a in _arch:
+                        _c = _a.get('categoria') or 'otros'
+                        _cats[_c] = _cats.get(_c, 0) + 1
+                    _ca, _cb = st.columns([4.2, 1.8])
+                    _ca.markdown(f"{_ICONO_TIPO.get(_cg.get('tipo'), '📦')} "
+                                 f"**{_cg.get('tipo', '')}** · {_cg.get('fecha', '—')} · "
+                                 f"👷 {_cg.get('tecnico', '—')}"
+                                 + ("  · SharePoint ✓" if _cg.get('sharepoint_ok') else ""))
+                    if _cats:
+                        _ca.caption("🗂 " + " · ".join(
+                            f"{c} ×{n}" for c, n in sorted(_cats.items())))
+                    # Auto-carga: baja los archivos y los mete al pipeline solo
+                    if _cb.button("⚙️ Traer y procesar", key=f"auto_{_cg['id']}"):
+                        with st.spinner("Descargando y procesando la carga..."):
+                            try:
+                                msgs, avisos = autocargar_carga(_cg)
+                                resumen = (" · ".join(msgs) if msgs
+                                           else "sin datos reconocidos")
+                                st.session_state.flash_autocarga = (
+                                    f"Carga de {_cg.get('tramo','')} traída: {resumen}."
+                                    + ("  ⚠️ " + " ".join(avisos) if avisos else "")
+                                    + "  Revisa las pestañas y ve a Generar.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"No se pudo auto-cargar: {e}")
+                    if _cb.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
+                        db.marcar_carga_procesada(_cg['id'])
+                        _bandeja_datos.clear()
+                        st.rerun()
+                    with _cb.popover("⬇️ Archivos"):
+                        _lk_key = f"links_{_cg['id']}"
+                        if st.button("🔗 Preparar enlaces de descarga",
+                                     key=f"lk_{_cg['id']}"):
+                            st.session_state[_lk_key] = [
+                                (_a.get('nombre'), db.url_descarga_carga(_a.get('path')))
+                                for _a in _arch]
+                        _links = st.session_state.get(_lk_key)
+                        if _links:
+                            for _n, _u in _links:
+                                st.markdown(f"- [{_n}]({_u})" if _u
+                                            else f"- {_n} (sin enlace)")
+                        else:
+                            for _a in _arch[:60]:
+                                st.caption(f"[{_a.get('categoria')}] {_a.get('nombre')}")
 
     # ── Carga manual, organizada por tipo de informe ──────────────────────────
     st.markdown("#### 🗂 Carga manual")
