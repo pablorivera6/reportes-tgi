@@ -621,6 +621,61 @@ def guardar_cola_fastfield(submission_id, form_id=None, form_name=None, payload=
         return r.data[0]["id"] if r.data else None
 
 
+# ── Históricos por tramo (comparativa) ──────────────────────────────────────
+def _resumen_historico(puntos):
+    offs = [p.get("off") for p in puntos if isinstance(p.get("off"), (int, float))]
+    if not offs:
+        return {"n": len(puntos), "pct_prot": None, "prom_off": None,
+                "min_off": None, "max_off": None, "fuera": None}
+    fuera = sum(1 for o in offs if o > -850)
+    return {"n": len(offs), "fuera": fuera,
+            "pct_prot": round(100 * (len(offs) - fuera) / len(offs), 2),
+            "prom_off": round(sum(offs) / len(offs), 1),
+            "min_off": round(min(offs), 1), "max_off": round(max(offs), 1)}
+
+
+def guardar_historico(tramo, tipo, periodo, puntos, fuente=None, fecha=None):
+    """Crea (o reemplaza) el histórico de un tramo. `puntos`: [{abscisa,on,off}]."""
+    cli = _client(write=True)
+    fila = {"tramo": tramo, "tipo": tipo, "periodo": periodo,
+            "fecha": _fecha(fecha), "fuente": fuente, "puntos": puntos,
+            "resumen": _resumen_historico(puntos)}
+    return cli.table("historicos").insert(fila).execute().data[0]["id"]
+
+
+def listar_historicos(tramo=None, tipo=None):
+    cli = _client(write=True)
+    q = cli.table("historicos").select(
+        "id,tramo,tipo,periodo,fecha,fuente,resumen,creado_en").order(
+        "creado_en", desc=True)
+    if tipo:
+        q = q.eq("tipo", tipo)
+    r = q.execute().data or []
+    if tramo:
+        t = tramo.strip().lower()
+        r = [h for h in r if (h.get("tramo") or "").strip().lower() == t]
+    return r
+
+
+def cargar_historico(historico_id, write: bool = False):
+    """Trae un histórico completo (con puntos) por id."""
+    cli = _client(write=write)
+    r = cli.table("historicos").select("*").eq("id", historico_id).limit(1).execute()
+    return r.data[0] if r.data else None
+
+
+def historico_de_tramo(tramo, tipo="CIPS", write: bool = False):
+    """El histórico más reciente de un tramo/tipo (con puntos), o None."""
+    cli = _client(write=write)
+    r = cli.table("historicos").select("*").eq("tipo", tipo).order(
+        "creado_en", desc=True).execute()
+    t = (tramo or "").strip().lower()
+    for h in (r.data or []):
+        if (h.get("tramo") or "").strip().lower() == t:
+            return h
+    return None
+
+
 def marcar_cola_fastfield(cola_id, estado, carga_id=None, error=None):
     """estado: 'procesada' | 'error'. Guarda la carga creada o el detalle del error."""
     cli = _client(write=True)

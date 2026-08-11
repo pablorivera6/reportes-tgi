@@ -374,6 +374,43 @@ def render_dashboard_cips(detalle):
         st.markdown("**Voltaje AC vs abscisa (Gráfica VAC)**")
         _grafica_vac(dfp)
 
+    # ── Comparativa con histórico (si el tramo tiene uno cargado) ────────────
+    _hist = None
+    try:
+        if db.disponible():
+            _hist = db.historico_de_tramo(insp.get("tramo"), "CIPS")
+    except Exception:
+        _hist = None
+    if _hist and not dfp.empty:
+        import comparativa
+        st.divider()
+        st.markdown(f"### 📊 Comparativa con histórico · {_hist.get('periodo','')}")
+        _r = comparativa.resumen_comparativo(dfp, _hist)
+        _a, _h = _r["actual"], _r["historico"]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Tramo protegido", f"{_a['pct_prot']}%",
+                  delta=f"{(_a['pct_prot'] or 0) - (_h['pct_prot'] or 0):+.1f} pp"
+                  if _a['pct_prot'] is not None and _h['pct_prot'] is not None else None)
+        m2.metric("OFF promedio", f"{_a['prom_off']:.0f} mV" if _a['prom_off'] is not None else "—",
+                  delta=f"{(_a['prom_off'] or 0) - (_h['prom_off'] or 0):+.0f} mV"
+                  if _a['prom_off'] is not None and _h['prom_off'] is not None else None,
+                  delta_color="inverse")
+        m3.metric("Puntos fuera de criterio", _a['fuera'] if _a['fuera'] is not None else "—",
+                  delta=(f"{(_a['fuera'] or 0) - (_h['fuera'] or 0):+d}"
+                         if _a['fuera'] is not None and _h['fuera'] is not None else None),
+                  delta_color="inverse")
+        m4.metric("Puntos medidos", _a['n'], delta=f"{(_a['n'] or 0) - (_h['n'] or 0):+d}")
+        st.plotly_chart(
+            comparativa.overlay_plotly(dfp, _hist.get("puntos"), _hist.get("periodo", "histórico")),
+            use_container_width=True)
+        try:
+            _pdf = comparativa.pdf_bytes(insp.get("tramo") or "tramo", dfp, _hist)
+            _nom = f"Comparativa_{(insp.get('tramo') or 'tramo').replace(' ', '_')}.pdf"
+            st.download_button("⬇️ Descargar PDF comparativo", data=_pdf,
+                               file_name=_nom, mime="application/pdf")
+        except Exception as e:
+            st.caption(f"(No se pudo generar el PDF: {e})")
+
     # Tabla de potenciales
     st.markdown("**Potenciales CIPS**")
     tp = dfp.copy()

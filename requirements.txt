@@ -17,3 +17,4 @@ supabase>=2,<3
 # google-generativeai (Fotos IA) queda FUERA a propósito: arrastra
 # grpcio/protobuf/google-api-core que rompían el build. El código maneja su
 # ausencia sin fallar. Para reactivar Fotos IA, añadir aquí una versión probada.
+matplotlib>=3.6,<4
