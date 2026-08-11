@@ -404,9 +404,9 @@ def render_dashboard_cips(detalle):
             comparativa.overlay_plotly(dfp, _hist.get("puntos"), _hist.get("periodo", "histórico")),
             use_container_width=True)
         try:
-            _pdf = comparativa.pdf_bytes(insp.get("tramo") or "tramo", dfp, _hist)
-            _nom = f"Comparativa_{(insp.get('tramo') or 'tramo').replace(' ', '_')}.pdf"
-            st.download_button("⬇️ Descargar PDF comparativo", data=_pdf,
+            _pdf = comparativa.pdf_dashboard(detalle, dfp, _hist)
+            _nom = f"Dashboard_{(insp.get('tramo') or 'tramo').replace(' ', '_')}.pdf"
+            st.download_button("⬇️ Descargar PDF del dashboard", data=_pdf,
                                file_name=_nom, mime="application/pdf")
         except Exception as e:
             st.caption(f"(No se pudo generar el PDF: {e})")
