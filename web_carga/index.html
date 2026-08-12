@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#C7113A">
+<title>Carga de campo TGI · PCC</title>
+<style>
+  :root{
+    --rojo:#C7113A; --rojo-osc:#A50E30; --tinta:#191C20; --gris:#646A73;
+    --linea:#E3E5E9; --ok:#1A7A4A; --bg:#F5F6F7; --card:#FFFFFF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Calibri,Roboto,sans-serif;
+    background:var(--bg); color:var(--tinta);
+    -webkit-font-smoothing:antialiased; line-height:1.4;
+  }
+  .hero{
+    background:var(--rojo); color:#fff;
+    padding:calc(env(safe-area-inset-top) + 16px) 18px 16px;
+    position:sticky; top:0; z-index:10;
+    box-shadow:0 2px 8px rgba(0,0,0,.12);
+  }
+  .hero h1{margin:0; font-size:1.15rem; font-weight:800; letter-spacing:.2px}
+  .hero p{margin:3px 0 0; font-size:.8rem; opacity:.9}
+  .wrap{max-width:640px; margin:0 auto; padding:16px 14px 120px}
+  .card{
+    background:var(--card); border:1px solid var(--linea); border-radius:14px;
+    padding:16px 14px; margin-bottom:14px;
+  }
+  label.field{display:block; font-weight:700; font-size:.85rem; margin:0 0 6px}
+  .req{color:var(--rojo)}
+  input[type=text],input[type=date],select,textarea,input[list]{
+    width:100%; font-size:16px; /* 16px evita zoom en iOS */
+    padding:13px 12px; border:1.5px solid var(--linea); border-radius:10px;
+    background:#fff; color:var(--tinta); font-family:inherit;
+  }
+  input:focus,select:focus,textarea:focus,input[list]:focus{
+    outline:none; border-color:var(--rojo);
+  }
+  .row{display:flex; gap:10px; flex-wrap:wrap}
+  .row > .col{flex:1 1 45%; min-width:140px}
+  .seg{display:flex; gap:8px}
+  .seg button{
+    flex:1; padding:13px 6px; border:1.5px solid var(--linea); background:#fff;
+    border-radius:10px; font-weight:700; font-size:.95rem; color:var(--gris);
+    cursor:pointer; font-family:inherit;
+  }
+  .seg button.on{background:var(--rojo); color:#fff; border-color:var(--rojo)}
+  .grupo-tit{font-weight:800; font-size:.82rem; color:var(--rojo);
+    margin:18px 0 10px; text-transform:uppercase; letter-spacing:.3px}
+  .slot{margin-bottom:12px}
+  .slot .lbl{font-size:.88rem; font-weight:600; margin-bottom:6px; display:block}
+  .drop{
+    display:flex; align-items:center; gap:10px;
+    border:1.5px dashed var(--linea); border-radius:10px; padding:12px;
+    background:#FbFbFc; cursor:pointer; min-height:52px;
+  }
+  .drop.has{border-style:solid; border-color:var(--ok); background:#F1F9F4}
+  .drop .ico{font-size:1.3rem}
+  .drop .txt{font-size:.85rem; color:var(--gris); flex:1}
+  .drop.has .txt{color:var(--ok); font-weight:600}
+  input[type=file]{display:none}
+  textarea{min-height:64px; resize:vertical}
+  .barra{
+    position:fixed; left:0; right:0; bottom:0; z-index:20;
+    background:#fff; border-top:1px solid var(--linea);
+    padding:12px 14px calc(env(safe-area-inset-bottom) + 12px);
+  }
+  .barra .inner{max-width:640px; margin:0 auto}
+  .btn{
+    width:100%; padding:16px; border:none; border-radius:12px;
+    background:var(--rojo); color:#fff; font-size:1.05rem; font-weight:800;
+    cursor:pointer; font-family:inherit;
+  }
+  .btn:active{background:var(--rojo-osc)}
+  .btn:disabled{background:#D6A2AE; cursor:not-allowed}
+  .hint{font-size:.78rem; color:var(--gris); margin-top:8px; text-align:center}
+  .hint.err{color:var(--rojo); font-weight:600}
+  .ok-box{text-align:center; padding:34px 16px}
+  .ok-box .big{font-size:3rem}
+  .ok-box h2{color:var(--ok)!important; margin:8px 0}
+  .gate{max-width:360px; margin:60px auto; text-align:center}
+  .prog{font-size:.85rem; color:var(--gris); text-align:center; margin-top:8px}
+  .pill{display:inline-block; background:#fff; color:var(--rojo); font-weight:800;
+    font-size:.7rem; border-radius:6px; padding:3px 7px; margin-left:8px}
+</style>
+</head>
+<body>
+  <div class="hero">
+    <h1>Carga de campo TGI_ <span class="pill">PCC</span></h1>
+    <p>Sube la información de tu inspección · se organiza sola en la nube</p>
+  </div>
+
+  <!-- Puerta de acceso (opcional) -->
+  <div id="gate" class="wrap" style="display:none">
+    <div class="card gate">
+      <label class="field">Código de acceso</label>
+      <input type="text" id="gate-code" inputmode="numeric" autocomplete="off">
+      <div style="height:12px"></div>
+      <button class="btn" id="gate-btn">Entrar</button>
+      <div class="hint err" id="gate-err" style="display:none">Código incorrecto.</div>
+    </div>
+  </div>
+
+  <!-- Formulario -->
+  <div id="form" class="wrap" style="display:none">
+    <div class="card">
+      <div class="row">
+        <div class="col">
+          <label class="field" for="tramo">Tramo <span class="req">*</span></label>
+          <input list="tramos-list" id="tramo" placeholder="Escribe o elige…" autocomplete="off">
+          <datalist id="tramos-list"></datalist>
+        </div>
+        <div class="col">
+          <label class="field">Tipo de inspección <span class="req">*</span></label>
+          <div class="seg" id="seg-tipo"></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="col">
+          <label class="field" for="fecha">Fecha <span class="req">*</span></label>
+          <input type="date" id="fecha">
+        </div>
+        <div class="col">
+          <label class="field" for="tecnico">Tu nombre <span class="req">*</span></label>
+          <input type="text" id="tecnico" placeholder="Nombre del técnico" autocomplete="name">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800; font-size:.95rem" id="arch-tit">Archivos</div>
+      <div style="font-size:.78rem; color:var(--gris); margin-top:2px">
+        <span class="req">*</span> obligatorio · cada casilla se guarda en su carpeta
+      </div>
+      <div id="slots"></div>
+      <div style="margin-top:14px">
+        <label class="field" for="nota">Nota / observaciones (opcional)</label>
+        <textarea id="nota" placeholder="Algo que la oficina deba saber…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Éxito -->
+  <div id="done" class="wrap" style="display:none">
+    <div class="card ok-box">
+      <div class="big">✅</div>
+      <h2>Carga enviada</h2>
+      <p id="done-msg" style="color:var(--gris)"></p>
+      <div style="height:10px"></div>
+      <button class="btn" id="done-btn">➕ Registrar otra carga</button>
+    </div>
+  </div>
+
+  <!-- Barra inferior de envío -->
+  <div class="barra" id="barra" style="display:none">
+    <div class="inner">
+      <button class="btn" id="enviar" disabled>📤 Enviar carga</button>
+      <div class="hint" id="hint"></div>
+      <div class="prog" id="prog" style="display:none"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./config.js"></script>
+  <script src="./data.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

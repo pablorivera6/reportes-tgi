@@ -495,3 +495,33 @@ por **tramo asignado manualmente**; además una **sección global "⚡ Rectifica
   UNKNOWN vacía se descarta). Todos "Operando" en el ejemplo, distritos 7 y 8.
 - **PENDIENTE al momento de escribir**: usuario corre schema_v7.sql, luego el loader; verificar
   en vivo. Para el demo eligió "sección aparte" (no asignó tramo aún).
+  → HECHO: 18 cargados en vivo (Distritos 7 y 8), visor + PDF verificados. Commit 5d2c8e9.
+
+### 10.13 Carga de campo en web estática (reemplazo de intake_app) — 2026-08
+Problema: `intake_app.py` (app Streamlit "Carga de campo TGI", URL
+uploaddatapcc.streamlit.app) la usan los TÉCNICOS desde el celular y (a) el plan
+gratis de Streamlit Cloud se DUERME (~30-60s al despertar), (b) la UX móvil es
+mala. Decisión: NO reconstruir la generadora pesada (necesita Python), solo mover
+esta appcita (199 líneas, solo sube archivos + crea carga) a **web estática**.
+- **`web_carga/`** (NUEVO): sitio estático (index.html + app.js + config.js + data.js).
+  Mobile-first, marca PCC. Usa `@supabase/supabase-js@2` (CDN) + la **llave anon
+  (pública, formato `sb_publishable_…`)**. Sube directo al bucket `cargas` y hace
+  insert en la tabla `cargas`, **replicando EXACTO `db.guardar_carga`**: ruta
+  `slug(tramo)/fecha/slug(tipo)/slug(clave)/<stamp>_slug(nombre)` y fila
+  {tramo,tipo,fecha,tecnico,estado:'pendiente',archivos:[{categoria,nombre,path,size}],
+  nota,sharepoint_ok:false}. `slug` idéntico a `db._slug`. Casillas = `entrega.CATALOGO`
+  (solo grupos proc/crudo/rf, igual que intake). Rutas con prefijo único (stamp) +
+  upsert:false para no necesitar UPDATE en RLS. NO espeja a SharePoint (v1).
+- **`portal/schema_v8.sql`** (NUEVO): RLS para que `anon` SOLO pueda INSERT en
+  `cargas` (con check estado='pendiente') y INSERT (upload) en el bucket `cargas`.
+  Sin select/update/delete. Bucket privado. El usuario debe correrlo.
+- **`exportar_datos_carga.py`** (NUEVO): genera `web_carga/data.js` (window.TRAMOS de
+  `cips_infra.InfraTramos` = 280 tramos; window.CATALOGO de `entrega.CATALOGO`).
+  Reejecutar si cambian infra o catálogo.
+- **Seguridad**: la anon key es pública por diseño (segura en el navegador); la
+  protección la da RLS. `[intake] password` estaba VACÍO → la app Streamlit hoy está
+  abierta; la web deja `ACCESS_CODE` opcional (candado de comodidad, no seguridad).
+- **Despliegue**: Vercel, Root Directory = `web_carga`, framework Other (estático, sin
+  build). La generadora Streamlit se QUEDA (es de oficina/PCC, el sueño no molesta).
+- **PENDIENTE**: usuario corre schema_v8.sql → probar envío real e2e → desplegar en
+  Vercel y reemplazar el link que usan los técnicos. Rotar contraseña FastField sigue.
