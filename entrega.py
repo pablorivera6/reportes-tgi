@@ -41,8 +41,6 @@ def _c(clave, etiqueta, req, tipos, carpeta, grupo, sub=None):
 _CRUDOS = [
     _c("huellas_osc", "Huellas osciloscópicas (crudo del logger, editable)",
        False, _CRUDO, "huellas_osc", "crudo"),
-    _c("gps", "GPS submétrico (crudo diario)", False, _CRUDO, "gps", "crudo"),
-    _c("logger_crudo", "Data logger (crudo diario)", False, _CRUDO, "logger", "crudo"),
 ]
 
 # Anexos de inspecciones adicionales (van a 04_Anexos en su subcarpeta).

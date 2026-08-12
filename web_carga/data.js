@@ -25,30 +25,6 @@ window.CATALOGO = {
 "grupo": "crudo"
 },
 {
-"clave": "gps",
-"etiqueta": "GPS submétrico (crudo diario)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls",
-"csv",
-"txt"
-],
-"grupo": "crudo"
-},
-{
-"clave": "logger_crudo",
-"etiqueta": "Data logger (crudo diario)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls",
-"csv",
-"txt"
-],
-"grupo": "crudo"
-},
-{
 "clave": "anexo_interfases",
 "etiqueta": "Inspección Visual de Interfases (FastField)",
 "req": false,
@@ -153,30 +129,6 @@ window.CATALOGO = {
 {
 "clave": "huellas_osc",
 "etiqueta": "Huellas osciloscópicas (crudo del logger, editable)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls",
-"csv",
-"txt"
-],
-"grupo": "crudo"
-},
-{
-"clave": "gps",
-"etiqueta": "GPS submétrico (crudo diario)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls",
-"csv",
-"txt"
-],
-"grupo": "crudo"
-},
-{
-"clave": "logger_crudo",
-"etiqueta": "Data logger (crudo diario)",
 "req": false,
 "tipos": [
 "xlsx",
@@ -293,30 +245,6 @@ window.CATALOGO = {
 {
 "clave": "huellas_osc",
 "etiqueta": "Huellas osciloscópicas (crudo del logger, editable)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls",
-"csv",
-"txt"
-],
-"grupo": "crudo"
-},
-{
-"clave": "gps",
-"etiqueta": "GPS submétrico (crudo diario)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls",
-"csv",
-"txt"
-],
-"grupo": "crudo"
-},
-{
-"clave": "logger_crudo",
-"etiqueta": "Data logger (crudo diario)",
 "req": false,
 "tipos": [
 "xlsx",
