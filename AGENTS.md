@@ -248,7 +248,8 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
 - **Comparativa históricos**: nota metodológica de transparencia en el portal + toggle
   crudo/procesado (§10.9); uploader de históricos en la app para cargar los demás tramos
   (hoy se carga con script). Rotar contraseña FastField (circuló en chat).
-- **Matriz de rectificadores** con PDF por unidad (prometida a TGI, no construida).
+- **Matriz de rectificadores**: CONSTRUIDA (§10.12). Falta: usuario corre `schema_v7.sql`
+  + `cargar_rectificadores.py`, verificar en vivo, y decidir asignación de tramos.
 - `.exe` de Windows: recompilar en Windows (`build_windows.bat`); no se puede en Mac.
 - DCVG Fase pendiente: fotos de defectos (multiphoto_picker) — no implementado.
 - CIPS: decidir si ciertos picos hacia -500/-600 son artefactos o baja
@@ -460,3 +461,37 @@ viejo (`VTG_REP_*.xlsx`, hoja única con 77 imágenes). Va al ZIP en
   `git clone https://github.com/pablorivera6/reportes-tgi.git /private/tmp/tgi_v6`. NUNCA
   push desde Desktop (iCloud). `git commit`/`add` a veces bloqueados por el clasificador →
   correr en pasos separados y mensaje de UNA línea.
+
+### 10.12 Rectificadores (matriz + visor en el portal) — 2026-08
+Origen: app web del usuario `~/Downloads/Codigo_Matriz_TGI` (parse_tgi.py lee Excels
+`*REP*.xlsx` → `rectifiers_processed.json`; app_tgi.js = visor con motor de diagnóstico).
+Integrado NATIVO al portal (no se embebe el HTML). Decisiones del usuario: emparejar
+por **tramo asignado manualmente**; además una **sección global "⚡ Rectificadores"**.
+- **`rectificadores.py`** (NUEVO): port del motor JS a Python — `estado_rectificador`
+  (Operando/Fuera de servicio/Sin datos, por eventos negativos vs positivos),
+  `calc_util` (%V/%I sobre nominal), `analizar_mantenimiento` (needs/mejoras/preventivo,
+  mismas heurísticas del JS), `resumen_rectificador`. Render nativo Streamlit
+  `render_card(rect, st, key)` (tarjeta PCC con placa/nominales/util/expander diagnóstico
+  + botón PDF por unidad). PDF: `pdf_rectificador(rect)` (1 pág, matriz TGI) y
+  `paginas_pdf(pdf, plt, rects, titulo, pag_ini, total)` + `paginas_pdf_count` para
+  inyectar páginas en el PDF del dashboard. **OJO matplotlib no renderiza emoji** → en
+  texto de PDF nada de emoji (usar "Mant."/"Mejora:").
+- **`portal/schema_v7.sql`** (NUEVO): tabla `rectificadores` (tramo asignable, tag,
+  estructura, distrito, fabricante, modelo, serial, estado, payload jsonb, resumen jsonb,
+  fuente). RLS anon select=true. **El usuario debe correrlo en Supabase antes de cargar.**
+- **`db.py`**: `guardar_rectificador`, `listar_rectificadores(tramo=None)`,
+  `rectificadores_de_tramo(tramo)` (devuelve payloads), `asignar_tramo_rectificador`.
+- **`portal_app.py`**: nav "⚡ Rectificadores" (vista global con KPIs, filtros distrito/
+  fabricante/búsqueda, cards por distrito, y editor de asignación de tramo SOLO revisor
+  vía `st.data_editor`). En `render_dashboard_cips`: si el tramo tiene rectificadores,
+  sección "⚡ Rectificadores del tramo" + entran al PDF. El botón "Descargar PDF del
+  dashboard" ahora aparece si hay histórico **o** rectificadores (antes solo histórico).
+- **`comparativa.pdf_dashboard(detalle, dfp, hist=None, rects=None)`**: añade páginas de
+  rectificadores al final; NP = 4 + páginas de rects.
+- **`cargar_rectificadores.py`** (NUEVO): loader. Lee credenciales de
+  `.streamlit/secrets.toml` (no depende del runtime de Streamlit). Uso:
+  `python3 cargar_rectificadores.py [json] [--tramo "La Dorada"] [--reset]`. Los 19 del
+  ejemplo están en `rectifiers_processed.json` (copiado al proyecto). 18 con placa (1 fila
+  UNKNOWN vacía se descarta). Todos "Operando" en el ejemplo, distritos 7 y 8.
+- **PENDIENTE al momento de escribir**: usuario corre schema_v7.sql, luego el loader; verificar
+  en vivo. Para el demo eligió "sección aparte" (no asignó tramo aún).

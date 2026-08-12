@@ -374,13 +374,15 @@ def render_dashboard_cips(detalle):
         st.markdown("**Voltaje AC vs abscisa (Gráfica VAC)**")
         _grafica_vac(dfp)
 
-    # ── Comparativa con histórico (si el tramo tiene uno cargado) ────────────
+    # ── Comparativa con histórico + rectificadores del tramo ─────────────────
     _hist = None
+    _rects = []
     try:
         if db.disponible():
             _hist = db.historico_de_tramo(insp.get("tramo"), "CIPS")
+            _rects = db.rectificadores_de_tramo(insp.get("tramo"))
     except Exception:
-        _hist = None
+        pass
     if _hist and not dfp.empty:
         import comparativa
         st.divider()
@@ -403,8 +405,26 @@ def render_dashboard_cips(detalle):
         st.plotly_chart(
             comparativa.overlay_plotly(dfp, _hist.get("puntos"), _hist.get("periodo", "histórico")),
             use_container_width=True)
+
+    # Rectificadores asignados a este tramo
+    if _rects:
+        import rectificadores as rx
+        st.divider()
+        st.markdown("### ⚡ Rectificadores del tramo")
+        _k = rx.kpis(_rects)
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Rectificadores", _k["total"])
+        r2.metric("Distritos", _k["distritos"])
+        r3.metric("En operación", _k["operando"])
+        r4.metric("Fuera de servicio", _k["fuera"])
+        for i, _rc in enumerate(_rects):
+            rx.render_card(_rc, st, key=f"cips_{insp.get('id')}_{i}")
+
+    # PDF del dashboard (con histórico y/o rectificadores)
+    if (_hist or _rects) and not dfp.empty:
+        import comparativa
         try:
-            _pdf = comparativa.pdf_dashboard(detalle, dfp, _hist)
+            _pdf = comparativa.pdf_dashboard(detalle, dfp, _hist, rects=_rects)
             _nom = f"Dashboard_{(insp.get('tramo') or 'tramo').replace(' ', '_')}.pdf"
             st.download_button("⬇️ Descargar PDF del dashboard", data=_pdf,
                                file_name=_nom, mime="application/pdf")
@@ -1011,6 +1031,103 @@ def _zonas_criticas(det, umbral_m=25):
     st.dataframe(dfz.sort_values("Prioridad"), use_container_width=True, height=240)
 
 
+# ── Sección global de rectificadores (matriz) ───────────────────────────────
+def render_rectificadores():
+    import rectificadores as rx
+    st.markdown("## ⚡ Rectificadores")
+    st.caption("Matriz de rectificadores inspeccionados: estado de operación, "
+               "utilización y necesidades de mantenimiento. Cada unidad tiene su "
+               "PDF descargable. Asigna un tramo para que aparezcan en su dashboard.")
+    if _DEMO:
+        st.info("Modo demostración: conecta Supabase para ver los rectificadores "
+                "cargados.")
+        return
+    try:
+        filas = db.listar_rectificadores(write=_ES_REVISOR)
+    except Exception as e:
+        if "rectificadores" in str(e) and "schema cache" in str(e):
+            st.warning("La tabla de rectificadores aún no existe en Supabase. "
+                       "Ejecuta `portal/schema_v7.sql` en el SQL Editor y luego "
+                       "carga los datos con `cargar_rectificadores.py`.", icon="🛠️")
+        else:
+            st.error(f"No se pudieron leer los rectificadores: {e}")
+        return
+    if not filas:
+        st.info("Aún no hay rectificadores cargados. Súbelos desde la app de "
+                "procesamiento (o el script de carga).")
+        return
+
+    todos = [f.get("payload") for f in filas if f.get("payload")]
+    k = rx.kpis(todos)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total", k["total"])
+    c2.metric("Distritos", k["distritos"])
+    c3.metric("En operación", k["operando"])
+    c4.metric("Fuera de servicio", k["fuera"])
+
+    # Asignación de tramo (solo revisor PCC)
+    if _ES_REVISOR:
+        with st.expander("🔧 Asignar tramo a cada rectificador (revisor PCC)"):
+            edit = pd.DataFrame([{
+                "id": f["id"], "TAG": f.get("tag") or "", "Estructura": f.get("estructura") or "",
+                "Distrito": f.get("distrito") or "", "Tramo": f.get("tramo") or "",
+            } for f in filas])
+            ed = st.data_editor(
+                edit, hide_index=True, use_container_width=True, key="rect_asign",
+                column_config={"id": None,
+                               "TAG": st.column_config.TextColumn(disabled=True),
+                               "Estructura": st.column_config.TextColumn(disabled=True),
+                               "Distrito": st.column_config.TextColumn(disabled=True),
+                               "Tramo": st.column_config.TextColumn(
+                                   help="Escribe el tramo del portal (p. ej. La Dorada)")})
+            if st.button("💾 Guardar asignaciones"):
+                prev = {f["id"]: (f.get("tramo") or "") for f in filas}
+                n = 0
+                for _, row in ed.iterrows():
+                    nuevo = (row["Tramo"] or "").strip()
+                    if nuevo != prev.get(row["id"], ""):
+                        db.asignar_tramo_rectificador(row["id"], nuevo or None)
+                        n += 1
+                st.success(f"{n} asignación(es) actualizada(s)." if n else
+                           "No hubo cambios.")
+                st.rerun()
+
+    # Filtros
+    distritos = sorted({f.get("distrito") or "—" for f in filas})
+    fabs = sorted({f.get("fabricante") for f in filas if f.get("fabricante")})
+    cf1, cf2, cf3 = st.columns([1, 1, 1.4])
+    fd = cf1.selectbox("Distrito", ["Todos"] + distritos)
+    ff = cf2.selectbox("Fabricante", ["Todos"] + fabs)
+    fq = cf3.text_input("🔍 Buscar TAG / modelo / serial").strip().lower()
+
+    def _visible(f):
+        if fd != "Todos" and (f.get("distrito") or "—") != fd:
+            return False
+        if ff != "Todos" and f.get("fabricante") != ff:
+            return False
+        if fq:
+            blob = " ".join(str(f.get(x) or "") for x in
+                            ("tag", "estructura", "modelo", "serial", "fabricante")).lower()
+            if fq not in blob:
+                return False
+        return True
+
+    vis = [f for f in filas if _visible(f)]
+    if not vis:
+        st.info("Ningún rectificador coincide con el filtro.")
+        return
+
+    # Agrupar por distrito
+    por_distrito = {}
+    for f in vis:
+        por_distrito.setdefault(f.get("distrito") or "—", []).append(f)
+    for distrito in sorted(por_distrito):
+        grupo = por_distrito[distrito]
+        st.markdown(f"#### 🏭 {distrito} · {len(grupo)} rectificador(es)")
+        for f in grupo:
+            rx.render_card(f["payload"], st, key=f["id"])
+
+
 # ── App ──────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"<div style='text-align:center'>{_logo}<br>"
@@ -1041,7 +1158,7 @@ st.session_state.setdefault("vista", "inspeccion")
 
 # Navegación: por inspección individual o vista consolidada por tramo
 if not st.session_state.sel:
-    nv1, nv2, _ = st.columns([1.2, 1.4, 3])
+    nv1, nv2, nv3, _ = st.columns([1.2, 1.4, 1.4, 2])
     if nv1.button("📋 Por inspección",
                   type=("primary" if st.session_state.vista == "inspeccion" else "secondary")):
         st.session_state.vista = "inspeccion"
@@ -1049,6 +1166,10 @@ if not st.session_state.sel:
     if nv2.button("🔎 Vista por tramo",
                   type=("primary" if st.session_state.vista == "tramo" else "secondary")):
         st.session_state.vista = "tramo"
+        st.rerun()
+    if nv3.button("⚡ Rectificadores",
+                  type=("primary" if st.session_state.vista == "rectificadores" else "secondary")):
+        st.session_state.vista = "rectificadores"
         st.rerun()
 
 if st.session_state.sel:
@@ -1069,6 +1190,8 @@ if st.session_state.sel:
             st.rerun()
 elif st.session_state.vista == "tramo":
     render_vista_tramo()
+elif st.session_state.vista == "rectificadores":
+    render_rectificadores()
 else:
     render_listado()
 

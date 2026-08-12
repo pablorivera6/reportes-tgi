@@ -11,3 +11,7 @@ shapefiles.zip
 # Secrets (NUNCA subir)
 .streamlit/secrets.toml
 secrets.toml
+
+# Datos del cliente (repo PUBLICO — los datos viven en Supabase, no en git)
+rectifiers_processed.json
+*REP*.xlsx

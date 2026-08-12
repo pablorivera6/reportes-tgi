@@ -685,3 +685,47 @@ def marcar_cola_fastfield(cola_id, estado, carga_id=None, error=None):
     if error:
         upd["error"] = str(error)[:1000]
     cli.table("fastfield_cola").update(upd).eq("id", cola_id).execute()
+
+
+# ── Rectificadores (matriz + visor por tramo) ────────────────────────────────
+def guardar_rectificador(rect, tramo=None, fuente=None):
+    """Inserta un rectificador. `rect` = {plant, placa, nominales, op_data, ...}.
+    Devuelve el id creado. El estado/utilización se calculan aquí (rectificadores.py)."""
+    import rectificadores as _rx
+    cli = _client(write=True)
+    placa = rect.get("placa") or {}
+    est = _rx.estado_rectificador(rect)
+    fila = {
+        "tramo": tramo, "tag": placa.get("TAG") or placa.get("ESTRUCTURA"),
+        "estructura": placa.get("ESTRUCTURA"), "distrito": rect.get("plant"),
+        "fabricante": placa.get("FABRICANTE"), "modelo": placa.get("MODELO"),
+        "serial": placa.get("SERIAL"), "estado": est["cls"],
+        "payload": rect, "resumen": _rx.resumen_rectificador(rect), "fuente": fuente,
+    }
+    return cli.table("rectificadores").insert(fila).execute().data[0]["id"]
+
+
+def listar_rectificadores(tramo=None, write: bool = False):
+    """Todos los rectificadores (o los de un tramo). Devuelve filas con `payload`."""
+    cli = _client(write=write)
+    r = cli.table("rectificadores").select("*").order("distrito").order(
+        "creado_en", desc=True).execute()
+    filas = r.data or []
+    if tramo is not None:
+        t = (tramo or "").strip().lower()
+        filas = [x for x in filas if (x.get("tramo") or "").strip().lower() == t]
+    return filas
+
+
+def rectificadores_de_tramo(tramo, write: bool = False):
+    """Los `payload` de los rectificadores asignados a un tramo (para el dashboard/PDF)."""
+    if not tramo:
+        return []
+    return [x.get("payload") for x in listar_rectificadores(tramo, write=write)
+            if x.get("payload")]
+
+
+def asignar_tramo_rectificador(rect_id, tramo):
+    """Asigna (o cambia) el tramo de un rectificador."""
+    cli = _client(write=True)
+    cli.table("rectificadores").update({"tramo": tramo or None}).eq("id", rect_id).execute()

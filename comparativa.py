@@ -109,8 +109,12 @@ def _tabla(fig, plt, rect, titulo, colnames, filas, anchos=None, fs=7.5):
             cell.set_facecolor("#FAFAFA")
 
 
-def pdf_dashboard(detalle, dfp, hist=None) -> bytes:
-    """PDF multipágina con TODO el dashboard CIPS (como se ve en el portal)."""
+def pdf_dashboard(detalle, dfp, hist=None, rects=None) -> bytes:
+    """PDF multipágina con TODO el dashboard CIPS (como se ve en el portal).
+
+    Si `rects` (lista de rectificadores del tramo) trae datos, se añaden sus
+    páginas al final.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -132,7 +136,14 @@ def pdf_dashboard(detalle, dfp, hist=None) -> bytes:
     if pct is None and offs:
         pct = round(100 * sum(1 for o in offs if o <= CRIT) / len(offs), 1)
     long_km = (res.get("longitud_m") or 0) / 1000
-    NP = 4 if hist else 3
+    _n_rect = 0
+    if rects:
+        try:
+            import rectificadores as _rx
+            _n_rect = _rx.paginas_pdf_count(rects)
+        except Exception:
+            _n_rect = 0
+    NP = 4 + _n_rect
 
     buf = io.BytesIO()
     with PdfPages(buf) as pdf:
@@ -266,6 +277,14 @@ def pdf_dashboard(detalle, dfp, hist=None) -> bytes:
                  "portal (dashboard interactivo) y en el informe del paquete de entrega.",
                  fontsize=7.5, color="#9AA0A6")
         pdf.savefig(fig); plt.close(fig)
+
+        # ── Páginas de rectificadores del tramo (si hay) ─────────────────────
+        if _n_rect and rects:
+            try:
+                import rectificadores as _rx
+                _rx.paginas_pdf(pdf, plt, rects, tramo, 5, NP)
+            except Exception:
+                pass
 
     return buf.getvalue()
 
