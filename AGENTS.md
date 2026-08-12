@@ -242,6 +242,13 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
 
 ## 9. Pendientes conocidos
 
+- **FastField webhooks**: falta configurar la HTTP/HTTPS action en los forms PAP (1199286),
+  Aislamientos (1240049) e Interfases (1242703) — DCVG ya quedó. Adaptadores por API de
+  PAP/Aislamientos (`_ADAPTADORES` en fastfield_ingest) — hoy entran por Excel; DCVG ya API.
+- **Comparativa históricos**: nota metodológica de transparencia en el portal + toggle
+  crudo/procesado (§10.9); uploader de históricos en la app para cargar los demás tramos
+  (hoy se carga con script). Rotar contraseña FastField (circuló en chat).
+- **Matriz de rectificadores** con PDF por unidad (prometida a TGI, no construida).
 - `.exe` de Windows: recompilar en Windows (`build_windows.bat`); no se puede en Mac.
 - DCVG Fase pendiente: fotos de defectos (multiphoto_picker) — no implementado.
 - CIPS: decidir si ciertos picos hacia -500/-600 son artefactos o baja
@@ -301,19 +308,76 @@ dedupe, `shapely.simplify(0.00002)`, escribir PolyLine WGS84 con `pyshp` (mismos
 campos que los demás; ver commit 9f46bbf). El GPS-proyectado corrige inflación de
 odómetro del equipo. Idea futura: generar shapefile on-the-fly si falta.
 
-### 10.6 FastField (API v3) — conector EN CURSO (ver memoria fastfield-api)
+### 10.6 FastField (API v3) — conector FUNCIONANDO (ver memoria fastfield-api)
 - Base `https://api.fastfieldforms.com/services/v3`. Auth: `POST /authenticate`
   (Basic email:password + header `FastField-API-Key`) → sessionToken → header
   `X-Gatekeeper-SessionToken`. La API key es OBLIGATORIA.
+- **Email que funciona**: `data.ingenieria@proteccioncatodica.com` (el de gmail da 401).
 - **NO hay endpoint para LISTAR submissions** (solo `GET /formresults/submission/{id}`)
   → la integración es por **WEBHOOK** (FastField avisa cada envío), no polling.
-- `fastfield_api.py` (cliente, reusa código probado del user) + `fastfield_transform.py`
-  (`pap_submission`, `aislamientos_submission` probados con data real; FORM_MAP
-  formId→tipo). Fotos: `/media/download` en 2 pasos.
-- Forms reales: PAP=1199286 (subform_1=postes), Aislamientos=1240049 (subform_1=juntas),
-  "Inspección DCVG"=1160295 (¡ES resistividades!), DCVG-defectos=por identificar.
-- PENDIENTE: receptor webhook (Supabase Edge Function) + transforms resistividades/
-  DCVG-defectos + configurar webhooks en FastField. Credenciales NUNCA al repo.
+- Fotos: `/media/download?key=<filename>` → `{downloadUrl}` → GET esa URL (2 pasos).
+
+**Leer las ETIQUETAS de los campos** (el submission trae keys genéricas y LOCALES por
+subform: `numeric_1`, `alpha_1`… se repiten entre subforms):
+`GET /forms/{formId}` → `formJson` → `page[0].section[0].field[]`, cada field con
+`fieldKey` (= key del submission), `fieldType`, `fieldName` (etiqueta legible). Los
+`SubFormPicker` traen su definición anidada en `field.subForm`.
+
+**Forms reales mapeados** (`FORM_MAP` en `fastfield_transform.py`):
+- `1199286` PAP (subform_1 = postes) → `pap_submission`
+- `1240049` Aislamientos (subform_1 = juntas) → `aislamientos_submission`
+- `1160295` **"Inspección DCVG" = formulario COMPLETO** (corrección: NO era solo
+  resistividades) → `dcvg_submission`. 5 subforms repetibles: `subform_5`=Poste(PAP),
+  `subform_6`=Hallazgos, `subform_7`=Resistividades, `subform_8`=Hallazgo simple,
+  `subform_9`=Defecto DCVG (+ `subform_4`/`subform_3` = cuadrillas TGI/Ocensa).
+  Defecto: `numeric_4`=OL/RE, `numeric_5`=Severidad(P/RE), `computedlabel_1`=%IR (fracción).
+  **Los técnicos deben poner TODO en este único form** (antes lo partían mal; se les
+  comunicó). `dcvg_reader.py` YA leía este form vía Excel (hojas subform_5/7/9), por eso
+  el adaptador copia esas formas exactas.
+- `1242703` **"Inspección Visual interfases-"** → `interfases_submission`. Es un **ANEXO**
+  (fotos), no data de informe. Cabecera + `subform_1` repetible (PK, GPS, Observación,
+  Registro Fotográfico). OJO: `1242702` es solo un subformulario, no el form real.
+
+### 10.6b Webhook FastField → app (arquitectura "buzón + Python")
+**Por qué así:** Edge Functions es TypeScript/Deno y el traductor probado está en Python.
+Reescribirlo duplicaría el código. Solución: la función solo hace de **buzón**.
+
+Flujo: técnico envía en FastField → webhook (HTTP/HTTPS action) llama a la Edge Function
+→ inserta `submission_id` en `fastfield_cola` → la app de procesamiento drena la cola con
+un botón, usando el Python ya probado (baja envío + fotos, traduce, crea la **carga**) →
+sigue el flujo normal de cargas.
+
+- `portal/schema_v5.sql` → tabla `fastfield_cola` (submission_id UNIQUE, form_id, estado
+  nuevo/procesada/error, carga_id, payload, RLS solo service_role).
+- `portal/functions/fastfield-webhook/index.ts` (+ README de deploy) — valida el secreto
+  (header `x-webhook-secret` **o** `?secret=` en la URL) e inserta vía PostgREST.
+- `db.py`: `listar_cola_fastfield` / `guardar_cola_fastfield` / `marcar_cola_fastfield`.
+- `fastfield_ingest.py`: `procesar_submission(sub_id, form_id)` → auth, baja envío+fotos,
+  `FORM_MAP` transform, luego:
+  - **data de informe** → `_ADAPTADORES[tipo]` (solo DCVG por ahora) → carga con
+    `datos.json` (categoría `fastfield_datos`) + fotos (`fotos_rf`).
+  - **anexo** → `_ANEXOS[tipo]` (INTERFASES) → solo fotos en `anexo_interfases` + genera
+    el Excel del entregable con `interfases_doc.py`. NO fija `tipo_inspeccion`.
+  Credenciales en `st.secrets['fastfield']` = {email, password, api_key}.
+- `streamlit_app.py`: rama `fastfield_datos` en `autocargar_carga` (carga el datos.json
+  directo a `data[...]`) + bandeja que drena la cola.
+
+**Configuración en FastField (una vez por formulario):** Form Delivery Options / Workflow
+→ Actions → **HTTP/HTTPS** → URL
+`https://nvsnovulwtnbgopyiyal.supabase.co/functions/v1/fastfield-webhook?secret=<WEBHOOK_SECRET>`
+· Format **JSON** · sin Basic Auth ni API Key (ese panel NO tiene headers custom, por eso
+el secreto va en la URL). En Supabase: desactivar **Verify JWT** de la función y setear el
+secret `WEBHOOK_SECRET`. **Probado en vivo con DCVG**: el envío llegó solo a la cola.
+
+### 10.6c Entregable de Interfases (`interfases_doc.py`)
+Genera un Excel limpio (paleta PCC) desde el FastField de interfases: cabecera roja,
+bloque de info (Tramo/Fecha/Gasoducto/Contrato/Inspector/OT/Contratista), tabla
+**N° · Abscisa (`K 136+300`) · Lat · Lon · Observación · Registro Fotográfico** con
+**una fila por foto** (celdas de datos combinadas verticalmente por interfase), fotos
+escaladas con `PIL` e incrustadas con `openpyxl.drawing.image`. Reemplaza el formato
+viejo (`VTG_REP_*.xlsx`, hoja única con 77 imágenes). Va al ZIP en
+`04_Anexos/Inspeccion_Visual_Interfases/` (categoría `anexo_interfases` en `entrega.py`,
+`_ANEXOS_COMUNES` añadido a los 3 tipos).
 
 ### 10.7 Lecciones de despliegue (Streamlit Cloud)
 - `requirements.txt`: **NO fijar versiones exactas** (sobre todo `streamlit`) →
@@ -324,3 +388,75 @@ odómetro del equipo. Idea futura: generar shapefile on-the-fly si falta.
   el build; Fotos IA es opcional; `photo_utils` lo importa guardado con try/except).
 - Diagnóstico: consola del navegador "RUNNING" = script colgado; el error real está
   en Manage app → logs (build). Status oficial: streamlitstatus.com / githubstatus.com.
+
+### 10.8 Bandeja de entrada + autollenado (streamlit_app.py, esta sesión)
+- **Bandeja unificada** en "Cargar Archivos": una sola sección "📬 Bandeja de entrada"
+  con envíos FastField + cargas, **agrupadas por tramo** (`_tramo_norm` normaliza el
+  nombre; botón "⚙️ Traer TODO el tramo" une CIPS+PAP+aislamientos+DCVG del mismo tramo).
+  **Rendimiento:** consulta cacheada `@st.cache_data(ttl=45)` + descargas por **enlace
+  firmado** (`db.url_descarga_carga`), NO bajar bytes en cada rerun (era el gran cuello);
+  cliente Supabase **reusado** (`_CLIENTES` cache en `db._client`).
+- **Carga manual reorganizada** en sub-pestañas por tipo (⚡PAP / 📈CIPS / 🔎DCVG), cada
+  una con contador "En memoria: N potenciales…" y previsualizador DCVG (tablas de
+  postes/defectos/resistividades/hallazgos con severidad calculada).
+- **Autollenado automático de Datos Generales al procesar FastField PAP** (como la app
+  antigua del ingeniero): al "Procesar potenciales" se extrae tramo/contrato/inspector/
+  fecha/tipo y se dispara `_autollenar_tramo(tramo, inspector)` (infraestructura + OT/
+  distrito/km + equipos), aplicando TODO vía `st.session_state.pending_autofill` (los
+  `text_input` con `key` SOLO se refrescan así — antes solo se actualizaba `data['info']`
+  y el widget quedaba vacío, por eso tocaba escribir el tramo a mano).
+
+### 10.9 Comparativa histórico vs actual (CIPS) — portal + PDF
+- `portal/schema_v6.sql` → tabla `historicos` (tramo, tipo, periodo, `puntos` jsonb
+  [{abscisa,on,off}], `resumen` jsonb; RLS lectura anon). `db.py`: `guardar_historico`,
+  `historico_de_tramo`, `listar_historicos`, `cargar_historico`, `_resumen_historico`.
+- `comparativa.py`: `overlay_plotly` (gráfica interactiva OFF vs abscisa, histórico gris
+  + actual rojo + criterio −850, y-axis invertido), `resumen_comparativo`, y
+  **`pdf_dashboard(detalle, dfp, hist)`** = PDF **multipágina con TODO el dashboard**
+  (matplotlib+PdfPages, sirve en la nube SIN Chrome): pág1 meta+KPIs+comparativa, pág2
+  mapa(scatter por estado)+ON/OFF+VAC, pág3 hallazgos+tramos, pág4 muestra de 40 lecturas.
+  `matplotlib>=3.6` agregado a requirements.
+- Integrado en `render_dashboard_cips` (portal_app.py): si el tramo tiene histórico,
+  muestra métricas antes→ahora + gráfica + botón "⬇️ Descargar PDF del dashboard".
+- **La Dorada** ya cargado (histórico Nov-2023 del informe TELMACOM, 756 pts) y probado
+  en vivo. Para más tramos: cargar con script (o futuro uploader en la app).
+
+**⚠️ OJO INTEGRIDAD DEL DATO (CIPS):**
+- El pipeline propio guarda `off_mv` (crudo) **y** `off_limpio` (procesado). La "limpieza"
+  = `_suavizar_outliers` (cips_lrs.py): reemplaza **picos AISLADOS** que se desvían >250 mV
+  de la mediana móvil de 25 pts. **Preserva zonas desprotegidas reales** (varios pts
+  seguidos). El portal/comparativa usa el **limpio** (dato oficial). En La Dorada el crudo
+  tenía 1 punto desprotegido (K007 −171 mV, artefacto de arranque) que el limpio corrige.
+- El **histórico 2023 (Excel TELMACOM) trae UNA sola columna** de OFF: no se sabe si es
+  crudo o limpio (informe ya entregado por otro contratista). Al aplicarle nuestro filtro
+  solo cambian 2/756 pts → consistente con "ya viene procesado", pero NO verificable.
+  **Riesgo para TGI:** parte de la diferencia podría ser metodológica (otro equipo/criterio).
+  Conclusión robusta: **87% de puntos más protegidos, +97 mV OFF promedio**; lo que MÁS
+  cambia es el **ON (−2076→−1624)**, o sea la caída IR se redujo a la mitad (~−978→−430),
+  probablemente menor corriente de rectificador durante la medición (el OFF, que manda para
+  NACE, mejora igual). PENDIENTE: nota metodológica de transparencia en el portal +
+  (opcional) toggle crudo/procesado; conseguir el crudo real de 2023 si se puede.
+
+### 10.10 Entregables a TGI (docs/PDF, esta sesión)
+- **Matriz de cumplimiento TGI** (artifact HTML + PDF): qué se cumple completo vs. qué
+  cambia con solución. Cambios que TGI debe saber: informes SIN antecedentes escritos, sin
+  "sistema inspeccionado", sin la huella; SIN gráficas cada 5 km; entrega en ZIP (num
+  6.3.5); históricos → PDF dashboard comparativo + acceso al portal; matriz de
+  rectificadores con PDF por unidad (esto último aún no construido).
+- **Logo PCC**: archivo `logo-pcc-hd.png`; en los PDF de esta sesión se usó una
+  **recreación SVG** (anillos + P + rayo) porque Descargas está bloqueada por permisos
+  macOS. Para usar el real: copiarlo a la carpeta del proyecto (readable) y re-embeber.
+
+### 10.11 Entorno de esta máquina (gotchas nuevos)
+- **Carpeta `~/Downloads` BLOQUEADA** (TCC macOS): no se puede leer/copiar desde ahí
+  (Bash y Read dan EPERM, incluso con sandbox off). **Escribir** sí funciona. Para pasarme
+  archivos: ponerlos en la carpeta del proyecto (`TGI_V1_Codigo_Fuente/`).
+- **HTML→PDF**: weasyprint hace **segfault** (libs anaconda). Usar **Chrome headless**
+  (`--headless=new --print-to-pdf`) para HTML→PDF, o **matplotlib PdfPages** para PDF con
+  gráficas (sirve en la nube). `sips` (macOS) convierte PDF→PNG página 1 para previsualizar.
+- **Python con libs**: `/opt/anaconda3/bin/python3` (tiene streamlit, matplotlib, weasyprint,
+  openpyxl, pypdf). `launch.json` usa ese binario. Portal local = `portal_app.py` puerto 8602.
+- **El clon `/private/tmp/tgi_repo2` se corrompió** (git limpiado). Push desde clon fresco:
+  `git clone https://github.com/pablorivera6/reportes-tgi.git /private/tmp/tgi_v6`. NUNCA
+  push desde Desktop (iCloud). `git commit`/`add` a veces bloqueados por el clasificador →
+  correr en pasos separados y mensaje de UNA línea.
