@@ -187,6 +187,24 @@ del chart) con el eje X limitado al segmento. NO usan el voltaje del logger
 (son zoom del %IR). Correr DESPUÉS de `fill_graficas_dcvg` para heredar los
 criterios en fracción.
 
+**⚠️ La hoja `Informe` de DCVG NO tiene la distribución de PAP/CIPS.** Nunca
+quemar filas/columnas: `generator` las ubica por etiqueta (`_fila_seccion`,
+`_bloque_seccion`, `_campo_de_etiqueta`, `_mapa_rectificadores`).
+
+| | PAP / CIPS | DCVG |
+|---|---|---|
+| OBJETIVO | fila 11, **por fórmula** | fila 11, **texto fijo** (se reescribe con el tramo real) |
+| DOCUMENTOS REF. | fila 16 (refs 17-20) | fila 13 (refs 14-16) |
+| EQUIPOS | fila 23 (lista 24-28) | fila 18 (lista 19-23) |
+| Columnas de valor | G / **V** / **AF** | G / **U** / **AE** |
+| Fila 7 · Fila 8 | No de OT · Contratista | **Contratista · OT** (invertidas) |
+| URPC (título) | B77 (CIPS B76) | B43 (datos 46-52) |
+| Disp. V/I · TAPS · NEG1 | Q/T · U · W | **O/Q · S · T** |
+
+Además: en DCVG el párrafo de DESCRIPCIÓN DE LA LÍNEA viene vacío (lo redacta
+`_fill_descripcion_linea`), y el flujo DCVG debe llamar a `fill_rectificadores`
+(antes no lo hacía y las URPC salían vacías).
+
 **Hallazgos** (hoja Hallazgos): `cips_a_hallazgos(data['dcvg_hallazgos'])`
 (clasifica tipo + ortografía), ordenados por abscisa.
 
@@ -208,6 +226,11 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
   (`Survey Info`→`Technician Name` en CIPS; `Root`→`Técnico a cargo` en DCVG) y
   se autollena Inspector + Serial + Fecha calibración vía
   `get_equipos_for_inspector` (lee `Listado equipos TGI.xlsx`).
+- **Autollenado tramo→informe (DCVG):** la cabecera del FastField DCVG trae
+  `Troncal o ramal`, fecha y contratista (`dcvg_reader.info_desde_meta`); al
+  cargar se llevan a Datos Generales y se dispara `_autollenar_tramo`. Sin eso
+  el informe sale sin tramo (encabezado, columna TRAMO de Hallazgos, objetivo y
+  sigla del nombre del archivo).
 - **Ortografía:** todo texto libre pasa por `ortografia.corregir_campo` antes de
   escribirse (cruce, aéreo, tensión, válvula, línea, río, abscisado, rocería,
   "sin paso", PK, mayúscula inicial…). Diccionario cerrado; ampliar si el
@@ -215,6 +238,13 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
 - **Hoja Hallazgos:** la plantilla tiene 500 filas de datos pre-formateadas
   antes del bloque de firmas (se movió con `expandir_hallazgos`). `fill_hallazgos`
   solo escribe (no inserta filas), ordena por abscisa, y limpia sobrantes.
+- **Nombre de los archivos (`nombres.py`):** todo entregable se llama
+  `tipo_REP|PPM_R|T|L|A_sigla_mes_año_OT_contrato_PCC_Rev.A.xlsx`
+  (p.ej. `DCVG_REP_R_ARM_03_25_1300013506_551007370_PCC_Rev.A.xlsx`). La letra
+  y la sigla salen de `Infraestrutura TGI.xlsx` (columnas `Tipo` y `SIGLAS`)
+  buscando el tramo; mes/año de `info['fecha']`; OT y contrato de Datos
+  Generales. Lo que falte se omite (sin `__`) y `nombres.faltantes(info)` lo
+  reporta en la UI. El KMZ y el ZIP de entrega derivan del mismo nombre.
 - **PPM:** `PPMGenerator().generate(info, potenciales, aislamientos, out,
   cips=...)`. Limpia el template antes de escribir; incluye la data CIPS con
   fecha por punto.

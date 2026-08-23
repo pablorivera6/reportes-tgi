@@ -3,8 +3,10 @@ TGI Report Generator - Motor de generación de informes Excel
 Llena la plantilla EN BLANCO.xlsx con los datos procesados
 """
 import openpyxl
+import re
 import pandas as pd
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill
 from copy import copy
 from datetime import datetime
 from ortografia import corregir_campo
@@ -72,6 +74,44 @@ class ReportGenerator:
         except (AttributeError, ValueError):
             pass
 
+    # Resaltado de las celdas que el ingeniero debe completar a mano (una
+    # abscisa que el técnico no registró en campo).
+    _COLOR_POR_COMPLETAR = "FFFFFF00"
+
+    def _marcar_por_completar(self, ws, row: int, col: int):
+        """Pinta de amarillo una celda que quedó vacía a propósito."""
+        try:
+            ws.cell(row=row, column=col).fill = PatternFill(
+                start_color=self._COLOR_POR_COMPLETAR,
+                end_color=self._COLOR_POR_COMPLETAR, fill_type="solid")
+        except (AttributeError, ValueError):
+            pass
+
+    @staticmethod
+    def _anclar_sin_abscisa(items: list, clave: str) -> list:
+        """[(ancla, pos, registro)] para ordenar por abscisa SIN perder los
+        registros que no la traen.
+
+        El archivo de campo va en el orden en que el técnico hizo el recorrido,
+        así que un registro sin abscisa va donde su vecino: se ancla a la
+        abscisa del anterior que sí la tenga (pos=1 → queda justo después) o,
+        si es el primero, a la del siguiente (pos=-1 → justo antes). pos=0 = el
+        registro sí trae abscisa.
+        """
+        vals = [it.get(clave) for it in items]
+        out = []
+        for i, v in enumerate(vals):
+            if v is not None:
+                out.append((v, 0, items[i]))
+                continue
+            prev = next((x for x in reversed(vals[:i]) if x is not None), None)
+            if prev is not None:
+                out.append((prev, 1, items[i]))
+            else:
+                sig = next((x for x in vals[i + 1:] if x is not None), None)
+                out.append((sig if sig is not None else 0, -1, items[i]))
+        return out
+
     def _copy_row_style(self, ws, source_row: int, target_row: int, min_col: int, max_col: int):
         """Copy cell styles from source row to target row to preserve template formatting"""
         for col in range(min_col, max_col + 1):
@@ -84,6 +124,159 @@ class ReportGenerator:
                 target_cell.number_format = copy(source_cell.number_format)
                 target_cell.alignment = copy(source_cell.alignment)
 
+    # ── Distribución de la hoja 'Informe' ────────────────────────────────
+    # La plantilla DCVG coloca las secciones y las columnas de valor en sitios
+    # distintos a las de PAP/CIPS. En vez de quemar filas y columnas, se
+    # localizan por la etiqueta y por las celdas combinadas.
+
+    SECCIONES_INFORME = ('OBJETIVO', 'DOCUMENTOS DE REFERENCIA',
+                         'EQUIPOS UTILIZADOS',
+                         'DESCRIPCIÓN DE LA LÍNEA OBJETO DE ESTUDIO',
+                         'ANTECEDENTES', 'SISTEMA INSPECCIONADO')
+
+    @staticmethod
+    def _txt(v):
+        return re.sub(r'\s+', ' ', str(v or '')).strip().upper()
+
+    @staticmethod
+    def _etiqueta(v):
+        """Etiqueta comparable: sin tildes, minúsculas, sin espacios de más."""
+        import unicodedata
+        t = ''.join(c for c in unicodedata.normalize('NFD', str(v or ''))
+                    if unicodedata.category(c) != 'Mn')
+        return re.sub(r'\s+', ' ', t).strip().lower()
+
+    # Etiqueta del encabezado -> campo de Datos Generales. El ORDEN importa:
+    # 'Fecha calibración' antes que 'Fecha' y 'Contratista' antes que
+    # 'contrato'. Se mapea por etiqueta y no por fila porque la plantilla DCVG
+    # tiene Contratista y OT en filas cambiadas frente a PAP/CIPS.
+    CAMPOS_ENCABEZADO = (
+        (r'^fecha\s*calibraci', 'fecha_calibracion'),
+        (r'^fecha', 'fecha'),
+        (r'^serial', 'serial_equipo'),
+        (r'^contratista', 'contratista'),
+        (r'contrato', 'contrato'),
+        (r'^(no\.?\s*de\s*)?ot\b', 'ot'),
+        (r'^gasoducto', 'gasoducto'),
+        (r'^tramo', 'tramo'),
+        (r'recubrimiento', 'tipo_recubrimiento'),
+        (r'^inspector', 'inspector'),
+        (r'^diametro', 'diametro'),
+        (r'^ciclo', 'ciclo'),
+    )
+
+    @classmethod
+    def _campo_de_etiqueta(cls, etiqueta):
+        e = cls._etiqueta(etiqueta)
+        if not e:
+            return None
+        for patron, campo in cls.CAMPOS_ENCABEZADO:
+            if re.search(patron, e):
+                return campo
+        return None
+
+    def _fila_seccion(self, ws, etiqueta, hasta=80):
+        """Fila del título de sección (col A). None si no está."""
+        objetivo = self._txt(etiqueta)
+        for r in range(1, min(ws.max_row, hasta) + 1):
+            if self._txt(ws.cell(row=r, column=1).value) == objetivo:
+                return r
+        return None
+
+    def _bloque_seccion(self, ws, etiqueta, hasta=80):
+        """(primera, última) fila de contenido de una sección, o None."""
+        ini = self._fila_seccion(ws, etiqueta, hasta)
+        if ini is None:
+            return None
+        otras = [self._fila_seccion(ws, s, hasta) for s in self.SECCIONES_INFORME]
+        siguientes = [r for r in otras if r is not None and r > ini]
+        fin = (min(siguientes) - 1) if siguientes else min(ws.max_row, ini + 6)
+        return (ini + 1, fin) if fin >= ini + 1 else None
+
+    def _cols_valor(self, ws, fila, defecto=(7, 22, 32)):
+        """Columnas de VALOR de una fila del encabezado. La fila alterna
+        etiqueta/valor en celdas combinadas: PAP/CIPS usa G/V/AF y DCVG G/U/AE,
+        así que se toman las anclas de merge en posición impar."""
+        anclas = sorted({m.min_col for m in ws.merged_cells.ranges
+                         if m.min_row == fila and m.max_row == fila})
+        if len(anclas) >= 6:
+            return (anclas[1], anclas[3], anclas[5])
+        return defecto
+
+    # Objetivo del informe DCVG: la plantilla lo trae como texto fijo con el
+    # ramal del ejemplo (a diferencia de PAP/CIPS, que lo arman por fórmula).
+    OBJETIVO_DCVG = (
+        "Realizar un diagnóstico del estado general del recubrimiento, bajo la "
+        "técnica de inspección DCVG para la tubería enterrada e inspección "
+        "visual para la tubería aérea {linea}. Clasificar puntos estratégicos "
+        "susceptibles a falla a corto plazo del recubrimiento, para definir "
+        "programas de mantenimiento y reparación.")
+
+    def _fill_objetivo_dcvg(self, ws, data):
+        """Reescribe el OBJETIVO con el tramo/gasoducto/distrito de ESTA
+        inspección. Solo aplica cuando es texto fijo (DCVG); si la plantilla lo
+        calcula por fórmula (PAP/CIPS) no se toca."""
+        bloque = self._bloque_seccion(ws, 'OBJETIVO')
+        if not bloque:
+            return
+        fila = next((r for r in range(bloque[0], bloque[1] + 1)
+                     if ws.cell(row=r, column=1).value not in (None, '')), None)
+        actual = ws.cell(row=fila, column=1).value if fila else None
+        if not isinstance(actual, str) or actual.startswith('='):
+            return                      # objetivo por fórmula: es del formato
+        tramo = str(data.get('tramo') or '').strip()
+        if not tramo:
+            return
+        linea = f"del {tramo}"
+        gas = str(data.get('gasoducto') or '').strip()
+        if gas:
+            linea += f", el cual hace parte del gasoducto {gas}"
+        distrito = re.sub(r'^[Dd]0*', '', str(data.get('distrito') or '').strip())
+        if distrito:
+            linea += f" perteneciente al distrito {distrito}"
+        self._safe_write(ws, fila, 1, self.OBJETIVO_DCVG.format(linea=linea))
+
+    def _fill_descripcion_linea(self, ws, data):
+        """Redacta la DESCRIPCIÓN DE LA LÍNEA OBJETO DE ESTUDIO del informe
+        DCVG, que en esa plantilla viene vacía. Sigue la estructura del formato
+        PAP. Solo para DCVG: en PAP/CIPS ese párrafo lo escribe el ingeniero."""
+        if self._etiqueta(data.get('tipo_inspeccion')) != 'dcvg':
+            return
+        tramo = str(data.get('tramo') or '').strip()
+        if not tramo:
+            return
+        bloque = self._bloque_seccion(ws, 'DESCRIPCIÓN DE LA LÍNEA OBJETO DE ESTUDIO')
+        if not bloque:
+            return
+        partes = [f"El {tramo}"]
+        gas = str(data.get('gasoducto') or '').strip()
+        if gas:
+            partes[0] += f" perteneciente al Gasoducto {gas}"
+        try:
+            km = float(data.get('longitud_km') or 0)
+        except (TypeError, ValueError):
+            km = 0
+        if km > 0:
+            partes[0] += (f", cuenta con una longitud de {self._num_es(km, 1)} Km "
+                          f"aproximadamente")
+        partes[0] += "."
+
+        rec = str(data.get('tipo_recubrimiento') or '').strip()
+        diam = re.sub(r'[^0-9.,/]', '', str(data.get('diametro') or '')).strip(' .,')
+        detalle = []
+        if rec:
+            detalle.append(f"un recubrimiento {rec}")
+        if diam:
+            detalle.append(f"un Diámetro de {diam} in")
+        if detalle:
+            partes.append("La Tubería cuenta con " + self._unir(detalle) + ".")
+
+        rect = str(data.get('rectificadores_tgi') or '').strip()
+        if rect and 'ESCRIBIR' not in rect.upper():
+            partes.append(f"Tiene como mecanismo contra la corrosión externa un "
+                          f"sistema de corriente impresa por las URPC de {rect}.")
+        self._safe_write(ws, bloque[0], 1, " ".join(partes))
+
     def fill_general_info(self, data: dict):
         """Fill Informe sheet rows 6-9 with general information
         
@@ -92,26 +285,50 @@ class ReportGenerator:
                    contrato, ot, contratista, ciclo
         """
         ws = self.ws_informe
-        # Row 6
-        self._safe_write(ws, 6, 7, data.get('fecha', ''))           # G6 - Fecha
-        self._safe_write(ws, 6, 22, data.get('serial_equipo', ''))   # V6 - Serial
-        self._safe_write(ws, 6, 32, data.get('contrato', ''))        # AF6 - Contrato
-        # Row 7
-        self._safe_write(ws, 7, 7, data.get('gasoducto', ''))        # G7 - Gasoducto
-        self._safe_write(ws, 7, 22, data.get('fecha_calibracion', ''))# V7 - Fecha cal.
-        self._safe_write(ws, 7, 32, data.get('ot', ''))              # AF7 - OT
-        # Row 8
-        self._safe_write(ws, 8, 7, data.get('tramo', ''))            # G8 - Tramo
-        self._safe_write(ws, 8, 22, data.get('tipo_recubrimiento', ''))# V8 - Recubrim.
-        self._safe_write(ws, 8, 32, data.get('contratista', ''))     # AF8 - Contratista
-        # Row 9
-        self._safe_write(ws, 9, 7, data.get('inspector', ''))        # G9 - Inspector
-        self._safe_write(ws, 9, 22, data.get('diametro', ''))        # V9 - Diámetro
-        self._safe_write(ws, 9, 32, data.get('ciclo', ''))           # AF9 - Ciclo
-        
-        # Row 20 (Documentos de Referencia)
+        # Filas 6-9: pares etiqueta/valor en celdas combinadas. Cada valor se
+        # escribe en la celda que sigue a SU etiqueta (ver CAMPOS_ENCABEZADO):
+        # así funciona con cualquiera de las tres plantillas.
+        respaldo = {   # por si la fila no trae celdas combinadas
+            6: ('fecha', 'serial_equipo', 'contrato'),
+            7: ('gasoducto', 'fecha_calibracion', 'ot'),
+            8: ('tramo', 'tipo_recubrimiento', 'contratista'),
+            9: ('inspector', 'diametro', 'ciclo'),
+        }
+        for fila in (6, 7, 8, 9):
+            anclas = sorted({m.min_col for m in ws.merged_cells.ranges
+                             if m.min_row == fila and m.max_row == fila})
+            escrito = False
+            for i in range(0, len(anclas) - 1, 2):
+                campo = self._campo_de_etiqueta(
+                    ws.cell(row=fila, column=anclas[i]).value)
+                if campo:
+                    self._safe_write(ws, fila, anclas[i + 1], data.get(campo, ''))
+                    escrito = True
+            if not escrito:
+                for col, clave in zip(self._cols_valor(ws, fila), respaldo[fila]):
+                    self._safe_write(ws, fila, col, data.get(clave, ''))
+
+        # Procedimiento, dentro del bloque de DOCUMENTOS DE REFERENCIA (en la
+        # plantilla DCVG ese bloque está 6 filas más arriba que en PAP/CIPS,
+        # donde la fila 20 caía encima de la lista de equipos).
         tipo_inspeccion = data.get('tipo_inspeccion', 'CIPS')
-        self._safe_write(ws, 20, 1, f"PR-I-06 PROCEDIMIENTO PARA ENCENDIDO, CALIBRACIÓN E INSPECCIÓN {tipo_inspeccion} DE SPC")
+        texto_pr = (f"PR-I-06 PROCEDIMIENTO PARA ENCENDIDO, CALIBRACIÓN E "
+                    f"INSPECCIÓN {tipo_inspeccion} DE SPC")
+        bloque = self._bloque_seccion(ws, 'DOCUMENTOS DE REFERENCIA')
+        fila_pr = 20
+        if bloque:
+            ini, fin = bloque
+            fila_pr = next((r for r in range(ini, fin + 1)
+                            if str(ws.cell(row=r, column=1).value or '')
+                            .strip().upper().startswith('PR-I-06')), None)
+            if fila_pr is None:
+                fila_pr = next((r for r in range(ini, fin + 1)
+                                if ws.cell(row=r, column=1).value in (None, '')),
+                               fin)
+        self._safe_write(ws, fila_pr, 1, texto_pr)
+
+        self._fill_objetivo_dcvg(ws, data)
+        self._fill_descripcion_linea(ws, data)
 
     def fill_equipos_utilizados(self, equipos_list: list):
         """Fill the EQUIPOS UTILIZADOS section (rows 24-28)
@@ -120,18 +337,19 @@ class ReportGenerator:
         ws = self.ws_informe
         if not equipos_list:
             return
-            
-        # Clear existing first
-        for r in range(24, 29):
+        # El bloque de equipos está en filas distintas según la plantilla
+        # (PAP/CIPS 24-28, DCVG 19-23): se ubica por el título de la sección.
+        bloque = self._bloque_seccion(ws, 'EQUIPOS UTILIZADOS') or (24, 28)
+        ini, fin = bloque
+        cupo = fin - ini + 1
+        for r in range(ini, fin + 1):          # limpiar los del formato
             self._safe_write(ws, r, 1, "")
             self._safe_write(ws, r, 19, "")
-            
-        # Write new
         for i, eq in enumerate(equipos_list):
-            if i < 5:
-                self._safe_write(ws, 24 + i, 1, eq)
-            elif i < 10:
-                self._safe_write(ws, 24 + (i - 5), 19, eq)
+            if i < cupo:
+                self._safe_write(ws, ini + i, 1, eq)
+            elif i < cupo * 2:
+                self._safe_write(ws, ini + (i - cupo), 19, eq)
 
     def fill_sistema_inspeccionado(self, data: dict, potenciales: list):
         """Fill system inspection section (rows 38-46)
@@ -592,46 +810,123 @@ class ReportGenerator:
             for c in range(1, 14):
                 self._safe_write(ws, r, c, '')
 
+    # Bloque de rectificadores: mismas columnas lógicas en las tres plantillas,
+    # pero en posiciones distintas (PAP disponibilidad en Q/T, DCVG en O/Q…).
+    TITULO_RECTIFICADORES = 'PARÁMETROS OPERATIVOS EN RECTIFICADORES'
+
+    def _buscar_texto(self, ws, texto, hasta=140):
+        """(fila, columna) de la primera celda cuyo texto empieza por `texto`."""
+        objetivo = self._etiqueta(texto)
+        for r in range(1, min(ws.max_row, hasta) + 1):
+            for c in range(1, 6):
+                if self._etiqueta(ws.cell(row=r, column=c).value).startswith(objetivo):
+                    return (r, c)
+        return (None, None)
+
+    def _mapa_rectificadores(self, ws):
+        """(fila_datos, tope, {campo: columna}) del bloque de URPC, leído de sus
+        dos filas de encabezado (grupos y subcolumnas)."""
+        fila_tit, _c = self._buscar_texto(ws, self.TITULO_RECTIFICADORES)
+        if fila_tit is None:
+            return (80, None, {})       # respaldo: distribución de PAP
+        f_grupo, f_sub = fila_tit + 1, fila_tit + 2
+        inicio = f_sub + 1
+
+        def celdas(fila):
+            return [(c, self._etiqueta(ws.cell(row=fila, column=c).value))
+                    for c in range(1, 40)
+                    if ws.cell(row=fila, column=c).value not in (None, '')]
+
+        grupos = celdas(f_grupo)
+        subs = celdas(f_sub)
+
+        def col_grupo(nombre):
+            return next((c for c, t in grupos if t.startswith(nombre)), None)
+
+        def subs_de(nombre):
+            ini = col_grupo(nombre)
+            if ini is None:
+                return []
+            sig = [c for c, _t in grupos if c > ini]
+            fin = min(sig) if sig else 99
+            return [(c, t) for c, t in subs if ini <= c < fin]
+
+        def sub_con(nombre, palabra):
+            return next((c for c, t in subs_de(nombre) if palabra in t), None)
+
+        mapa = {
+            'nombre': col_grupo('urpc'),
+            'voltaje_nominal': sub_con('datos nominales', 'voltaje'),
+            'corriente_nominal': sub_con('datos nominales', 'corriente'),
+            'vdc_salida': sub_con('datos operacionales', 'voltaje'),
+            'idc_salida': sub_con('datos operacionales', 'corriente'),
+            'disponibilidad_v': sub_con('disponibilidad', 'voltaje'),
+            'disponibilidad_i': sub_con('disponibilidad', 'corriente'),
+            'taps': col_grupo('taps'),
+        }
+        for clave, grupo in (('neg', 'potencial on-instant off'),
+                             ('neg_a', 'corriente negativos')):
+            cols = [c for c, _t in subs_de(grupo)] or [col_grupo(grupo)]
+            for i, c in enumerate(cols[:3]):
+                mapa[f'{clave}{i + 1}'] = c
+
+        # el bloque termina donde empieza la siguiente sección
+        tope = None
+        for r in range(inicio, min(ws.max_row, inicio + 40) + 1):
+            if any(ws.cell(row=r, column=c).value not in (None, '')
+                   for c in (1, 2)) and r > inicio:
+                tope = r - 1
+                break
+        return (inicio, tope, mapa)
+
     def fill_rectificadores(self, rectificadores: list):
-        """Fill rectifier parameters in Informe sheet (rows 80+)
-        
-        Each rect: nombre, voltaje_nominal, corriente_nominal,
-                   vdc_salida, idc_salida, disponibilidad_v, disponibilidad_i,
-                   taps, pot_on_off_text, corriente_neg
-        """
+        """Llena 'PARÁMETROS OPERATIVOS EN RECTIFICADORES' (URPC) de la hoja
+        Informe. Las filas y columnas se leen del propio encabezado del bloque,
+        porque cada plantilla lo tiene en un sitio distinto.
+
+        Cada rect: nombre, voltaje_nominal, corriente_nominal, ultima_inspeccion
+        {vdc_salida, idc_salida, disponibilidad_v, disponibilidad_i, taps},
+        conexion_estructura {pot_on, pot_off, corriente}.
+        `self.rect_omitidos` = los que no cupieron en el bloque."""
+        self.rect_omitidos = 0
+        if not rectificadores:
+            return
         ws = self.ws_informe
+        inicio, tope, mapa = self._mapa_rectificadores(ws)
+        if not mapa.get('nombre'):
+            return
+        cupo = (tope - inicio + 1) if tope else len(rectificadores)
+        if len(rectificadores) > cupo:
+            self.rect_omitidos = len(rectificadores) - cupo
+            rectificadores = rectificadores[:cupo]
+
+        def poner(row, campo, valor):
+            col = mapa.get(campo)
+            if col:
+                self._safe_write(ws, row, col, valor)
+
         for i, r in enumerate(rectificadores):
-            row = 80 + i
+            row = inicio + i
             if i > 0:
-                self._copy_row_style(ws, 80, row, 2, 34)
-                
-            self._safe_write(ws, row, 2, r.get('nombre', ''))                # B - URPC
-            self._safe_write(ws, row, 5, r.get('voltaje_nominal'))            # E - V nominal
-            self._safe_write(ws, row, 8, r.get('corriente_nominal'))          # H - I nominal
-            # Datos de última inspección
+                self._copy_row_style(ws, inicio, row, 2, 34)
+            poner(row, 'nombre', r.get('nombre', ''))
+            poner(row, 'voltaje_nominal', r.get('voltaje_nominal'))
+            poner(row, 'corriente_nominal', r.get('corriente_nominal'))
             ultima = r.get('ultima_inspeccion', {})
-            self._safe_write(ws, row, 11, ultima.get('vdc_salida'))           # K - V operac.
-            self._safe_write(ws, row, 14, ultima.get('idc_salida'))           # N - I operac.
-            self._safe_write(ws, row, 17, ultima.get('disponibilidad_v'))     # Q - Disp V%
-            self._safe_write(ws, row, 20, ultima.get('disponibilidad_i'))     # T - Disp I%
-            self._safe_write(ws, row, 21, ultima.get('taps', ''))             # U - TAPS
-            
-            # Datos de conexión a estructura
+            for campo in ('vdc_salida', 'idc_salida', 'disponibilidad_v',
+                          'disponibilidad_i'):
+                poner(row, campo, ultima.get(campo))
+            poner(row, 'taps', ultima.get('taps', ''))
+
             conexion = r.get('conexion_estructura', {})
-            pot_on = conexion.get('pot_on', '')
-            pot_off = conexion.get('pot_off', '')
-            
-            # Potencial ON-OFF formatted text
-            if pot_on and pot_off:
-                pot_text = f'ON: {pot_on}\nOFF: {pot_off}'
-            else:
-                pot_text = '-'
-            self._safe_write(ws, row, 23, pot_text)                           # W - NEG 1
-            self._safe_write(ws, row, 24, '-')                                # X - NEG 2
-            self._safe_write(ws, row, 27, '-')                                # AA - NEG 3
-            self._safe_write(ws, row, 29, conexion.get('corriente', ''))      # AC - NEG 1 A
-            self._safe_write(ws, row, 32, '-')                                # AF - NEG 2 A
-            self._safe_write(ws, row, 34, '-')                                # AH - NEG 3 A
+            pot_on, pot_off = conexion.get('pot_on', ''), conexion.get('pot_off', '')
+            poner(row, 'neg1', f'ON: {pot_on}\nOFF: {pot_off}'
+                  if (pot_on and pot_off) else '-')
+            poner(row, 'neg2', '-')
+            poner(row, 'neg3', '-')
+            poner(row, 'neg_a1', conexion.get('corriente', ''))
+            poner(row, 'neg_a2', '-')
+            poner(row, 'neg_a3', '-')
 
     def fill_aislamientos(self, aislamientos: list):
         """Fill Aislamientos sheet data starting at row 13
@@ -1054,9 +1349,18 @@ class ReportGenerator:
         %IR = OL/RE (col S/T/U según carácter AA/CA/CC como fracción para el
         formato '0%'), y la clasificación (V) por umbrales. Los hallazgos
         (cruces, tramos enmontados…) van como filas de referencia con su
-        abscisa y descripción. Los registros sin abscisa se omiten
-        (self.dcvg_omitidos)."""
+        abscisa y descripción.
+
+        Los registros a los que el técnico no les puso abscisa NO se pierden:
+        se escriben en el punto de la secuencia donde van (anclados al registro
+        anterior del archivo de campo), con la celda D vacía y resaltada en
+        amarillo, y con las fórmulas que dependen del PK (C, Q, severidad)
+        neutralizadas con IF — al escribir la abscisa, Excel las completa solo.
+        `self.dcvg_sin_abscisa` cuenta esas filas; `self.dcvg_omitidos` solo
+        cuenta lo que no cupo en la hoja, y `self.dcvg_filas` las escritas."""
         self.dcvg_omitidos = 0
+        self.dcvg_sin_abscisa = 0
+        self.dcvg_filas = 0
         if 'Inspección DCVG' not in self.wb.sheetnames:
             return
         ws = self.wb['Inspección DCVG']
@@ -1067,48 +1371,52 @@ class ReportGenerator:
                     ws.max_row)
         capacidad = tope - start
 
+        # (tipo, registro, ancla, pos, secuencia): los registros sin abscisa se
+        # anclan al vecino del archivo de campo para caer en su punto del
+        # recorrido (ver _anclar_sin_abscisa).
         filas = []
-        for p in (postes or []):
-            if p.get('pk_m') is None:
-                self.dcvg_omitidos += 1
-                continue
-            filas.append(('poste', p))
-        for d in (defectos or []):
-            if d.get('pk_m') is None:
-                self.dcvg_omitidos += 1
-                continue
-            filas.append(('defecto', d))
-        for h in (hallazgos or []):
-            if h.get('abscisa_val') is None:
-                continue
-            filas.append(('hallazgo', h))
+        seq = 0
+        for tipo, items, clave in (('poste', postes, 'pk_m'),
+                                   ('defecto', defectos, 'pk_m'),
+                                   ('hallazgo', hallazgos, 'abscisa_val')):
+            for ancla, pos, it in self._anclar_sin_abscisa(items or [], clave):
+                filas.append((tipo, it, ancla, pos, seq))
+                seq += 1
         # orden por abscisa; a igual abscisa, postes/defectos antes que hallazgos
         _orden = {'poste': 0, 'defecto': 1, 'hallazgo': 2}
-        filas.sort(key=lambda t: (t[1].get('pk_m') if t[0] != 'hallazgo'
-                                  else t[1].get('abscisa_val'), _orden[t[0]]))
+        filas.sort(key=lambda t: (t[2], t[3], _orden[t[0]], t[4]))
         if len(filas) > capacidad:
             self.dcvg_omitidos += len(filas) - capacidad
             filas = filas[:capacidad]
         if not filas:
             return
+        self.dcvg_filas = len(filas)
 
         # filas (1-based en Excel) de los postes que TIENEN pulso (ON y OFF):
         # el P/RE de cada defecto se interpola entre el pulso anterior y el
         # posterior, así que solo cuentan los postes con pulso real.
-        fila_poste = [start + i for i, (t, p) in enumerate(filas)
-                      if t == 'poste' and p.get('on') is not None
-                      and p.get('off') is not None]
+        fila_poste = [start + i for i, f in enumerate(filas)
+                      if f[0] == 'poste' and f[1].get('on') is not None
+                      and f[1].get('off') is not None]
 
         _COLSEV = {'AA': 19, 'CA': 20, 'CC': 21}   # S/T/U
         from openpyxl.utils import get_column_letter as _gcl
 
-        for i, (tipo, r) in enumerate(filas):
+        for i, (tipo, r, _anc, _pos, _sq) in enumerate(filas):
             row = start + i
             absc = r.get('pk_m') if tipo != 'hallazgo' else r.get('abscisa_val')
+            falta_absc = absc is None
+            if falta_absc:
+                self.dcvg_sin_abscisa += 1
             self._safe_write(ws, row, 1, i + 1)                              # A item
             self._safe_write(ws, row, 4, absc)                              # D abscisa
+            if falta_absc:
+                self._marcar_por_completar(ws, row, 4)
             if row > start:
-                self._safe_write(ws, row, 3, f"=D{row}-$D${start}")          # C distancia
+                dist = f"D{row}-$D${start}"
+                self._safe_write(ws, row, 3,                                 # C distancia
+                                 f'=IF(D{row}="","",{dist})' if falta_absc
+                                 else f"={dist}")
             self._safe_write(ws, row, 5, r.get('lat'))                       # E
             self._safe_write(ws, row, 6, r.get('lon'))                       # F
             if tipo == 'hallazgo':
@@ -1138,24 +1446,33 @@ class ReportGenerator:
                 ps = min([fp for fp in fila_poste if fp > row], default=None)
                 tiene_pre = bool(pa or ps)
                 if pa and ps:
-                    self._safe_write(ws, row, 17,
-                        f"=((P{ps}-P{pa})/(D{ps}-D{pa})*(D{row}-D{pa}))+P{pa}")
+                    interp = f"((P{ps}-P{pa})/(D{ps}-D{pa})*(D{row}-D{pa}))+P{pa}"
                 elif pa or ps:
-                    self._safe_write(ws, row, 17, f"=P{pa or ps}")           # extremo
+                    interp = f"P{pa or ps}"                                  # extremo
+                else:
+                    interp = None
+                if interp:
+                    # sin abscisa la interpolación daría #DIV/0!: se deja
+                    # escrita pero en blanco hasta que se ponga el PK.
+                    self._safe_write(ws, row, 17,
+                                     f'=IF(D{row}="","",{interp})' if falta_absc
+                                     else f"={interp}")
                 # SEVERIDAD %IR = OL/RE ÷ P/RE (=M/Q). La celda S/T/U tiene
                 # formato '0%', así que la fracción M/Q se muestra como
                 # porcentaje. La clasificación compara contra fracciones
                 # (0.15/0.35/0.60).
                 col_sev = _COLSEV.get(car)
                 if col_sev and r.get('ol_re') is not None and tiene_pre:
-                    self._safe_write(ws, row, col_sev, f"=M{row}/Q{row}")
+                    self._safe_write(ws, row, col_sev,
+                                     f'=IF(Q{row}="","",M{row}/Q{row})'
+                                     if falta_absc else f"=M{row}/Q{row}")
                     letra = _gcl(col_sev)
                     self._safe_write(ws, row, 22,
                         f'=IF({letra}{row}="","",IF({letra}{row}<=0.15,"Muy Pequeño",'
                         f'IF({letra}{row}<=0.35,"Pequeño",IF({letra}{row}<=0.6,'
                         f'"Mediano","Grande"))))')
-                # W resistividad más cercana por abscisa
-                if resistividades:
+                # W resistividad más cercana por abscisa (necesita el PK)
+                if resistividades and not falta_absc:
                     cerc = min(resistividades,
                                key=lambda x: abs((x.get('pk_m') or 1e12) - absc))
                     partes = [f"{n}m {int(cerc[k])}" for n, k in
@@ -1175,7 +1492,8 @@ class ReportGenerator:
         """Llena la hoja 'Resistividad' desde la fila 9 (fila 8 = encabezados).
         Las columnas ρ y la clasificación de corrosividad ya son fórmulas del
         template; aquí se escriben A=abscisa, B=sector, C/D=lat/lon,
-        E=profundidad, F/H/J = Resistencia 1/2/3 m."""
+        E=profundidad, F/H/J = Resistencia 1/2/3 m. Las que no traen abscisa
+        se escriben igual (al final) con la celda A resaltada en amarillo."""
         if not resistividades or 'Resistividad' not in self.wb.sheetnames:
             return
         import re
@@ -1208,6 +1526,10 @@ class ReportGenerator:
                             r'(\$?[A-Z]+\$?)' + str(modelo) + r'\b',
                             lambda mm: mm.group(1) + str(row), fv)
             self._safe_write(ws, row, 1, d.get('pk_m'))            # A abscisa
+            if d.get('pk_m') is None:
+                # el técnico no la registró: el dato se conserva igual y la
+                # celda queda resaltada para completarla
+                self._marcar_por_completar(ws, row, 1)
             self._safe_write(ws, row, 2, corregir_campo(d.get('sector', '')))  # B
             self._safe_write(ws, row, 3, d.get('lat'))             # C
             self._safe_write(ws, row, 4, d.get('lon'))             # D
@@ -1215,6 +1537,192 @@ class ReportGenerator:
             self._safe_write(ws, row, 6, d.get('r1'))              # F R1
             self._safe_write(ws, row, 8, d.get('r2'))              # H R2
             self._safe_write(ws, row, 10, d.get('r3'))             # J R3
+
+    # Números en letras para el texto de las observaciones ("tres (3)").
+    _LETRAS = ['cero', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete',
+               'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce',
+               'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve',
+               'veinte']
+
+    @classmethod
+    def _n_letras(cls, n):
+        """'3' -> 'tres (3)'."""
+        letra = cls._LETRAS[n] if 0 <= n < len(cls._LETRAS) else str(n)
+        return f"{letra} ({n})"
+
+    @staticmethod
+    def _num_es(x, dec=2):
+        """Número con coma decimal, como se escribe en el informe."""
+        return f"{x:,.{dec}f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+    # Corrosividad del suelo por resistividad (mismos cortes que las fórmulas
+    # de la hoja Resistividad). Cada clase con su forma para el rango
+    # ("desde X hasta Y") y para la lista ("a zonas X").
+    _CORROSIVIDAD = [
+        (500, "muy corrosivas", "muy corrosivas"),
+        (1000, "corrosivas", "corrosivas"),
+        (2000, "moderadamente corrosivas", "moderadamente corrosivas"),
+        (10000, "medianamente corrosivas", "medianamente corrosivas"),
+        (float('inf'), "corrosividad despreciable", "de corrosividad despreciable"),
+    ]
+
+    @classmethod
+    def _clase_corrosividad(cls, rho):
+        for tope, nombre, _zona in cls._CORROSIVIDAD:
+            if rho <= tope:
+                return nombre
+        return cls._CORROSIVIDAD[-1][1]
+
+    @classmethod
+    def _cant_indicaciones(cls, n, total, articulo=True):
+        """'las tres (3) indicaciones' / 'una (1) indicación' / 'dos (2)
+        indicaciones', según si son todas y según el número."""
+        if n == 1:
+            return "una (1) indicación"
+        art = "las " if (articulo and n == total and total > 1) else ""
+        return f"{art}{cls._n_letras(n)} indicaciones"
+
+    @staticmethod
+    def _articulo_tramo(tramo):
+        """'Ramal Armenia' -> 'el Ramal Armenia'; 'Armenia' -> 'Armenia'."""
+        t = str(tramo or '').strip()
+        primera = t.split()[0].lower() if t else ''
+        if primera in ('ramal', 'troncal', 'loop', 'gasoducto', 'tramo'):
+            return f"el {t}"
+        return t
+
+    def _texto_obs_dcvg(self, info, postes, defectos):
+        """Redacta las observaciones de la gráfica DCVG con los datos de ESTA
+        inspección: cuántas indicaciones, densidad por km, severidad %IR y
+        carácter."""
+        tramo = self._articulo_tramo(info.get('tramo')) or 'el tramo'
+        n = len(defectos or [])
+        if not n:
+            return (f"En {tramo} no se identificaron indicaciones en la "
+                    f"inspección DCVG realizada.")
+        import db as _db
+        sev = _db._severidad_dcvg(postes or [], defectos)
+        # longitud inspeccionada: la de Datos Generales o la del recorrido
+        try:
+            km = float(info.get('longitud_km') or 0)
+        except (TypeError, ValueError):
+            km = 0
+        if km <= 0:
+            absc = [x.get('pk_m') for x in (list(postes or []) + list(defectos))
+                    if x.get('pk_m') is not None]
+            km = (max(absc) - min(absc)) / 1000 if len(absc) > 1 else 0
+        verbo = "se identificó" if n == 1 else "se identificaron"
+        partes = [f"En {tramo} {verbo} "
+                  f"{self._cant_indicaciones(n, n, articulo=False)}"]
+        if km > 0:
+            partes[0] += (f", con una densidad de defectos de "
+                          f"{self._num_es(n / km)} Indicaciones/Km")
+        partes[0] += "."
+
+        # severidad %IR por rango (mismos cortes que la clasificación)
+        rangos = [("menor a 15%", lambda p: p <= 15),
+                  ("entre 15% y 35%", lambda p: 15 < p <= 35),
+                  ("entre 35% y 60%", lambda p: 35 < p <= 60),
+                  ("mayor a 60%", lambda p: p > 60)]
+        pct = [s.get('severidad_pct') for s in sev]
+        frases = []
+        for etq, cond in rangos:
+            k = sum(1 for p in pct if p is not None and cond(p))
+            if k:
+                frases.append(f"{self._cant_indicaciones(k, n)} "
+                              f"{'tiene' if k == 1 else 'tienen'} un índice de "
+                              f"severidad IR {etq}")
+        if frases:
+            partes.append("En donde " + self._unir(frases) + ".")
+        sin_sev = sum(1 for p in pct if p is None)
+        if sin_sev:
+            partes.append(f"Para {self._cant_indicaciones(sin_sev, n)} no fue "
+                          f"posible calcular el índice de severidad IR.")
+
+        # carácter de las indicaciones
+        cars = {}
+        for d in defectos:
+            c = str(d.get('caracter') or '').strip().upper()
+            if c:
+                cars[c] = cars.get(c, 0) + 1
+        if cars:
+            det = [f"{self._cant_indicaciones(v, n)} "
+                   f"{'es' if v == 1 else 'son'} de carácter {k}"
+                   for k, v in sorted(cars.items())]
+            partes.append("De lo anterior se puede observar que "
+                          + self._unir(det) + ".")
+        return "\n".join(partes)
+
+    @staticmethod
+    def _unir(items):
+        """['a', 'b', 'c'] -> 'a, b y c'."""
+        items = [i for i in items if i]
+        if len(items) <= 1:
+            return items[0] if items else ""
+        return ", ".join(items[:-1]) + " y " + items[-1]
+
+    def _texto_obs_resistividad(self, resistividades):
+        """Redacta las observaciones de la gráfica de resistividad con las
+        medidas de ESTA inspección (espaciamiento y grado de corrosividad)."""
+        datos = [r for r in (resistividades or [])
+                 if any(r.get(k) is not None for k in ('r1', 'r2', 'r3'))]
+        if not datos:
+            return ""
+        # espaciamiento típico entre medidas
+        absc = sorted(r['pk_m'] for r in datos if r.get('pk_m') is not None)
+        pasos = [b - a for a, b in zip(absc, absc[1:]) if b > a]
+        paso = int(round(sorted(pasos)[len(pasos) // 2] / 10.0) * 10) if pasos else 0
+
+        # ρ de cada medida (mismas fórmulas de la hoja Resistividad)
+        rhos = []
+        for r in datos:
+            r1, r2, r3 = r.get('r1'), r.get('r2'), r.get('r3')
+            if r1 is not None:
+                rhos.append(2 * math.pi * r1 * 100)
+            if r1 is not None and r2 is not None and abs(r2 - r1) > 0:
+                rhos.append(((r1 * r2) / abs(r2 - r1)) * 2 * math.pi * 100)
+            if r2 is not None and r3 is not None and abs(r3 - r2) > 0:
+                rhos.append(((r2 * r3) / abs(r3 - r2)) * 2 * math.pi * 100)
+        if not rhos:
+            return ""
+        clases = [self._clase_corrosividad(v) for v in rhos]
+        zona = {n: z for _t, n, z in self._CORROSIVIDAD}
+        presentes = [n for _t, n, _z in self._CORROSIVIDAD if n in clases]
+        p1 = (f"Se realizaron mediciones de resistividades"
+              + (f" cada {paso} m de distancia" if paso else "")
+              + " a 1, 2 y 3 metros de profundidad con el objetivo de estimar el "
+                "grado de corrosividad del suelo en las ubicaciones de los "
+                "defectos encontrados en la tubería.")
+        if len(presentes) > 1:
+            p1 += (f" Para las ubicaciones medidas, se encontró que la tubería "
+                   f"se encuentra en zonas desde {presentes[-1]} hasta "
+                   f"{presentes[0]} (Ver pestaña Datos).")
+        else:
+            p1 += (f" Para las ubicaciones medidas, se encontró que la tubería "
+                   f"se encuentra en zonas {presentes[0]} (Ver pestaña Datos).")
+        pcts = sorted(((clases.count(c) * 100.0 / len(clases), c) for c in presentes),
+                      reverse=True)
+        det = [f"{self._num_es(p, 1)}% a zonas {zona[c]}" for p, c in pcts[1:]]
+        p2 = ("Basado en la totalidad de las mediciones para 1, 2 y 3 m de "
+              f"profundidad se puede considerar que el {self._num_es(pcts[0][0], 1)}% "
+              f"aproximadamente de los registros corresponden a zonas "
+              f"{zona[pcts[0][1]]}"
+              + (" y " + self._unir(det) if det else "") + ".")
+        return p1 + "\n\n" + p2
+
+    def fill_observaciones_dcvg(self, info, postes, defectos, resistividades=None):
+        """Escribe las OBSERVACIONES de las dos gráficas del informe DCVG
+        (celda F32 de 'GRAFICA DCVG' y de 'Gráfica Resistividad').
+
+        La plantilla trae el texto de un informe de ejemplo; si no se
+        reemplaza, el informe sale con las observaciones de otra inspección.
+        Siempre se sobrescribe, aunque no haya datos."""
+        for hoja, texto in (('GRAFICA DCVG',
+                             self._texto_obs_dcvg(info or {}, postes, defectos)),
+                            ('Gráfica Resistividad',
+                             self._texto_obs_resistividad(resistividades))):
+            if hoja in self.wb.sheetnames:
+                self._safe_write(self.wb[hoja], 32, 6, texto)
 
     def fill_graficas_dcvg(self, n_inspeccion, n_resist):
         """Ajusta el rango de las series de datos de las 2 gráficas DCVG a las

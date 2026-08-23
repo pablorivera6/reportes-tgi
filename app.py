@@ -189,7 +189,7 @@ class WorkerThread(QThread):
         
         # Derive PPM name from the chosen output path name
         if "REP" in base_name:
-            ppm_name = base_name.replace("REP", "PPM")
+            ppm_name = base_name.replace("REP", "PPM", 1)
         else:
             ppm_name = "PPM_" + base_name
             
@@ -217,11 +217,12 @@ class WorkerThread(QThread):
                 resist = self.app_data.get('dcvg_resist', [])
                 from cips_adapter import cips_a_hallazgos
                 hall = cips_a_hallazgos(self.app_data.get('dcvg_hallazgos', []))
+                gen.fill_rectificadores(self.app_data.get('rectificadores', []))
                 gen.fill_dcvg(postes, defectos, resist, hallazgos=hall)
                 gen.fill_resistividad(resist)
-                n_insp = (sum(1 for x in (postes + defectos) if x.get('pk_m') is not None)
-                          + sum(1 for h in hall if h.get('abscisa_val') is not None))
-                gen.fill_graficas_dcvg(n_insp, len(resist))
+                gen.fill_observaciones_dcvg(self.app_data['info'], postes,
+                                            defectos, resist)
+                gen.fill_graficas_dcvg(gen.dcvg_filas, len(resist))
                 gen.fill_rangos_dcvg(postes, defectos)
                 gen.fill_hallazgos(hall, self.app_data['info'])
                 self.progress.emit(90)
@@ -229,9 +230,15 @@ class WorkerThread(QThread):
                 gen.save(self.output_path)
                 self.progress.emit(100)
                 aviso = ""
+                sin_absc = (getattr(gen, "dcvg_sin_abscisa", 0)
+                            + sum(1 for x in resist if x.get('pk_m') is None))
+                if sin_absc:
+                    aviso = (f"\n\n⚠ {sin_absc} registro(s) DCVG sin abscisa: "
+                             f"quedaron en su sitio con la celda de abscisa "
+                             f"resaltada en amarillo para completarla.")
                 if getattr(gen, "dcvg_omitidos", 0):
-                    aviso = (f"\n\n⚠ {gen.dcvg_omitidos} registro(s) DCVG sin "
-                             f"PK/abscisa se omitieron.")
+                    aviso += (f"\n\n⚠ {gen.dcvg_omitidos} registro(s) no cupieron "
+                              f"en la hoja y se omitieron.")
                 self.finished.emit(f"DCVG: {self.output_path}{aviso}")
                 return
 
@@ -2323,7 +2330,8 @@ class AppWindow(QMainWindow):
             filtered_data['info']['rectificadores_tgi'] = "[ESCRIBIR RECTIFICADORES TGI]"
             
         info_d = filtered_data.get('info', {})
-        default_name = f"PAP_REP_{info_d.get('tipo_tramo','')}_{info_d.get('tramo','')}_{info_d.get('route_id','')}_{info_d.get('contrato','')}_PCC_RevA.xlsx"
+        import nombres
+        default_name = nombres.nombre_archivo(info_d)
         
         out_path, _ = QFileDialog.getSaveFileName(self, "Guardar Informe", default_name, "Excel (*.xlsx)")
         if not out_path:

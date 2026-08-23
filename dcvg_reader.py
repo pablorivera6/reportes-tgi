@@ -75,6 +75,19 @@ def _norm(s):
     return re.sub(r'\s+', ' ', str(s or "").strip().lower())
 
 
+def _sin_tildes(s):
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFD', str(s or ""))
+                   if unicodedata.category(c) != 'Mn')
+
+
+def _es_defecto_dcvg(texto):
+    """True si la fila de la data cruda es un defecto DCVG ('DCVG Anomaly',
+    'DCVG Anómalo'…). Esos defectos llegan por FastField, que trae la medición
+    completa; tomarlos también del logger los duplicaría en el informe."""
+    return 'anomal' in _sin_tildes(texto).lower()
+
+
 def _indice_columnas(fila_encabezados):
     """Mapa nombre_normalizado -> índice de columna (0-based)."""
     return {_norm(v): i for i, v in enumerate(fila_encabezados) if v is not None}
@@ -174,6 +187,21 @@ _RE_SOLO_RESIST = re.compile(
     r'^\s*(pk\s*\d+\s*\+?\s*\d*\s*)?toma\s+resistivida[d]?\s*$', re.IGNORECASE)
 
 
+def info_desde_meta(meta):
+    """Campos de Datos Generales que trae la cabecera del FastField DCVG.
+
+    El técnico ya diligenció en campo el tramo ('Troncal o ramal'), la fecha y
+    el contratista: se llevan al informe para no tener que reescribirlos (y
+    para que no queden vacíos el encabezado, la columna TRAMO de Hallazgos y la
+    sigla del nombre del archivo)."""
+    meta = meta or {}
+    pares = (('tramo', 'tramo'), ('fecha', 'fecha'),
+             ('contratista', 'contratista'), ('tecnico', 'inspector'))
+    return {destino: str(meta[origen]).strip()
+            for origen, destino in pares
+            if str(meta.get(origen) or '').strip()}
+
+
 def leer_dcvg_fastfield_varios(rutas):
     """Combina varios FastField DCVG en un solo dict (postes/defectos unidos;
     meta del primero que traiga técnico)."""
@@ -208,7 +236,9 @@ def leer_hallazgos_logger(ruta):
     Data): filas con comentario de campo (cruces, tramos enmontados, saltos,
     mallas, válvulas…). abscisa = Station No; GPS tomado de la hoja Survey Data
     por Station. Excluye los comentarios de carácter (Cathodic/Anodic) y los de
-    solo 'toma resistividad'. Devuelve dicts listos para cips_a_hallazgos."""
+    solo 'toma resistividad'. Excluye TAMBIÉN las filas de defecto DCVG
+    ('DCVG Anomaly'/'DCVG Anómalo'): esos defectos entran por FastField y
+    tomarlos aquí los duplicaría. Devuelve dicts listos para cips_a_hallazgos."""
     wb = openpyxl.load_workbook(ruta, read_only=True, data_only=True)
     gps = {}
     if "Survey Data" in wb.sheetnames:
@@ -232,11 +262,18 @@ def leer_hallazgos_logger(ruta):
         if df:
             im = _indice_columnas(df[0])
             si = _col(im, "Station No"); ci = _col(im, "Comments")
+            # columna del tipo de fila: 'Highway', 'Flag', 'DCVG Anomaly'…
+            fi = _col(im, "DCP/Feature", "Feature", "Tipo")
             for r in df[1:]:
+                tipo_fila = r[fi] if fi is not None and fi < len(r) else None
+                if _es_defecto_dcvg(tipo_fila):
+                    continue          # el defecto ya viene del FastField
                 com = r[ci] if ci is not None and ci < len(r) else None
                 com = str(com or "").strip()
                 if not com:
                     continue
+                if _es_defecto_dcvg(com):
+                    continue          # por si el tipo va dentro del comentario
                 low = com.lower()
                 if low in ("cathodic/cathodic", "cathodic/anodic", "anodic/anodic",
                            "anodic/cathodic"):

@@ -25,6 +25,10 @@ def _logger_sintetico(tmp_path):
     dcp.append([2, 5735, "Highway", 0, 0, "toma resistividad", None, None])   # ruido
     dcp.append([3, 500, "Highway", 0, 0, "llegada valvula derivacion", None, None])
     dcp.append([4, 5785, "DCVG Anomaly", 0.05, 0.09, "Cathodic/Cathodic", None, None])  # carácter, no hallazgo
+    # defectos del logger CON comentario: son los mismos del FastField, así que
+    # NO deben entrar (si no, el informe los repite)
+    dcp.append([5, 5790, "DCVG Anomaly", 0.05, 0.09, "defecto en la soldadura", None, None])
+    dcp.append([6, 5795, "DCVG Anómalo", 0.04, 0.08, "indicacion grande", None, None])
     ruta = os.path.join(tmp_path, "logger.xlsx")
     wb.save(ruta)
     return ruta
@@ -49,3 +53,17 @@ def test_hallazgos_logger_montenegro():
     assert all(x["abscisa_val"] is not None for x in h)
     assert any("caño" in x["observaciones"].lower() or "cruce" in x["observaciones"].lower()
                for x in h)
+
+
+def test_defectos_del_logger_no_entran_como_hallazgos(tmp_path):
+    """Los defectos DCVG salen SOLO del FastField. Las filas 'DCVG Anomaly' de
+    la data cruda son los mismos defectos: si entraran como hallazgos, el
+    informe los mostraría dos veces."""
+    h = leer_hallazgos_logger(_logger_sintetico(tmp_path))
+    absc = [x["abscisa_val"] for x in h]
+    assert 5790 not in absc, "defecto del logger duplicado como hallazgo"
+    assert 5795 not in absc, "'DCVG Anómalo' (con tilde) también se excluye"
+    textos = " ".join(x["observaciones"].lower() for x in h)
+    assert "soldadura" not in textos and "indicacion grande" not in textos
+    # los hallazgos de verdad siguen saliendo
+    assert 5740 in absc and 500 in absc

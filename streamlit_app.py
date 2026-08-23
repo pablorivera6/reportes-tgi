@@ -16,6 +16,7 @@ import streamlit as st
 from readers import FastFieldReader, EquipoReader, RectificadorReader, AislamientoReader
 from geo_utils import KMZPipelineLoader, AbscisaCalculator
 from generator import ReportGenerator, resource_path
+import nombres
 from conclusions import ConclusionGenerator
 from ppm_generator import PPMGenerator
 from cips_infra import InfraTramos
@@ -159,6 +160,7 @@ def init_state():
         'cupones_ir': False, 'cupones_grav': False, 'pe': False})
     st.session_state.setdefault("equipos_inspector", [])
     st.session_state.setdefault("current_route_id", "")
+    st.session_state.setdefault("ppm_nombre", "")
     st.session_state.setdefault("informe_bytes", None)
     st.session_state.setdefault("ppm_bytes", None)
     st.session_state.setdefault("informe_nombre", "")
@@ -514,9 +516,22 @@ def autocargar_carga(cg):
             from dcvg_reader import (leer_dcvg_fastfield_varios,
                                      leer_resistividades_fastfield_varios,
                                      leer_hallazgos_logger_varios)
+            from dcvg_reader import info_desde_meta
             d = leer_dcvg_fastfield_varios(cats["dcvg"])
             data['dcvg_postes'] = d['postes']
             data['dcvg_defectos'] = d['defectos']
+            # tramo/fecha/contratista/técnico de la cabecera del FastField
+            _auto_dcvg = info_desde_meta(d['meta'])
+            if _auto_dcvg.get('tramo'):
+                _adic, _eqs = _autollenar_tramo(_auto_dcvg['tramo'],
+                                                _auto_dcvg.get('inspector', ''))
+                _auto_dcvg.update(_adic)
+                if _eqs:
+                    st.session_state.equipos_inspector = _eqs
+            if _auto_dcvg:
+                data['info'].update(_auto_dcvg)
+                st.session_state.pending_autofill = dict(
+                    st.session_state.get('pending_autofill') or {}, **_auto_dcvg)
             if cats.get("resistividades"):
                 data['dcvg_resist'] = leer_resistividades_fastfield_varios(cats["resistividades"])
             if cats.get("logger"):
@@ -620,6 +635,12 @@ def _construir_kmz_sesion():
         return None
 
 
+def _nombre_ppm():
+    """Nombre codificado del PPM (mismo del informe con PPM en vez de REP)."""
+    return (st.session_state.get("ppm_nombre")
+            or (st.session_state.informe_nombre or "").replace("REP", "PPM", 1))
+
+
 def _armar_paquete_entrega(codigo, kmz_bytes):
     """Reúne la carga del técnico (crudos + fotos, re-descargados de Supabase) +
     informe + PPM + KMZ, y arma el ZIP con la estructura del contrato."""
@@ -640,7 +661,7 @@ def _armar_paquete_entrega(codigo, kmz_bytes):
         archivos_por_categoria.setdefault(_cat, []).extend(_files)
     informe = ((st.session_state.informe_nombre, st.session_state.informe_bytes)
                if st.session_state.informe_bytes else None)
-    ppm = ((st.session_state.informe_nombre.replace("REP", "PPM"), st.session_state.ppm_bytes)
+    ppm = ((_nombre_ppm(), st.session_state.ppm_bytes)
            if st.session_state.ppm_bytes else None)
     return entrega.construir_paquete(codigo, tipo, archivos_por_categoria,
                                      informe=informe, ppm=ppm, kmz=kmz_bytes)
@@ -648,8 +669,15 @@ def _armar_paquete_entrega(codigo, kmz_bytes):
 
 tabs = st.tabs(["📝 Datos Generales", "📂 Cargar Archivos", "📊 Potenciales PAP",
                 "📉 CIPS", "⚠️ Hallazgos", "🔌 Rectificadores", "🛠️ Insp. Especiales",
-                "🔗 Aislamientos", "🖼️ Fotos IA", "📋 Conclusiones", "✍️ Firmas",
-                "🚀 Generar"])
+                "🔗 Aislamientos", "📋 Conclusiones", "🚀 Generar"])
+
+# Firmas fijas del informe (ya no se editan en la app; siempre son las mismas).
+# El informe las incluye siempre vía gen.fill_firmas(...).
+FIRMAS_FIJAS = {
+    "elaboro": {"nombre": "", "cargo": "", "empresa": "PCC Integrity"},
+    "reviso":  {"nombre": "", "cargo": "", "empresa": "PCC Integrity"},
+    "aprobo":  {"nombre": "", "cargo": "", "empresa": "PCC Integrity"},
+}
 
 FIELD_LABELS = [('gasoducto', 'Gasoducto'), ('tramo', 'Tramo'),
                 ('tipo_ducto', 'Tipo Ducto'), ('contrato', 'Contrato'),
@@ -1169,25 +1197,39 @@ with tabs[1]:
                     if campo_ff:
                         data['dcvg_hallazgos'] = leer_hallazgos_logger_varios(
                             _tmp_files(campo_ff))
-                    tecnico = d['meta'].get('tecnico', '')
+                    # Datos Generales desde la cabecera del FastField: tramo
+                    # ('Troncal o ramal'), fecha, contratista y técnico; con el
+                    # tramo se autollena infraestructura + OT/distrito + equipos.
+                    from dcvg_reader import info_desde_meta
+                    auto = info_desde_meta(d['meta'])
+                    tecnico = auto.get('inspector', '')
                     if tecnico:
-                        data['info']['inspector'] = tecnico
-                        auto = {'inspector': tecnico}
                         serial, fc, eqs = get_equipos_for_inspector(tecnico)
                         if serial:
-                            data['info']['serial_equipo'] = serial
                             auto['serial_equipo'] = serial
                         if fc:
-                            data['info']['fecha_calibracion'] = fc
                             auto['fecha_calibracion'] = fc
                         if eqs:
                             st.session_state.equipos_inspector = eqs
+                    _tramo_dcvg = auto.get('tramo', '')
+                    if _tramo_dcvg:
+                        _adic, _eqs = _autollenar_tramo(_tramo_dcvg, tecnico)
+                        auto.update(_adic)
+                        if _eqs:
+                            st.session_state.equipos_inspector = _eqs
+                    if auto:
+                        data['info'].update(auto)
+                        # los text_input con key solo se refrescan así
                         st.session_state.pending_autofill = auto
                     st.session_state.flash_dcvg = (
                         f"DCVG: {len(d['postes'])} postes, {len(d['defectos'])} "
                         f"defectos, {len(data['dcvg_resist'])} resistividades, "
                         f"{len(data['dcvg_hallazgos'])} hallazgos (logger)."
-                        + (f" · Técnico: {tecnico}" if tecnico else ""))
+                        + (f" · Técnico: {tecnico}" if tecnico else "")
+                        + (f" · Datos Generales autollenados desde el tramo "
+                           f"'{_tramo_dcvg}'." if _tramo_dcvg else
+                           " ⚠️ El FastField no trae el tramo: escríbelo en "
+                           "Datos Generales."))
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error procesando DCVG: {e}")
@@ -1286,69 +1328,8 @@ with tabs[7]:
     else:
         st.info("Aún no hay aislamientos.")
 
-# ── Tab 9: Fotos IA ───────────────────────────────────────────────────────────
+# ── Tab 9: Conclusiones ───────────────────────────────────────────────────────
 with tabs[8]:
-    st.write("Sube las fotos de la inspección (JPG/PNG). Se ubican por GPS del EXIF "
-             "y se clasifican con IA si hay llave de Gemini configurada.")
-    fotos = st.file_uploader("Fotos", type=["jpg", "jpeg", "png"],
-                             accept_multiple_files=True, key="up_fotos")
-    if fotos and st.button("Procesar Fotos"):
-        calc = get_abscisa_calculator(kmz, st.session_state.current_route_id or None)
-        if not calc:
-            st.error("No hay KMZ/ruta para calcular abscisas. Carga primero un FASTFIELD.")
-        else:
-            try:
-                api_key = st.secrets.get("gemini", {}).get("api_key", "")
-            except Exception:
-                api_key = ""
-            from photo_utils import PhotoProcessor
-            proc = PhotoProcessor(api_key=api_key or None)
-            rutas = _tmp_files(fotos)
-            prog = st.progress(0)
-            nuevos = 0
-            KEYWORDS = ['via', 'vía', 'caño', 'tension', 'tensión', 'at', 'mt', 'bt',
-                        'enmontado', 'monte', 'privada', 'predio', 'cultivo']
-            for i, ruta in enumerate(rutas):
-                prog.progress((i + 1) / len(rutas), text=os.path.basename(ruta))
-                exif = proc.get_exif_data(ruta)
-                lat, lon = proc.get_gps_coordinates(exif)
-                fecha_foto = proc.get_datetime(exif)
-                if not (lat and lon):
-                    continue
-                m = calc.calculate(lat, lon)
-                if any(abs(h.get('abscisa_val', -9999) - m) <= 20 for h in data['hallazgos']):
-                    continue
-                nombre = os.path.basename(ruta).lower()
-                cerca_poste = any(abs((p.get('abscisa') or -9999) - m) <= 20
-                                  for p in data['potenciales'])
-                explicito = any(k in nombre for k in KEYWORDS)
-                if cerca_poste and not explicito:
-                    continue
-                tipo = ""
-                if 'via' in nombre or 'vía' in nombre: tipo = "Cruce de Vía"
-                elif 'caño' in nombre: tipo = "Cruce de Caño"
-                elif 'tension' in nombre or 'tensión' in nombre: tipo = "Línea de media, alta o baja tensión"
-                elif 'enmontado' in nombre or 'monte' in nombre: tipo = "Tramo enmontado"
-                elif 'privada' in nombre or 'predio' in nombre: tipo = "Propiedad privada"
-                elif 'cultivo' in nombre: tipo = "Cultivo"
-                desc = f"Hallazgo generado automáticamente desde foto ({os.path.basename(ruta)})"
-                if not tipo and api_key:
-                    tipo_ia, desc_ia = proc.classify_image_with_ai(ruta)
-                    if 'descartar' in tipo_ia.lower():
-                        continue
-                    tipo, desc = tipo_ia, f"{desc_ia} (Autogenerado desde foto)"
-                elif not tipo:
-                    continue
-                data['hallazgos'].append({
-                    'tipo': tipo, 'descripcion': desc, 'lat': lat, 'lon': lon,
-                    'alt': None, 'abscisa_val': m, 'abscisa': calc.format_abscisa(m),
-                    'fecha': fecha_foto.split(' ')[0] if fecha_foto else ''})
-                nuevos += 1
-            data['hallazgos'].sort(key=lambda x: x.get('abscisa_val', 0))
-            st.success(f"{len(rutas)} fotos procesadas. {nuevos} hallazgos nuevos.")
-
-# ── Tab 10: Conclusiones ──────────────────────────────────────────────────────
-with tabs[9]:
     if st.button("🔄 Auto-generar Conclusiones y Recomendaciones"):
         if 'longitud_km' not in data['info'] and data['potenciales']:
             ps = sorted(data['potenciales'], key=lambda x: x.get('abscisa', 0))
@@ -1365,19 +1346,8 @@ with tabs[9]:
     data['conclusiones'] = [p.strip() for p in conc.split('\n\n') if p.strip()]
     data['recomendaciones'] = [p.strip() for p in reco.split('\n\n') if p.strip()]
 
-# ── Tab 11: Firmas ────────────────────────────────────────────────────────────
-with tabs[10]:
-    for rol, titulo in [('elaboro', 'Elaboró'), ('reviso', 'Revisó'), ('aprobo', 'Aprobó')]:
-        st.markdown(f"**{titulo}**")
-        c1, c2, c3 = st.columns(3)
-        data['firmas'][rol] = {
-            'nombre': c1.text_input("Nombre", value=data['firmas'][rol].get('nombre', ''), key=f"f_{rol}_n"),
-            'cargo': c2.text_input("Cargo", value=data['firmas'][rol].get('cargo', ''), key=f"f_{rol}_c"),
-            'empresa': c3.text_input("Empresa", value=data['firmas'][rol].get('empresa', ''), key=f"f_{rol}_e"),
-        }
-
-# ── Tab 12: Generar ───────────────────────────────────────────────────────────
-with tabs[11]:
+# ── Tab 10: Generar ───────────────────────────────────────────────────────────
+with tabs[9]:
     st.subheader("Generar Informe_")
     if st.session_state.get("flash_generar"):
         st.success(st.session_state.flash_generar)
@@ -1407,6 +1377,9 @@ with tabs[11]:
                 gen.fill_general_info(info)
                 if st.session_state.equipos_inspector:
                     gen.fill_equipos_utilizados(st.session_state.equipos_inspector)
+                # URPC: la plantilla DCVG también tiene el bloque de parámetros
+                # operativos en rectificadores (fila 43).
+                gen.fill_rectificadores(data['rectificadores'])
                 # Hallazgos: de la data cruda del logger (cruces, enmontados,
                 # mallas, válvulas…), clasificados como en CIPS. Van tanto a la
                 # hoja Hallazgos como intercalados en Inspección DCVG.
@@ -1416,26 +1389,40 @@ with tabs[11]:
                 gen.fill_dcvg(data['dcvg_postes'], data['dcvg_defectos'],
                               data['dcvg_resist'], hallazgos=hall)
                 gen.fill_resistividad(data['dcvg_resist'])
-                n_insp = (sum(1 for x in (data['dcvg_postes'] + data['dcvg_defectos'])
-                              if x.get('pk_m') is not None)
-                          + sum(1 for h in hall if h.get('abscisa_val') is not None))
-                gen.fill_graficas_dcvg(n_insp, len(data['dcvg_resist']))
+                gen.fill_observaciones_dcvg(info, data['dcvg_postes'],
+                                            data['dcvg_defectos'],
+                                            data['dcvg_resist'])
+                gen.fill_graficas_dcvg(gen.dcvg_filas, len(data['dcvg_resist']))
                 gen.fill_rangos_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
                 prog.progress(75, text="Hallazgos...")
                 gen.fill_hallazgos(hall, info)
                 tmpd = tempfile.mkdtemp(prefix="tgi_out_")
-                nombre = (f"DCVG_REP_{info.get('tramo','')}"
-                          f"_{info.get('contrato','')}_PCC_RevA.xlsx")
+                nombre = nombres.nombre_archivo(info)
                 out = os.path.join(tmpd, nombre)
                 gen.save(out)
                 with open(out, 'rb') as f:
                     st.session_state.informe_bytes = f.read()
                 st.session_state.ppm_bytes = None
                 st.session_state.informe_nombre = nombre
+                st.session_state.ppm_nombre = ""
                 msg = "Informe DCVG generado."
+                _faltan = nombres.faltantes(info)
+                if _faltan:
+                    msg += (" ⚠️ El nombre del archivo salió incompleto porque "
+                            "falta: " + ", ".join(_faltan) + ".")
+                sin_absc = (getattr(gen, 'dcvg_sin_abscisa', 0)
+                            + sum(1 for x in data['dcvg_resist']
+                                  if x.get('pk_m') is None))
+                if sin_absc:
+                    msg += (f" ⚠️ {sin_absc} registro(s) sin abscisa: van en su "
+                            f"sitio con la celda de abscisa resaltada en "
+                            f"amarillo; al escribirla se calcula el resto.")
                 if getattr(gen, 'dcvg_omitidos', 0):
-                    msg += (f" ⚠️ {gen.dcvg_omitidos} registro(s) sin PK/abscisa "
-                            f"se omitieron.")
+                    msg += (f" ⚠️ {gen.dcvg_omitidos} registro(s) no cupieron en "
+                            f"la hoja y se omitieron.")
+                if getattr(gen, 'rect_omitidos', 0):
+                    msg += (f" ⚠️ {gen.rect_omitidos} rectificador(es) no "
+                            f"cupieron en el bloque de URPC del formato.")
                 st.session_state.flash_generar = msg
                 prog.progress(100)
                 st.rerun()
@@ -1493,15 +1480,14 @@ with tabs[11]:
             prog.progress(80, text="Conclusiones y firmas...")
             gen.fill_conclusiones(data['conclusiones'])
             gen.fill_recomendaciones(data['recomendaciones'])
-            gen.fill_firmas(data['firmas']['elaboro'], data['firmas']['reviso'],
-                            data['firmas']['aprobo'])
+            gen.fill_firmas(FIRMAS_FIJAS['elaboro'], FIRMAS_FIJAS['reviso'],
+                            FIRMAS_FIJAS['aprobo'])
             tmpd = tempfile.mkdtemp(prefix="tgi_out_")
-            nombre = (f"PAP_REP_{info.get('tipo_ducto','')}_{info.get('tramo','')}"
-                      f"_{info.get('route_id','')}_{info.get('contrato','')}_PCC_RevA.xlsx")
+            nombre = nombres.nombre_archivo(info)
             pap_path = os.path.join(tmpd, nombre)
             gen.save(pap_path)
             prog.progress(90, text="Generando PPM...")
-            ppm_path = os.path.join(tmpd, nombre.replace("REP", "PPM"))
+            ppm_path = os.path.join(tmpd, nombres.nombre_archivo(info, doc="PPM"))
             PPMGenerator().generate(info, data['potenciales'], data['aislamientos'],
                                     ppm_path, cips=data['cips'])
             with open(pap_path, 'rb') as f:
@@ -1509,8 +1495,14 @@ with tabs[11]:
             with open(ppm_path, 'rb') as f:
                 st.session_state.ppm_bytes = f.read()
             st.session_state.informe_nombre = nombre
+            st.session_state.ppm_nombre = nombres.nombre_archivo(info, doc="PPM")
             prog.progress(100, text="¡Listo!")
             st.success("Informes generados.")
+            _faltan = nombres.faltantes(info)
+            if _faltan:
+                st.warning("El nombre del archivo salió incompleto porque falta: "
+                           + ", ".join(_faltan) + ". Complétalo en Datos Generales "
+                           "y vuelve a generar si necesitas el nombre exacto.")
             if getattr(gen, "cips_truncados", 0):
                 st.warning(
                     f"El survey CIPS tiene {getattr(gen,'cips_truncados')} "
@@ -1531,8 +1523,7 @@ with tabs[11]:
             d1.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
                                file_name=st.session_state.informe_nombre, mime=_mime)
             d2.download_button("⬇️ Descargar PPM", data=st.session_state.ppm_bytes,
-                               file_name=st.session_state.informe_nombre.replace("REP", "PPM"),
-                               mime=_mime)
+                               file_name=_nombre_ppm(), mime=_mime)
         else:
             st.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
                                file_name=st.session_state.informe_nombre, mime=_mime)
@@ -1586,7 +1577,7 @@ with tabs[11]:
                     _info = dict(data['info'])
                     _info['tramo'] = re.sub(r'\s*\(?PK.*', '',
                                             _info.get('tramo', '')).strip()
-                    _ppm_nombre = (st.session_state.informe_nombre or "").replace("REP", "PPM")
+                    _ppm_nombre = _nombre_ppm()
                     if _tipo_pub == "CIPS":
                         _id = db.guardar_inspeccion_cips(
                             _info, data['cips'], cips_a_hallazgos(data['cips']),

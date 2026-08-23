@@ -22,7 +22,7 @@ def _defectos():
          "forma_n": 54.8, "forma_s": 23.8, "forma_e": 26.1, "forma_o": 52.9,
          "ol_re": 95.7, "profundidad": 190, "clasificacion_campo": "Grande",
          "posicion_reloj": "12", "comentarios": "cruce", "caracter": "CC"},
-        # defecto sin PK -> se omite (no rompe)
+        # defecto sin PK -> se escribe igual, anclado tras el defecto anterior
         {"sector": "M", "lat": None, "lon": None, "pk_m": None,
          "forma_n": 1, "forma_s": 1, "forma_e": 1, "forma_o": 1,
          "ol_re": 10, "profundidad": 100, "clasificacion_campo": "",
@@ -44,14 +44,16 @@ def test_fill_dcvg_ordena_y_mapea(tmp_path):
     gen.save(out)
     ws = openpyxl.load_workbook(out)["Inspección DCVG"]
 
-    # 3 filas escritas (2 postes + 1 defecto con PK); el defecto sin PK se omite
-    assert gen.dcvg_omitidos == 1
-    # orden por abscisa intercalando el hallazgo: 0, 3000(defecto), 4500(hallazgo), 6000
+    # 5 filas: 2 postes + 2 defectos (uno sin PK, anclado tras el de 3000) + hallazgo
+    assert gen.dcvg_omitidos == 0
+    assert gen.dcvg_sin_abscisa == 1
+    # orden por abscisa intercalando el hallazgo: 0, 3000(defecto), sin PK, 4500, 6000
     assert ws.cell(row=8, column=4).value == 0        # D abscisa poste0
     assert ws.cell(row=9, column=4).value == 3000     # defecto
-    assert ws.cell(row=10, column=4).value == 4500    # hallazgo intercalado
-    assert ws.cell(row=10, column=2).value == 'Cruce vía'   # B referencia
-    assert ws.cell(row=11, column=4).value == 6000    # poste
+    assert ws.cell(row=10, column=4).value in (None, '')    # defecto sin PK
+    assert ws.cell(row=11, column=4).value == 4500    # hallazgo intercalado
+    assert ws.cell(row=11, column=2).value == 'Cruce vía'   # B referencia
+    assert ws.cell(row=12, column=4).value == 6000    # poste
     # poste: ON/OFF en N/O y pulso P=ABS(N-O)
     assert ws.cell(row=8, column=14).value == -1682.0   # N
     assert ws.cell(row=8, column=15).value == -1169.0   # O

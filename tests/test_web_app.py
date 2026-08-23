@@ -29,9 +29,19 @@ def test_estado_inicial():
     assert at.session_state["active_inspections"]["marco_h"] is False
 
 
+ETIQUETAS_TABS = ["📝 Datos Generales", "📂 Cargar Archivos", "📊 Potenciales PAP",
+                  "📉 CIPS", "⚠️ Hallazgos", "🔌 Rectificadores",
+                  "🛠️ Insp. Especiales", "🔗 Aislamientos", "📋 Conclusiones",
+                  "🚀 Generar"]
+
+
 def test_tabs_y_boton_generar():
     at = _monta()
-    assert len(at.tabs) == 12
+    # at.tabs aplana también las sub-pestañas de carga manual (PAP/CIPS/DCVG),
+    # así que se verifican las pestañas principales por su nombre.
+    etiquetas = [str(t.label) for t in at.tabs]
+    faltan = [e for e in ETIQUETAS_TABS if e not in etiquetas]
+    assert not faltan, f"faltan pestañas: {faltan}"
     # El botón GENERAR existe y está deshabilitado sin datos
     botones = [b for b in at.button if "GENERAR" in str(b.label).upper()]
     assert botones, "No se encontró el botón GENERAR INFORME"
