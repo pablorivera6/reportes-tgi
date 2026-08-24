@@ -643,6 +643,13 @@ def guardar_historico(tramo, tipo, periodo, puntos, fuente=None, fecha=None):
     return cli.table("historicos").insert(fila).execute().data[0]["id"]
 
 
+def borrar_historico(historico_id):
+    """Elimina un histórico (para reemplazarlo por una versión corregida)."""
+    cli = _client(write=True)
+    cli.table("historicos").delete().eq("id", historico_id).execute()
+    return True
+
+
 def listar_historicos(tramo=None, tipo=None):
     cli = _client(write=True)
     q = cli.table("historicos").select(

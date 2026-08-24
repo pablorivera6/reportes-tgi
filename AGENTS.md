@@ -449,8 +449,15 @@ viejo (`VTG_REP_*.xlsx`, hoja única con 77 imágenes). Va al ZIP en
   `matplotlib>=3.6` agregado a requirements.
 - Integrado en `render_dashboard_cips` (portal_app.py): si el tramo tiene histórico,
   muestra métricas antes→ahora + gráfica + botón "⬇️ Descargar PDF del dashboard".
-- **La Dorada** ya cargado (histórico Nov-2023 del informe TELMACOM, 756 pts) y probado
-  en vivo. Para más tramos: cargar con script (o futuro uploader en la app).
+- **Cargar un histórico nuevo** (`historicos.py` + `cargar_historico.py`): el informe
+  de la inspección anterior viene en la plantilla del contrato, así que se lee por
+  encabezado (tramo en la cabecera, ABSCISADO/ON/OFF de 'Potenciales CIPS'); se
+  guarda un **CSV liviano** en `historicos/` (~58 KB vs ~1,8 MB del .xlsx;
+  gitignored, el repo es público) y se publica en Supabase.
+  `python3 cargar_historico.py <informe.xlsx> [--tramo X] [--periodo "Nov 2023"]
+  [--solo-csv] [--reemplazar]`. `db.borrar_historico(id)` permite reemplazar.
+- **La Dorada** ya cargado (histórico Nov-2023 del informe TELMACOM, 756 pts, 100%
+  protegido) y probado en vivo.
 
 **⚠️ OJO INTEGRIDAD DEL DATO (CIPS):**
 - El pipeline propio guarda `off_mv` (crudo) **y** `off_limpio` (procesado). La "limpieza"

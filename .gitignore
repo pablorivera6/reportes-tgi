@@ -15,3 +15,6 @@ secrets.toml
 # Datos del cliente (repo PUBLICO — los datos viven en Supabase, no en git)
 rectifiers_processed.json
 *REP*.xlsx
+
+# Históricos de otros contratistas: copia local auditable (el repo es público)
+historicos/
