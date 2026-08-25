@@ -226,6 +226,8 @@ class WorkerThread(QThread):
                 gen.fill_graficas_dcvg(gen.dcvg_filas, len(resist))
                 gen.fill_rangos_dcvg(postes, defectos)
                 gen.fill_hallazgos(hall, self.app_data['info'])
+                gen.fill_conclusiones(self.app_data.get('conclusiones', []))
+                gen.fill_recomendaciones(self.app_data.get('recomendaciones', []))
                 self.progress.emit(90)
                 self.status.emit("Guardando informe DCVG...")
                 gen.save(self.output_path)

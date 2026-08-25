@@ -132,7 +132,8 @@ class ReportGenerator:
     SECCIONES_INFORME = ('OBJETIVO', 'DOCUMENTOS DE REFERENCIA',
                          'EQUIPOS UTILIZADOS',
                          'DESCRIPCIÓN DE LA LÍNEA OBJETO DE ESTUDIO',
-                         'ANTECEDENTES', 'SISTEMA INSPECCIONADO')
+                         'ANTECEDENTES', 'SISTEMA INSPECCIONADO',
+                         'CONCLUSIONES', 'RECOMENDACIONES')
 
     @staticmethod
     def _txt(v):
@@ -191,6 +192,29 @@ class ReportGenerator:
         otras = [self._fila_seccion(ws, s, hasta) for s in self.SECCIONES_INFORME]
         siguientes = [r for r in otras if r is not None and r > ini]
         fin = (min(siguientes) - 1) if siguientes else min(ws.max_row, ini + 6)
+        return (ini + 1, fin) if fin >= ini + 1 else None
+
+    def _fila_firmas(self, ws, hasta=140):
+        """Fila del bloque de firmas ('ELABORÓ'), en cualquier columna."""
+        for r in range(1, min(ws.max_row, hasta) + 1):
+            for c in range(1, 30):
+                if self._etiqueta(ws.cell(row=r, column=c).value) == 'elaboro':
+                    return r
+        return None
+
+    def _bloque_texto(self, ws, etiqueta, hasta=140):
+        """(primera, última) fila donde cabe el texto de CONCLUSIONES o
+        RECOMENDACIONES. Cada plantilla las tiene en filas distintas (DCVG 69 y
+        84; PAP 83 y 94; CIPS 81 y 90), así que se ubican por el título y se
+        acotan con la sección siguiente o con el bloque de firmas."""
+        ini = self._fila_seccion(ws, etiqueta, hasta)
+        if ini is None:
+            return None
+        siguientes = [r for r in
+                      [self._fila_seccion(ws, s, hasta) for s in self.SECCIONES_INFORME]
+                      + [self._fila_firmas(ws, hasta)]
+                      if r is not None and r > ini]
+        fin = (min(siguientes) - 1) if siguientes else min(ws.max_row, ini + 10)
         return (ini + 1, fin) if fin >= ini + 1 else None
 
     def _cols_valor(self, ws, fila, defecto=(7, 22, 32)):
@@ -1050,34 +1074,32 @@ class ReportGenerator:
                 self._safe_write(ws, row, 11, t.get('fecha', ''))
                 self._safe_write(ws, row, 12, t.get('justificacion', ''))
 
+    def _escribir_bloque_texto(self, etiqueta, textos):
+        """Escribe una lista de párrafos bajo el título de su sección, sin
+        pasarse del espacio disponible. Devuelve cuántos no cupieron."""
+        if not textos:
+            return 0
+        ws = self.ws_informe
+        bloque = self._bloque_texto(ws, etiqueta)
+        if not bloque:
+            return len(textos)
+        ini, fin = bloque
+        cupo = fin - ini + 1
+        for i, txt in enumerate(textos[:cupo]):
+            self._safe_write(ws, ini + i, 1, f"• {txt}")
+        return max(0, len(textos) - cupo)
+
     def fill_conclusiones(self, conclusiones: list):
-        """Fill Conclusions section"""
-        ws = self.ws_informe
-        
-        # Conclusiones
-        start_row = 88
-        for r in range(70, 100):
-            val = ws.cell(row=r, column=1).value
-            if val and isinstance(val, str) and 'CONCLUSIONES' in val.upper():
-                start_row = r + 1
-                break
-                
-        for i, conc in enumerate(conclusiones[:6]):
-            self._safe_write(ws, start_row + i, 1, f"• {conc}")
-            
+        """Escribe las conclusiones bajo el título CONCLUSIONES de la hoja
+        Informe (la fila cambia según la plantilla).
+        `self.conclusiones_omitidas` = las que no cupieron."""
+        self.conclusiones_omitidas = self._escribir_bloque_texto(
+            'CONCLUSIONES', conclusiones)
+
     def fill_recomendaciones(self, recomendaciones: list):
-        """Fill Recommendations section"""
-        ws = self.ws_informe
-        # Recomendaciones
-        start_row = 95
-        for r in range(80, 110):
-            val = ws.cell(row=r, column=1).value
-            if val and isinstance(val, str) and 'RECOMENDACIONES' in val.upper():
-                start_row = r + 1
-                break
-                
-        for i, rec in enumerate(recomendaciones[:5]):
-            self._safe_write(ws, start_row + i, 1, f"• {rec}")
+        """Ídem para RECOMENDACIONES. `self.recomendaciones_omitidas`."""
+        self.recomendaciones_omitidas = self._escribir_bloque_texto(
+            'RECOMENDACIONES', recomendaciones)
 
     def fill_firmas(self, elaboro: dict, reviso: dict, aprobo: dict):
         """Fill signatures in ALL sheets

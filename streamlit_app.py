@@ -1402,6 +1402,8 @@ with tabs[9]:
                 gen.fill_rangos_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
                 prog.progress(75, text="Hallazgos...")
                 gen.fill_hallazgos(hall, info)
+                gen.fill_conclusiones(data['conclusiones'])
+                gen.fill_recomendaciones(data['recomendaciones'])
                 tmpd = tempfile.mkdtemp(prefix="tgi_out_")
                 nombre = nombres.nombre_archivo(info)
                 out = os.path.join(tmpd, nombre)
@@ -1426,6 +1428,11 @@ with tabs[9]:
                 if getattr(gen, 'dcvg_omitidos', 0):
                     msg += (f" ⚠️ {gen.dcvg_omitidos} registro(s) no cupieron en "
                             f"la hoja y se omitieron.")
+                _no_cupo = (getattr(gen, 'conclusiones_omitidas', 0)
+                            + getattr(gen, 'recomendaciones_omitidas', 0))
+                if _no_cupo:
+                    msg += (f" ⚠️ {_no_cupo} conclusión(es)/recomendación(es) no "
+                            f"cupieron en el espacio del formato.")
                 if getattr(gen, 'rect_omitidos', 0):
                     msg += (f" ⚠️ {gen.rect_omitidos} rectificador(es) no "
                             f"cupieron en el bloque de URPC del formato.")
@@ -1504,6 +1511,13 @@ with tabs[9]:
             st.session_state.ppm_nombre = nombres.nombre_archivo(info, doc="PPM")
             prog.progress(100, text="¡Listo!")
             st.success("Informes generados.")
+            _no_cupo = (getattr(gen, 'conclusiones_omitidas', 0)
+                        + getattr(gen, 'recomendaciones_omitidas', 0))
+            if _no_cupo:
+                st.warning(
+                    f"{_no_cupo} conclusión(es)/recomendación(es) no cupieron en "
+                    f"el espacio que deja el formato y quedaron por fuera del "
+                    f"informe. Resúmelas o repártelas en menos párrafos.")
             _faltan = nombres.faltantes(info)
             if _faltan:
                 st.warning("El nombre del archivo salió incompleto porque falta: "
