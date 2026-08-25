@@ -61,3 +61,42 @@ def test_el_tramo_llega_a_la_columna_tramo_de_hallazgos(tmp_path):
                 if ws.cell(row=r, column=1).value == 1)
     assert ws.cell(row=fila, column=6).value == "Ramal Armenia"   # F TRAMO
     assert ws.cell(row=fila, column=5).value == "Mariquita-Cali"  # E GASODUCTO
+
+
+def _logger(tmp_path, tecnico="Evelio Alvarez", nombre="logger.xlsx"):
+    """Data cruda del equipo: trae el técnico en 'Survey Info'."""
+    wb = openpyxl.Workbook()
+    si = wb.active
+    si.title = "Survey Info"
+    si.append(["Survey Name", "DCVG ARMENIA"])
+    si.append(["Technician Name", tecnico])
+    sd = wb.create_sheet("Survey Data")
+    sd.append(["Data No", "Station No", "Latitude", "Longitude"])
+    sd.append([1, 100, 4.5, -75.7])
+    ruta = str(tmp_path / nombre)
+    wb.save(ruta)
+    return ruta
+
+
+def test_inspector_sale_de_la_data_cruda(tmp_path):
+    """El inspector debe salir del logger (es el nombre que coincide con el
+    listado de equipos), no del 'Técnico a cargo' del FastField."""
+    meta = leer_dcvg_fastfield(_fastfield(tmp_path))["meta"]   # técnico: Juan Perez
+    info = info_desde_meta(meta, [_logger(tmp_path)])
+    assert info["inspector"] == "Evelio Alvarez"
+    # lo demás sigue viniendo del FastField
+    assert info["tramo"] == "Ramal Armenia"
+    assert info["contratista"] == "PCC"
+
+
+def test_si_el_logger_no_trae_tecnico_usa_el_del_fastfield(tmp_path):
+    meta = leer_dcvg_fastfield(_fastfield(tmp_path))["meta"]
+    vacio = _logger(tmp_path, tecnico="", nombre="sin_tecnico.xlsx")
+    assert info_desde_meta(meta, [vacio])["inspector"] == "Juan Perez"
+    assert info_desde_meta(meta, [])["inspector"] == "Juan Perez"
+    assert info_desde_meta(meta)["inspector"] == "Juan Perez"
+
+
+def test_sin_fastfield_igual_toma_el_del_logger(tmp_path):
+    info = info_desde_meta({}, [_logger(tmp_path)])
+    assert info["inspector"] == "Evelio Alvarez"

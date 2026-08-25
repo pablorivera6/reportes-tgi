@@ -187,19 +187,41 @@ _RE_SOLO_RESIST = re.compile(
     r'^\s*(pk\s*\d+\s*\+?\s*\d*\s*)?toma\s+resistivida[d]?\s*$', re.IGNORECASE)
 
 
-def info_desde_meta(meta):
+def tecnico_del_logger(rutas):
+    """Técnico que aparece en la DATA CRUDA del equipo (hoja 'Survey Info',
+    campo 'Technician Name'). Es el mismo dato que ya usa CIPS y el nombre que
+    coincide con `Listado equipos TGI.xlsx`, a diferencia del que se escribe a
+    mano en FastField."""
+    if not rutas:
+        return ""
+    try:
+        from cips_lrs import tecnico_de_archivos
+        return tecnico_de_archivos(rutas) or ""
+    except Exception:
+        return ""
+
+
+def info_desde_meta(meta, rutas_logger=None):
     """Campos de Datos Generales que trae la cabecera del FastField DCVG.
 
     El técnico ya diligenció en campo el tramo ('Troncal o ramal'), la fecha y
     el contratista: se llevan al informe para no tener que reescribirlos (y
     para que no queden vacíos el encabezado, la columna TRAMO de Hallazgos y la
-    sigla del nombre del archivo)."""
+    sigla del nombre del archivo).
+
+    El **inspector** se toma de la data cruda del logger cuando está disponible
+    (`rutas_logger`): ese es el nombre con el que se autollenan el serial y los
+    equipos. El 'Técnico a cargo' del FastField queda como respaldo."""
     meta = meta or {}
     pares = (('tramo', 'tramo'), ('fecha', 'fecha'),
              ('contratista', 'contratista'), ('tecnico', 'inspector'))
-    return {destino: str(meta[origen]).strip()
-            for origen, destino in pares
-            if str(meta.get(origen) or '').strip()}
+    out = {destino: str(meta[origen]).strip()
+           for origen, destino in pares
+           if str(meta.get(origen) or '').strip()}
+    del_logger = tecnico_del_logger(rutas_logger)
+    if del_logger:
+        out['inspector'] = del_logger
+    return out
 
 
 def leer_dcvg_fastfield_varios(rutas):

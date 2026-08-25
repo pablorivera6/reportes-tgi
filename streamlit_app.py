@@ -520,8 +520,8 @@ def autocargar_carga(cg):
             d = leer_dcvg_fastfield_varios(cats["dcvg"])
             data['dcvg_postes'] = d['postes']
             data['dcvg_defectos'] = d['defectos']
-            # tramo/fecha/contratista/técnico de la cabecera del FastField
-            _auto_dcvg = info_desde_meta(d['meta'])
+            # tramo/fecha/contratista del FastField; el inspector, de la data cruda
+            _auto_dcvg = info_desde_meta(d['meta'], cats.get("logger") or [])
             if _auto_dcvg.get('tramo'):
                 _adic, _eqs = _autollenar_tramo(_auto_dcvg['tramo'],
                                                 _auto_dcvg.get('inspector', ''))
@@ -1194,14 +1194,17 @@ with tabs[1]:
                     if resist_ff:
                         data['dcvg_resist'] = leer_resistividades_fastfield_varios(
                             _tmp_files(resist_ff))
-                    if campo_ff:
+                    _rutas_logger = _tmp_files(campo_ff) if campo_ff else []
+                    if _rutas_logger:
                         data['dcvg_hallazgos'] = leer_hallazgos_logger_varios(
-                            _tmp_files(campo_ff))
+                            _rutas_logger)
                     # Datos Generales desde la cabecera del FastField: tramo
-                    # ('Troncal o ramal'), fecha, contratista y técnico; con el
-                    # tramo se autollena infraestructura + OT/distrito + equipos.
+                    # ('Troncal o ramal'), fecha y contratista. El INSPECTOR sale
+                    # de la data cruda del logger (es el nombre que coincide con
+                    # el listado de equipos); con el tramo se autollena
+                    # infraestructura + OT/distrito.
                     from dcvg_reader import info_desde_meta
-                    auto = info_desde_meta(d['meta'])
+                    auto = info_desde_meta(d['meta'], _rutas_logger)
                     tecnico = auto.get('inspector', '')
                     if tecnico:
                         serial, fc, eqs = get_equipos_for_inspector(tecnico)
@@ -1225,7 +1228,9 @@ with tabs[1]:
                         f"DCVG: {len(d['postes'])} postes, {len(d['defectos'])} "
                         f"defectos, {len(data['dcvg_resist'])} resistividades, "
                         f"{len(data['dcvg_hallazgos'])} hallazgos (logger)."
-                        + (f" · Técnico: {tecnico}" if tecnico else "")
+                        + (f" · Inspector: {tecnico}"
+                           f"{' (data cruda)' if _rutas_logger else ' (FastField)'}"
+                           if tecnico else "")
                         + (f" · Datos Generales autollenados desde el tramo "
                            f"'{_tramo_dcvg}'." if _tramo_dcvg else
                            " ⚠️ El FastField no trae el tramo: escríbelo en "

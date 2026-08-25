@@ -222,10 +222,13 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
 
 ## 7. Reglas transversales
 
-- **Autollenado técnico→equipos:** al procesar CIPS o DCVG, se lee el técnico
-  (`Survey Info`→`Technician Name` en CIPS; `Root`→`Técnico a cargo` en DCVG) y
-  se autollena Inspector + Serial + Fecha calibración vía
-  `get_equipos_for_inspector` (lee `Listado equipos TGI.xlsx`).
+- **Autollenado técnico→equipos:** el inspector se lee SIEMPRE de la data cruda
+  del equipo (`Survey Info`→`Technician Name`), tanto en CIPS (`cips_lrs.
+  tecnico_de_archivos`) como en DCVG (`dcvg_reader.tecnico_del_logger`, con el
+  `Root`→`Técnico a cargo` del FastField solo como respaldo). Es el único nombre
+  que coincide con `Listado equipos TGI.xlsx`: el que se escribe a mano en
+  FastField no cuadra y deja Serial y Equipos vacíos. Con él se autollenan
+  Inspector + Serial + Fecha calibración vía `get_equipos_for_inspector`.
 - **Autollenado tramo→informe (DCVG):** la cabecera del FastField DCVG trae
   `Troncal o ramal`, fecha y contratista (`dcvg_reader.info_desde_meta`); al
   cargar se llevan a Datos Generales y se dispara `_autollenar_tramo`. Sin eso
