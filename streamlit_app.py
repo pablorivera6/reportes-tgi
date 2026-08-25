@@ -319,19 +319,22 @@ def get_equipos_for_inspector(inspector_name):
         return None, None, []
 
 
-def _autollenar_tramo(tramo, inspector=""):
+def _autollenar_tramo(tramo, inspector="", tipo=None):
     """Reúne todo lo derivable de un tramo (+inspector): infraestructura,
-    OT/distrito/km y equipos del inspector. Devuelve (cambios, equipos)."""
+    OT/distrito/km y equipos del inspector. Devuelve (cambios, equipos).
+
+    `tipo` es el tipo de inspección (PAP/CIPS/DCVG): la OT depende del plan,
+    así que sin él se toma la del consolidado, que es la de potenciales.
+    """
+    import datos_tramo
     cambios = {}
-    tramo = re.sub(r'\s*\(?PK.*', '', str(tramo or '')).strip()
+    tramo = str(tramo or '').strip()
     equipos = []
     if not tramo:
         return cambios, equipos
-    cambios.update(autofill_from_infrastructure(tramo))
-    extra = autofill_ot_km(tramo)
-    for k in ('ot', 'distrito', 'longitud_km'):
-        if k in extra:
-            cambios[k] = extra[k]
+    if tipo is None:
+        tipo = (data.get('info') or {}).get('tipo_inspeccion')
+    cambios.update(datos_tramo.autollenar(tramo, tipo))
     if inspector:
         serial, fc, eqs = get_equipos_for_inspector(inspector)
         if serial:
@@ -524,7 +527,8 @@ def autocargar_carga(cg):
             _auto_dcvg = info_desde_meta(d['meta'], cats.get("logger") or [])
             if _auto_dcvg.get('tramo'):
                 _adic, _eqs = _autollenar_tramo(_auto_dcvg['tramo'],
-                                                _auto_dcvg.get('inspector', ''))
+                                                _auto_dcvg.get('inspector', ''),
+                                                'DCVG')
                 _auto_dcvg.update(_adic)
                 if _eqs:
                     st.session_state.equipos_inspector = _eqs
@@ -1186,7 +1190,7 @@ with tabs[1]:
                             st.session_state.equipos_inspector = eqs
                     _tramo_dcvg = auto.get('tramo', '')
                     if _tramo_dcvg:
-                        _adic, _eqs = _autollenar_tramo(_tramo_dcvg, tecnico)
+                        _adic, _eqs = _autollenar_tramo(_tramo_dcvg, tecnico, 'DCVG')
                         auto.update(_adic)
                         if _eqs:
                             st.session_state.equipos_inspector = _eqs

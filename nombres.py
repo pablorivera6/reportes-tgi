@@ -52,6 +52,45 @@ def _norm(s):
     return re.sub(r'\s+', ' ', t).strip()
 
 
+# Palabra con la que empieza el nombre del tramo en unos archivos y en otros no
+# ("Ramal Ansermanuevo" en FastField, "Ansermanuevo" en Infraestrutura TGI).
+_TIPOS_LINEA = ('ramal', 'troncal', 'gasoducto', 'tramo')
+
+
+def limpiar_tramo(s):
+    """Nombre de tramo comparable entre archivos: sin tildes, sin el tipo de
+    línea al frente, y sin el 'PK 15+921', el '(9+217)' ni el distrito 'D07'
+    que traen los listados.
+
+    'Ramal Salento  PK 15+921 D07' -> 'salento'
+    """
+    t = _norm(s)                                   # ya quita tildes y 'PK ...'
+    t = re.sub(r'\s*\(\s*\d+\s*\+\s*\d+\s*\)\s*', ' ', t)   # '(9+217)'
+    sin_distrito = re.sub(r'\s+d\s*\d{2}\s*$', '', t)          # 'd07' final
+    if sin_distrito.strip():
+        t = sin_distrito
+    # quita los tipos de línea encadenados ('Ramal Gasoducto del Ariari')
+    partes = t.split()
+    while len(partes) > 1 and partes[0] in _TIPOS_LINEA:
+        partes = partes[1:]
+    limpio = re.sub(r'\s+', ' ', ' '.join(partes)).strip()
+    # si al limpiar no queda nada, el nombre ERA el prefijo o un 'PK …': se
+    # devuelve el original normalizado para no casar con cualquier cosa
+    return limpio or _norm(s)
+
+
+def mismo_tramo(a, b):
+    """¿Los dos nombres se refieren al mismo tramo?
+
+    Coincidencia EXACTA una vez normalizados. Nada de 'contiene': con los
+    nombres reales sobra (todos casan exactos tras quitar prefijo, PK y
+    distrito) y así no se confunde 'Buga' con 'Bugalagrande', ni un ramal con
+    su loop.
+    """
+    x, y = limpiar_tramo(a), limpiar_tramo(b)
+    return bool(x) and x == y
+
+
 def _limpiar(parte):
     """Deja una parte del nombre apta para un archivo: sin tildes, sin espacios
     ni separadores, en mayúsculas."""

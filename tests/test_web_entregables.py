@@ -82,3 +82,32 @@ def test_sin_informe_no_aparecen():
     at = AppTest.from_file(APP, default_timeout=180)
     at.run()
     assert BTN_ZIP not in _etiquetas(at)
+
+
+# ── Autollenado desde el tramo (Datos Generales) ─────────────────────────────
+
+def _autollenar(tramo, tipo):
+    """Escribe el tramo en el widget (los text_input con key mandan sobre
+    data['info']), elige el tipo y pulsa Autollenar."""
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.run()
+    at.text_input(key="info_tramo").set_value(tramo).run()
+    next(sb for sb in at.selectbox if "Tipo Inspección" in sb.label).select(tipo).run()
+    next(b for b in at.button if "Autollenar" in b.label).click().run()
+    return at.session_state["data"]["info"]
+
+
+def test_autollenar_con_prefijo_ramal():
+    """El caso real: FastField manda 'Ramal Ansermanuevo' y el archivo de
+    infraestructura dice 'Ansermanuevo'."""
+    info = _autollenar("Ramal Ansermanuevo", "DCVG")
+    assert info.get("gasoducto") == "Mariquita-Cali"
+    assert info.get("tipo_ducto") == "Ramal"
+    assert info.get("diametro")
+    assert info.get("tipo_recubrimiento")
+
+
+def test_autollenar_trae_la_ot_del_tipo_de_inspeccion():
+    """Para un DCVG, la OT del plan DCVG; no la del plan de potenciales."""
+    assert _autollenar("Ramal Salento", "DCVG").get("ot") == "1300016109"
+    assert _autollenar("Ramal Salento", "PAP").get("ot") == "1300012786"

@@ -1,0 +1,25 @@
+# Órdenes de trabajo por TIPO de inspección.
+#
+# `consolidado OT.xlsx` trae una sola OT por subsistema, y es la del plan de
+# medición de potenciales (INT-CE M.POT). Para un DCVG esa OT es la equivocada,
+# así que las OT propias de cada plan se registran aquí.
+#
+# Columnas: tipo (PAP/CIPS/DCVG, vacío = sirve para cualquiera) · tramo · ot ·
+#           distrito · plan (el código del plan en SAP, como referencia).
+# El tramo se compara sin tildes y sin el 'Ramal'/'PK ...'/distrito del final,
+# así que basta con el nombre.
+tipo,tramo,ot,distrito,plan
+DCVG,Andalucía,1300016050,D08,TINT-DCVG
+DCVG,Bugalagrande,1300016045,D08,TINT-DCVG
+DCVG,La Unión,1300016048,D08,TINT-DCVG
+DCVG,La Victoria,1300015964,D08,TINT-DCVG
+DCVG,Montenegro,1300016026,D07,TINT-DCVG
+DCVG,Pradera,1300016390,D08,TINT-DCVG
+DCVG,Quimbaya,1300016064,D07,TINT-DCVG
+DCVG,Roldanillo,1300016112,D08,TINT-DCVG
+DCVG,Salento,1300016109,D07,TINT-DCVG
+DCVG,San Pedro,1300016391,D08,TINT-DCVG
+DCVG,Tebaida,1300016059,D07,TINT-DCVG
+DCVG,Zarzal,1300016028,D08,TINT-DCVG
+,Cartago,1300015195,,TINT-REV
+,Chinchiná,1300014998,,TINT-REV

@@ -229,6 +229,18 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
   que coincide con `Listado equipos TGI.xlsx`: el que se escribe a mano en
   FastField no cuadra y deja Serial y Equipos vacíos. Con él se autollenan
   Inspector + Serial + Fecha calibración vía `get_equipos_for_inspector`.
+- **Autollenado desde el tramo (`datos_tramo.py`):** el mismo tramo se escribe
+  distinto en cada fuente (FastField 'Ramal Ansermanuevo' · Infraestrutura
+  'Ansermanuevo' · consolidado OT 'Salento  PK 15+921 D07'), así que la
+  comparación pasa por `nombres.mismo_tramo`: normaliza (sin tildes, sin
+  'Ramal/Troncal' al frente, sin 'PK …'/distrito al final) y exige coincidencia
+  EXACTA — nada de `contains`, que confundía *Buga* con *Bugalagrande* y un
+  ramal con su LOOP.
+- **La OT depende del TIPO de inspección.** `consolidado OT.xlsx` solo trae la
+  del plan de potenciales (INT-CE M.POT): usarla en un DCVG mete la OT
+  equivocada. Las OT de los otros planes van en `ot_por_tipo.csv`
+  (tipo,tramo,ot,distrito,plan) y mandan sobre el consolidado cuando el tipo
+  coincide. Para tramos nuevos, agregar la fila ahí.
 - **Autollenado tramo→informe (DCVG):** la cabecera del FastField DCVG trae
   `Troncal o ramal`, fecha y contratista (`dcvg_reader.info_desde_meta`); al
   cargar se llevan a Datos Generales y se dispara `_autollenar_tramo`. Sin eso
