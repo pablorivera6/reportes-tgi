@@ -103,6 +103,69 @@ def _placemark(nombre, lat, lon, estilo, desc=""):
             f'<Point><coordinates>{lon},{lat},0</coordinates></Point></Placemark>')
 
 
+def kmz_de_inspeccion(data):
+    """KMZ de la inspección que está en memoria. Devuelve (bytes, motivo).
+
+    `motivo` explica por qué NO se pudo armar, en vez de fallar en silencio:
+    antes cualquier problema aquí hacía desaparecer de la pantalla tanto el KMZ
+    como el paquete de entrega.
+
+    Toma los puntos según el tipo: CIPS/PAP de las lecturas; DCVG de los postes
+    (la traza) más los defectos por severidad. Los hallazgos entran siempre,
+    haya o no defectos.
+    """
+    try:
+        from cips_adapter import cips_a_hallazgos
+        info = (data or {}).get('info') or {}
+        tipo = info.get('tipo_inspeccion', '')
+        cp, defectos, hall = [], [], []
+
+        if data.get('cips'):
+            for c in data['cips']:
+                off = c.get('off_limpio') if c.get('off_limpio') is not None else c.get('off_mv')
+                on = c.get('on_limpio') if c.get('on_limpio') is not None else c.get('on_mv')
+                cp.append({'lat': c.get('lat'), 'lon': c.get('lon'),
+                           'abscisa': c.get('abscisa_val'), 'on': on, 'off': off})
+            hall = cips_a_hallazgos(data['cips'])
+        elif data.get('potenciales'):
+            for p in data['potenciales']:
+                cp.append({'lat': p.get('lat'), 'lon': p.get('lon'),
+                           'abscisa': (p.get('abscisa') if p.get('abscisa') is not None
+                                       else p.get('pk_m')),
+                           'on': p.get('on_mv') or p.get('on'),
+                           'off': p.get('off_mv') or p.get('off')})
+            hall = data.get('hallazgos') or []
+
+        # DCVG: los postes dan la traza aunque los defectos no traigan GPS
+        if data.get('dcvg_postes'):
+            for p in data['dcvg_postes']:
+                cp.append({'lat': p.get('lat'), 'lon': p.get('lon'),
+                           'abscisa': p.get('pk_m'),
+                           'on': p.get('on'), 'off': p.get('off')})
+        if data.get('dcvg_defectos'):
+            from db import _severidad_dcvg
+            sev = _severidad_dcvg(data.get('dcvg_postes') or [], data['dcvg_defectos'])
+            for d, s in zip(data['dcvg_defectos'], sev):
+                defectos.append({'lat': d.get('lat'), 'lon': d.get('lon'),
+                                 'abscisa': d.get('pk_m'),
+                                 'severidad_pct': s['severidad_pct'],
+                                 'clasificacion': s['clasificacion']})
+        # los hallazgos del logger entran haya o no defectos
+        if data.get('dcvg_hallazgos'):
+            hall = cips_a_hallazgos(data['dcvg_hallazgos'])
+
+        con_gps = [x for x in (cp + defectos + list(hall or []))
+                   if x.get('lat') is not None and x.get('lon') is not None]
+        if not con_gps:
+            return (None, "Ningún punto de la inspección tiene coordenadas GPS, "
+                          "así que no hay nada que dibujar en el mapa.")
+        nombre = f"{info.get('tramo', '')} {tipo}".strip() or "Inspección TGI"
+        return (construir_kmz(nombre, cp_puntos=cp, defectos=defectos,
+                              hallazgos=hall), "")
+    except Exception as e:
+        return (None, f"No se pudo armar el KMZ: {type(e).__name__}: {e}")
+
+
 def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> bytes:
     """Construye un KMZ (KML comprimido) con la traza, los puntos coloreados por
     estado (CIPS/PAP), los defectos DCVG por severidad y los hallazgos."""

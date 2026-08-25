@@ -598,41 +598,11 @@ def autocargar_carga(cg):
 
 
 def _construir_kmz_sesion():
-    """Arma el KMZ de la inspección desde la data en sesión (según el tipo)."""
-    try:
-        import entrega
-        from cips_adapter import cips_a_hallazgos
-        tipo = data['info'].get('tipo_inspeccion', '')
-        cp, defectos, hall = [], [], []
-        if data['cips']:
-            for c in data['cips']:
-                off = c.get('off_limpio') if c.get('off_limpio') is not None else c.get('off_mv')
-                on = c.get('on_limpio') if c.get('on_limpio') is not None else c.get('on_mv')
-                cp.append({'lat': c.get('lat'), 'lon': c.get('lon'),
-                           'abscisa': c.get('abscisa_val'), 'on': on, 'off': off})
-            hall = cips_a_hallazgos(data['cips'])
-        elif data['potenciales']:
-            for p in data['potenciales']:
-                cp.append({'lat': p.get('lat'), 'lon': p.get('lon'),
-                           'abscisa': p.get('abscisa') if p.get('abscisa') is not None else p.get('pk_m'),
-                           'on': p.get('on_mv') or p.get('on'),
-                           'off': p.get('off_mv') or p.get('off')})
-            hall = data['hallazgos']
-        if data['dcvg_defectos']:
-            import db as _db
-            sev = _db._severidad_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
-            for d, s in zip(data['dcvg_defectos'], sev):
-                defectos.append({'lat': d.get('lat'), 'lon': d.get('lon'),
-                                 'abscisa': d.get('pk_m'),
-                                 'severidad_pct': s['severidad_pct'],
-                                 'clasificacion': s['clasificacion']})
-            hall = cips_a_hallazgos(data['dcvg_hallazgos'])
-        if not (cp or defectos or hall):
-            return None
-        nombre = f"{data['info'].get('tramo','')} {tipo}".strip() or "Inspección TGI"
-        return entrega.construir_kmz(nombre, cp_puntos=cp, defectos=defectos, hallazgos=hall)
-    except Exception:
-        return None
+    """(kmz_bytes, motivo) de la inspección en memoria. La lógica vive en
+    `entrega.kmz_de_inspeccion` para poder probarla; aquí solo se pasa la data
+    de la sesión."""
+    import entrega
+    return entrega.kmz_de_inspeccion(data)
 
 
 def _nombre_ppm():
@@ -1549,24 +1519,31 @@ with tabs[9]:
                                file_name=st.session_state.informe_nombre, mime=_mime)
 
         # ── KMZ de la inspección + Paquete de entrega (numeral 6.3.5) ─────────
+        # OJO: el paquete NO depende del KMZ. Si el KMZ no se puede armar (por
+        # ejemplo, sin coordenadas), el ZIP del contrato debe salir igual.
         st.divider()
-        _kmz_bytes = _construir_kmz_sesion()
+        _kmz_bytes, _kmz_motivo = _construir_kmz_sesion()
         _codigo = os.path.splitext(st.session_state.informe_nombre or "inspeccion")[0]
+        e1, e2 = st.columns(2)
         if _kmz_bytes:
-            e1, e2 = st.columns(2)
             e1.download_button("🗺️ Descargar KMZ de la inspección", data=_kmz_bytes,
                                file_name=f"{_codigo}.kmz",
                                mime="application/vnd.google-earth.kmz")
-            with e2:
-                if st.button("📦 Generar paquete de entrega (ZIP)"):
-                    try:
-                        with st.spinner("Armando el paquete con la estructura del contrato..."):
-                            zip_bytes, resumen = _armar_paquete_entrega(_codigo, _kmz_bytes)
-                        st.session_state.paquete_zip = zip_bytes
-                        st.session_state.paquete_nombre = f"{_codigo}_ENTREGA.zip"
-                        st.session_state.paquete_resumen = resumen
-                    except Exception as e:
-                        st.error(f"No se pudo armar el paquete: {e}")
+        else:
+            e1.info(f"Sin KMZ: {_kmz_motivo}")
+        with e2:
+            if st.button("📦 Generar paquete de entrega (ZIP)"):
+                try:
+                    with st.spinner("Armando el paquete con la estructura del contrato..."):
+                        zip_bytes, resumen = _armar_paquete_entrega(_codigo, _kmz_bytes)
+                    st.session_state.paquete_zip = zip_bytes
+                    st.session_state.paquete_nombre = f"{_codigo}_ENTREGA.zip"
+                    st.session_state.paquete_resumen = resumen
+                except Exception as e:
+                    import traceback
+                    st.error(f"No se pudo armar el paquete: {e}")
+                    with st.expander("Detalle técnico"):
+                        st.code(traceback.format_exc())
         if st.session_state.get("paquete_zip"):
             st.success("Paquete listo — carpetas: "
                        + " · ".join(f"{c} ({n})" for c, n in st.session_state.paquete_resumen))
