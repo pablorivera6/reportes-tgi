@@ -1772,6 +1772,47 @@ class ReportGenerator:
                 except Exception:
                     pass
 
+    # Criterios de la plantilla que no coinciden con lo que escribe el informe.
+    _CRITERIOS_RESUMEN = (('"A-A"', '"AA"'),        # el carácter se escribe 'AA'
+                          ('"Mediana"', '"Mediano"'))  # la clasificación, 'Mediano'
+
+    def ajustar_resumenes_dcvg(self, n_inspeccion, n_resist):
+        """Ajusta las fórmulas de RESUMEN DE INDICACIONES y CLASIFICACIÓN
+        RESISTIVIDAD (hoja Informe) a las filas realmente escritas.
+
+        La plantilla trae los rangos a mano y descuadrados entre sí (V8:V37 en
+        una celda y V8:V237 en la de al lado; U9:U25 junto a U9:U244/246/247),
+        así que con inspecciones largas esas tablas contaban solo una parte de
+        la data. De paso corrige dos criterios que nunca casaban: 'A-A' (el
+        informe escribe 'AA') y 'Mediana' (escribe 'Mediano').
+        """
+        ws = self.ws_informe
+        if ws is None:
+            return
+        fin = {"'Inspección DCVG'": 7 + max(int(n_inspeccion or 0), 1),
+               "Resistividad": 8 + max(int(n_resist or 0), 1)}
+        ini = {"'Inspección DCVG'": 8, "Resistividad": 9}
+        patron = re.compile(
+            r"('Inspección DCVG'|Resistividad)!"
+            r"(\$?[A-Z]{1,3}\$?)(\d+):(\$?[A-Z]{1,3}\$?)(\d+)")
+
+        def _reescribir(m):
+            hoja = m.group(1)
+            return (f"{hoja}!{m.group(2)}{ini[hoja]}:{m.group(4)}{fin[hoja]}")
+
+        for fila in ws.iter_rows():
+            for celda in fila:
+                f = celda.value
+                if not (isinstance(f, str) and f.startswith("=")):
+                    continue
+                if "Inspección DCVG" not in f and "Resistividad" not in f:
+                    continue
+                nueva = patron.sub(_reescribir, f)
+                for viejo, bueno in self._CRITERIOS_RESUMEN:
+                    nueva = nueva.replace(viejo, bueno)
+                if nueva != f:
+                    self._safe_write(ws, celda.row, celda.column, nueva)
+
     def fill_rangos_dcvg(self, postes, defectos, seg_m=5000, max_hojas=60):
         """Crea las hojas por rango (~5 km) del informe DCVG: cada una es una
         copia de 'GRAFICA DCVG' (mismo chart de %IR vs abscisa, leyendo
