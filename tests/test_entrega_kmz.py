@@ -85,3 +85,15 @@ def test_el_paquete_se_arma_aunque_no_haya_kmz():
     nombres = zipfile.ZipFile(io.BytesIO(zip_bytes)).namelist()
     assert any("informe.xlsx" in n for n in nombres)
     assert resumen is not None
+
+
+def test_el_ppm_va_en_su_carpeta_del_paquete():
+    """El PPM entra en 05_PPM, que es donde lo espera el contrato."""
+    import io
+    zip_bytes, _resumen = entrega.construir_paquete(
+        "DCVG_REP_R_ANS_08_26", "DCVG",
+        informe=("DCVG_REP_R_ANS.xlsx", b"informe"),
+        ppm=("DCVG_PPM_R_ANS.xlsx", b"ppm"), kmz=None)
+    nombres_zip = zipfile.ZipFile(io.BytesIO(zip_bytes)).namelist()
+    assert any(n.endswith("DCVG_PPM_R_ANS.xlsx") and "05_PPM" in n
+               for n in nombres_zip), nombres_zip

@@ -1384,9 +1384,25 @@ with tabs[9]:
                 gen.save(out)
                 with open(out, 'rb') as f:
                     st.session_state.informe_bytes = f.read()
-                st.session_state.ppm_bytes = None
                 st.session_state.informe_nombre = nombre
+                # PPM del DCVG (plantilla propia, hojas DCVG y RESISTIVIDAD).
+                # Va en la carpeta 05_PPM del paquete de entrega.
+                prog.progress(85, text="Generando PPM...")
+                st.session_state.ppm_bytes = None
                 st.session_state.ppm_nombre = ""
+                try:
+                    from ppm_generator import PPMDcvgGenerator
+                    ppm_nom = nombres.nombre_archivo(info, doc="PPM")
+                    ppm_out = os.path.join(tmpd, ppm_nom)
+                    PPMDcvgGenerator().generate(
+                        info, data['dcvg_postes'], data['dcvg_defectos'],
+                        data['dcvg_resist'], hallazgos=data['dcvg_hallazgos'],
+                        output_path=ppm_out)
+                    with open(ppm_out, 'rb') as f:
+                        st.session_state.ppm_bytes = f.read()
+                    st.session_state.ppm_nombre = ppm_nom
+                except Exception as _e:
+                    st.warning(f"No se pudo generar el PPM del DCVG: {_e}")
                 msg = "Informe DCVG generado."
                 _faltan = nombres.faltantes(info)
                 if _faltan:

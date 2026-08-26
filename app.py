@@ -231,6 +231,15 @@ class WorkerThread(QThread):
                 self.progress.emit(90)
                 self.status.emit("Guardando informe DCVG...")
                 gen.save(self.output_path)
+                # PPM del DCVG, junto al informe
+                try:
+                    from ppm_generator import PPMDcvgGenerator
+                    PPMDcvgGenerator().generate(
+                        self.app_data['info'], postes, defectos, resist,
+                        hallazgos=self.app_data.get('dcvg_hallazgos', []),
+                        output_path=self.ppm_path)
+                except Exception:
+                    pass
                 self.progress.emit(100)
                 aviso = ""
                 sin_absc = (getattr(gen, "dcvg_sin_abscisa", 0)

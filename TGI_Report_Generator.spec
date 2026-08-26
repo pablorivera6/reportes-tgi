@@ -19,7 +19,7 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('EN BLANCO.xlsx', '.'), ('CIPS EN BLANCO.xlsx', '.'), ('Infra_General_TGI_V11_29032023.kmz', '.'), ('Infraestrutura TGI.xlsx', '.'), ('Listado equipos TGI.xlsx', '.'), ('consolidado OT.xlsx', '.'), ('PPM.XLSX', '.'), ('Listado de Infraestructura para Cod Informes.xlsx', '.'), ('shapefiles.zip', '.')],
+    datas=[('EN BLANCO.xlsx', '.'), ('CIPS EN BLANCO.xlsx', '.'), ('Infra_General_TGI_V11_29032023.kmz', '.'), ('Infraestrutura TGI.xlsx', '.'), ('Listado equipos TGI.xlsx', '.'), ('consolidado OT.xlsx', '.'), ('PPM.XLSX', '.'), ('DCVG_PPM_.xlsx', '.'), ('DCVG_REP.xlsx', '.'), ('ot_por_tipo.csv', '.'), ('Listado de Infraestructura para Cod Informes.xlsx', '.'), ('shapefiles.zip', '.')],
     hiddenimports=['sklearn.utils._typedefs', 'sklearn.neighbors._partition_nodes', 'shapely', 'pyproj', 'shapefile'],
     hookspath=[],
     hooksconfig={},

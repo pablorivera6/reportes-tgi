@@ -260,6 +260,13 @@ Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
   buscando el tramo; mes/año de `info['fecha']`; OT y contrato de Datos
   Generales. Lo que falte se omite (sin `__`) y `nombres.faltantes(info)` lo
   reporta en la UI. El KMZ y el ZIP de entrega derivan del mismo nombre.
+- **PPM de DCVG (`PPMDcvgGenerator`, plantilla `DCVG_PPM_.xlsx`):** hoja `DCVG`
+  con postes + defectos + hallazgos ordenados por abscisa (P On/P Off del poste;
+  P_RE, OL_RE, PORC_IR, carácter, clasificación y profundidad del defecto) y hoja
+  `RESISTIVIDAD` con las ρ ya calculadas. `PORC_IR` va en **fracción** (la celda
+  es `0.00%`). `ENGROUTEID` (R_ANS, T_NRSA…) sale del catálogo que la propia
+  plantilla trae en `Hoja2`. Altitud y 'Cama anódica temporal' quedan vacías (el
+  FastField no las captura). Entra al ZIP en `05_PPM`.
 - **PPM:** `PPMGenerator().generate(info, potenciales, aislamientos, out,
   cips=...)`. Limpia el template antes de escribir; incluye la data CIPS con
   fecha por punto.
