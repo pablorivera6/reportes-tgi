@@ -2,7 +2,11 @@
 Portal TGI — visualización de inspecciones de protección catódica (PCC Integrity).
 
 App SEPARADA de la de procesamiento: solo LEE lo que PCC publica en Supabase y lo
-muestra con un dashboard anclado al contenido del informe CIPS. Diseño PCC.
+muestra con un tablero anclado al contenido del informe. Diseño PCC.
+
+La APARIENCIA vive en `portal_theme.py` (tokens, CSS, plantilla de gráficas y
+componentes: barra_titulo / ficha / veredicto / kpi_row / chip / seccion). Aquí
+solo va la lógica. Si tocas colores, tipografía o tarjetas, es allá.
 
 Despliegue: Streamlit Cloud, mismo repo, main file = portal_app.py.
 Si no hay Supabase configurado, arranca en MODO DEMOSTRACIÓN con data de ejemplo.
@@ -17,6 +21,7 @@ import streamlit as st
 
 from generator import resource_path
 from dashboard import COLOR_ESTADO, estado_cp
+import portal_theme as tema
 import db
 
 
@@ -34,47 +39,11 @@ _ICONO = resource_path("logo.png")
 
 st.set_page_config(page_title="PCC · Portal TGI",
                    page_icon=_ICONO if os.path.exists(_ICONO) else "🗺️",
-                   layout="wide", initial_sidebar_state="expanded")
+                   layout="wide",
+                   # en pantalla chica el cromo lateral se pliega solo
+                   initial_sidebar_state="auto")
 
-st.markdown("""
-<style>
-  html, body, .stApp, .stApp * { font-family: Calibri, 'Segoe UI',
-    -apple-system, 'Helvetica Neue', sans-serif; }
-  .stApp [data-testid="stIconMaterial"] { font-family:'Material Symbols Rounded',
-    'Material Symbols Outlined','Material Icons' !important; }
-  .stApp { background:#FFFFFF; }
-  h2,h3 { color:#C7113A !important; font-weight:700 !important; }
-  [data-testid="stSidebar"] > div:first-child { background:#C7113A !important; }
-  [data-testid="stSidebar"] * { color:#FFFFFF !important; }
-  [data-testid="stSidebar"] hr { border-color:rgba(255,255,255,0.35) !important; }
-  .stButton > button { background:#C7113A !important; color:#FFFFFF !important;
-    border:none !important; border-radius:6px !important; font-weight:700 !important; }
-  .stButton > button:hover { background:#A50E30 !important; }
-  [data-testid="stDownloadButton"] > button { background:#FFFFFF !important;
-    color:#C7113A !important; border:1.5px solid #C7113A !important;
-    border-radius:6px !important; font-weight:700 !important; }
-  [data-testid="stMetricValue"] { color:#C7113A; }
-  .pcc-hero { background:#C7113A; color:#FFFFFF; border-radius:8px;
-    padding:1.1rem 1.6rem; margin-bottom:1rem; display:flex; align-items:center;
-    gap:1.2rem; }
-  .pcc-hero h1 { margin:0; font-size:1.55rem; font-weight:800; color:#FFF !important; }
-  .pcc-hero p { margin:0.15rem 0 0; opacity:0.9; font-size:0.9rem; }
-  .pcc-badge { margin-left:auto; background:#FFFFFF; color:#C7113A; font-weight:800;
-    font-size:0.8rem; line-height:1.05; border-radius:6px; padding:0.45rem 0.6rem;
-    text-align:center; }
-  /* Tarjetas de inspección */
-  .insp-card { border:1px solid #E5E5E5; border-radius:10px; padding:1rem 1.2rem;
-    margin-bottom:0.9rem; background:#FFFFFF; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
-  .insp-card h4 { margin:0 0 0.2rem; color:#333 !important; font-size:1.05rem; }
-  .insp-meta { color:#666; font-size:0.85rem; margin:0.1rem 0; }
-  .chip { display:inline-block; padding:0.15rem 0.55rem; border-radius:999px;
-    font-size:0.75rem; font-weight:700; }
-  .chip-ok { background:#E5F3EC; color:#1A7A4A; }
-  .chip-warn { background:#FDECEC; color:#C7113A; }
-  .chip-tipo { background:#C7113A; color:#FFFFFF; font-size:0.7rem; }
-  #MainMenu, footer { visibility:hidden; }
-</style>
-""", unsafe_allow_html=True)
+tema.aplicar(st)
 
 _logo = (f'<img src="data:image/png;base64,{_LOGO_BLANCO}" style="height:44px;">'
          if _LOGO_BLANCO else '')
@@ -98,9 +67,14 @@ def _pwd_revisor():
 _PWD = _pwd_portal()
 _PWD_REV = _pwd_revisor()
 if _PWD and not st.session_state.get("portal_ok"):
-    st.markdown(f"""<div class="pcc-hero" style="max-width:520px;margin:3rem auto 1rem;">
-      {_logo}<div><h1>Portal TGI_</h1>
-      <p>Visualización de inspecciones · PCC Integrity</p></div></div>""",
+    st.markdown(f"""<div style="max-width:430px;margin:4.5rem auto 1.2rem;
+        text-align:center;">
+      <div style="background:{tema.GRAFITO};border-radius:14px;padding:1.5rem;
+        display:inline-block;margin-bottom:1.1rem;">{_logo}</div>
+      <h1 style="font-size:1.5rem;font-weight:800;color:{tema.TINTA};margin:0;">
+        Portal de Inspecciones TGI</h1>
+      <p style="color:{tema.TINTA_3};font-size:.86rem;margin:.35rem 0 0;">
+        PCC Integrity · Protección catódica</p></div>""",
                 unsafe_allow_html=True)
     _, c, _ = st.columns([1, 2, 1])
     with c:
@@ -120,13 +94,8 @@ if _PWD and not st.session_state.get("portal_ok"):
                     st.error("Contraseña incorrecta.")
     st.stop()
 
-# Modo local sin candado: selector de rol para poder ver ambas vistas sin login.
-if not _PWD:
-    _sel = st.sidebar.radio("Ver como (modo local)", ["Cliente TGI", "Revisor PCC"],
-                            key="rol_local")
-    st.session_state.rol = "revisor" if _sel == "Revisor PCC" else "tgi"
-
-# rol activo: 'revisor' (ingeniero PCC, ve y aprueba) o 'tgi' (cliente, solo aprobadas)
+# rol activo: 'revisor' (ingeniero PCC, ve y aprueba) o 'tgi' (cliente, solo
+# aprobadas). En modo local el selector se dibuja dentro del cromo lateral.
 _ROL = st.session_state.get("rol", "tgi")
 _ES_REVISOR = (_ROL == "revisor")
 
@@ -232,6 +201,50 @@ def _df_puntos(puntos):
     return pd.DataFrame(filas)
 
 
+# Los nulos NO se muestran como el texto "None" al cliente.
+_GUION = "\u2014"
+
+
+def _txt(v, guion=_GUION):
+    if v is None:
+        return guion
+    if isinstance(v, float) and math.isnan(v):
+        return guion
+    t = str(v).strip()
+    return t if t and t.lower() not in ("none", "nan", "nat") else guion
+
+
+_NUMERICAS = ("ON [mV]", "OFF [mV]", "VAC [mV]", "Latitud", "Longitud",
+              "Longitud [m]", "Longitud\u00b0", "Profundidad [m]", "Profundidad",
+              "OL/RE [mV]", "P/RE [mV]", "Severidad %IR",
+              "1 m [\u03a9\u00b7m]", "2 m [\u03a9\u00b7m]", "3 m [\u03a9\u00b7m]")
+
+
+def _tabla_limpia(df, ocultar_vacias=True):
+    """Columnas numericas como numero (el nulo queda en blanco, no 'None'),
+    texto sin None, y fuera las columnas que quedaron 100% vacias."""
+    df = df.copy()
+    for c in df.columns:
+        if c in _NUMERICAS:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        else:
+            df[c] = df[c].map(lambda v: "" if _txt(v) == _GUION else str(v))
+    if ocultar_vacias:
+        vacias = [c for c in df.columns
+                  if (df[c].isna().all() if c in _NUMERICAS else (df[c] == "").all())]
+        if vacias and len(vacias) < len(df.columns):
+            df = df.drop(columns=vacias)
+    return df
+
+
+def _pct_cumple(res, dfp):
+    pct = res.get("pct_cumple")
+    if pct is None and not dfp.empty:
+        cd = dfp["off"].dropna()
+        pct = round(100 * (cd <= -850).sum() / len(cd), 1) if len(cd) else 0.0
+    return pct
+
+
 def _abscisa_txt(v):
     if v is None:
         return ""
@@ -246,19 +259,13 @@ def _abscisa_txt(v):
 def _barra_revision(insp):
     estado = insp.get("estado", "aprobada")
     # etiqueta de estado (visible para todos)
-    _badge = {"aprobada": ("✅ Aprobada", "#1A7A4A"),
-              "en_revision": ("🕓 En revisión", "#F59E0B"),
-              "rechazada": ("✋ Rechazada", "#C7113A")}.get(estado, (estado, "#666"))
-    st.markdown(f"<span style='background:{_badge[1]}22;color:{_badge[1]};"
-                f"padding:.2rem .6rem;border-radius:999px;font-weight:700;"
-                f"font-size:.8rem'>{_badge[0]}</span>", unsafe_allow_html=True)
     if insp.get("nota_revision"):
         st.caption(f"Nota de revisión: {insp['nota_revision']}")
     if not _ES_REVISOR or _DEMO:
         return
     if estado == "en_revision":
-        st.info("Revisa el dashboard y el informe descargable. Al **aprobar**, "
-                "el cliente TGI podrá verlo en el portal.")
+        st.info("Revisa el tablero y el informe descargable. Al **aprobar**, "
+                "el cliente TGI podrá verlo en el portal.", icon=":material/gavel:")
         ca, cb, _ = st.columns([1, 1, 3])
         if ca.button("✅ Aprobar y publicar", key=f"apr_{insp['id']}"):
             db.aprobar_inspeccion(insp["id"], revisor="PCC")
@@ -290,25 +297,36 @@ def _client_reabrir(insp_id):
 
 
 # ── Encabezado común (datos del informe) ─────────────────────────────────────
+_ESTADO_CHIP = {"aprobada": ("Aprobada", "ok"),
+                "en_revision": ("En revisión", "warn"),
+                "rechazada": ("Rechazada", "mal")}
+
+
+def _chip_estado(insp):
+    txt, tono = _ESTADO_CHIP.get(insp.get("estado", "aprobada"),
+                                 (insp.get("estado", ""), "neu"))
+    return tema.chip(txt, tono, punto=True)
+
+
 def _encabezado(insp, subtitulo=""):
-    if st.button("← Volver al listado"):
+    """Ruta + título + estado, y debajo la ficha del informe."""
+    if st.button("← Volver al listado", key=f"volver_{insp.get('id')}"):
         st.session_state.sel = None
         st.session_state.sel_tipo = None
         st.rerun()
-    st.markdown(f"## {insp.get('tramo') or 'Inspección'} · {insp.get('tipo','')}")
-    meta = [
-        ("Gasoducto", insp.get("gasoducto")), ("Tramo", insp.get("tramo")),
-        ("Fecha", insp.get("fecha")), ("Inspector", insp.get("inspector")),
-        ("OT", insp.get("ot")), ("Ciclo", insp.get("ciclo")),
+    tema.barra_titulo(
+        st, _txt(insp.get("tramo"), "Inspección"), via="Inspecciones",
+        sufijo=insp.get("tipo", ""), derecha=_chip_estado(insp))
+    tema.ficha(st, [
+        ("Gasoducto", _txt(insp.get("gasoducto"))),
+        ("Fecha", _txt(insp.get("fecha"))),
+        ("Inspector", _txt(insp.get("inspector"))),
+        ("OT", _txt(insp.get("ot"))),
+        ("Ciclo", _txt(insp.get("ciclo"))),
         ("Punto inicial", _abscisa_txt(insp.get("abscisa_ini"))),
         ("Punto final", _abscisa_txt(insp.get("abscisa_fin"))),
-    ]
-    cols = st.columns(4)
-    for i, (k, v) in enumerate([m for m in meta if m[1]]):
-        cols[i % 4].markdown(f"<div class='insp-meta'><b>{k}</b><br>{v}</div>",
-                             unsafe_allow_html=True)
+    ])
     _barra_revision(insp)
-    st.divider()
 
 
 # ── Render del dashboard CIPS ────────────────────────────────────────────────
@@ -317,44 +335,30 @@ def render_dashboard_cips(detalle):
     dfp = _df_puntos(detalle["puntos"])
     res = insp.get("resumen") or {}
 
-    if st.button("← Volver al listado"):
-        st.session_state.sel = None
-        st.session_state.sel_tipo = None
-        st.rerun()
+    _encabezado(insp)
 
-    st.markdown(f"## {insp.get('tramo') or 'Inspección'} · {insp.get('tipo','CIPS')}")
-
-    # Encabezado (datos del informe)
-    meta = [
-        ("Gasoducto", insp.get("gasoducto")), ("Tramo", insp.get("tramo")),
-        ("Fecha", insp.get("fecha")), ("Inspector", insp.get("inspector")),
-        ("OT", insp.get("ot")), ("Ciclo", insp.get("ciclo")),
-        ("Punto inicial", _abscisa_txt(insp.get("abscisa_ini"))),
-        ("Punto final", _abscisa_txt(insp.get("abscisa_fin"))),
-    ]
-    cols = st.columns(4)
-    for i, (k, v) in enumerate([m for m in meta if m[1]]):
-        cols[i % 4].markdown(f"<div class='insp-meta'><b>{k}</b><br>{v}</div>",
-                             unsafe_allow_html=True)
-    _barra_revision(insp)
-    st.divider()
-
-    # KPIs de cumplimiento (criterio -850 mV del informe)
+    # Veredicto: la pregunta del cliente es si el tramo cumple, y dónde no.
     total = res.get("total", len(dfp))
-    pct = res.get("pct_cumple")
-    if pct is None and not dfp.empty:
-        cd = dfp["off"].dropna()
-        pct = round(100 * (cd <= -850).sum() / len(cd), 1) if len(cd) else 0.0
+    pct = _pct_cumple(res, dfp)
     long_km = (res.get("longitud_m") or 0) / 1000
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Lecturas", total)
-    k2.metric("% Cumple ≤ −850 mV", f"{pct:.1f}%" if pct is not None else "—")
-    k3.metric("Longitud", f"{long_km:.2f} km" if long_km else "—")
-    k4.metric("Hallazgos", res.get("n_hallazgos", len(detalle["hallazgos"])))
-    k5.metric("Tramos sin inspeccionar", res.get("n_tramos_no_insp",
-                                                  len(detalle["tramos"])))
+    _n_hall = res.get("n_hallazgos", len(detalle["hallazgos"]))
+    _n_sin = res.get("n_tramos_no_insp", len(detalle["tramos"]))
+    _fuera = int((dfp["off"].dropna() > -850).sum()) if not dfp.empty else 0
+    tema.seccion(st, "Veredicto de protección")
+    tema.veredicto(
+        st, "Cumplimiento del criterio", f"{pct:.1f}%" if pct is not None else "—",
+        tema.tono_cumple(pct),
+        "Potencial OFF ≤ −850 mV (NACE SP0169)",
+        [("Lecturas", f"{total:,}".replace(",", "."), "en el tramo", ""),
+         ("Fuera de criterio", f"{_fuera:,}".replace(",", "."), "puntos > −850 mV",
+          "alerta" if _fuera else "bien"),
+         ("Longitud", f"{long_km:.2f} km" if long_km else "—", "inspeccionada", ""),
+         ("Hallazgos", _n_hall, "registrados en campo", "aviso" if _n_hall else "bien"),
+         ("Sin inspeccionar", _n_sin, "tramos" if _n_sin else "cobertura completa",
+          "alerta" if _n_sin else "bien")])
 
     # Mapa + Gráfica de potenciales (VDC)
+    tema.seccion(st, "Evidencia de campo")
     cmap, cvdc = st.columns([1, 1])
     with cmap:
         st.markdown("**Mapa — estado de protección**")
@@ -362,7 +366,11 @@ def render_dashboard_cips(detalle):
         if not mp.empty:
             st.map(mp.rename(columns={"lat": "latitude", "lon": "longitude"}),
                    latitude="latitude", longitude="longitude", color="color", size=8)
-            st.caption("🟢 Protegido · 🔴 Desprotegido · 🔵 Sobreprotegido")
+            st.markdown(
+                "".join(tema.chip(t, c, punto=True) + "&nbsp;"
+                        for t, c in [("Protegido", "ok"), ("Desprotegido", "mal"),
+                                     ("Sobreprotegido", "neu")]),
+                unsafe_allow_html=True)
         else:
             st.info("Los puntos no tienen coordenadas.")
     with cvdc:
@@ -371,6 +379,7 @@ def render_dashboard_cips(detalle):
 
     # Gráfica VAC (solo si hay data VAC)
     if dfp["vac"].notna().any():
+        st.write("")
         st.markdown("**Voltaje AC vs abscisa (Gráfica VAC)**")
         _grafica_vac(dfp)
 
@@ -385,8 +394,7 @@ def render_dashboard_cips(detalle):
         pass
     if _hist and not dfp.empty:
         import comparativa
-        st.divider()
-        st.markdown(f"### 📊 Comparativa con histórico · {_hist.get('periodo','')}")
+        tema.seccion(st, f"Comparativa con histórico · {_hist.get('periodo','')}")
         _r = comparativa.resumen_comparativo(dfp, _hist)
         _a, _h = _r["actual"], _r["historico"]
         m1, m2, m3, m4 = st.columns(4)
@@ -409,14 +417,15 @@ def render_dashboard_cips(detalle):
     # Rectificadores asignados a este tramo
     if _rects:
         import rectificadores as rx
-        st.divider()
-        st.markdown("### ⚡ Rectificadores del tramo")
+        tema.seccion(st, "Rectificadores del tramo")
         _k = rx.kpis(_rects)
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Rectificadores", _k["total"])
-        r2.metric("Distritos", _k["distritos"])
-        r3.metric("En operación", _k["operando"])
-        r4.metric("Fuera de servicio", _k["fuera"])
+        tema.kpi_row(st, [
+            ("Rectificadores", _k["total"], tema.NEUTRO, "asignados al tramo"),
+            ("Distritos", _k["distritos"], tema.NEUTRO, ""),
+            ("En operación", _k["operando"], tema.VERDE, ""),
+            ("Fuera de servicio", _k["fuera"],
+             tema.ROJO if _k["fuera"] else tema.VERDE,
+             "requieren atención" if _k["fuera"] else "ninguno")])
         for i, _rc in enumerate(_rects):
             rx.render_card(_rc, st, key=f"cips_{insp.get('id')}_{i}")
 
@@ -432,15 +441,17 @@ def render_dashboard_cips(detalle):
             st.caption(f"(No se pudo generar el PDF: {e})")
 
     # Tabla de potenciales
+    tema.seccion(st, "Detalle de la inspección")
     st.markdown("**Potenciales CIPS**")
     tp = dfp.copy()
     tp["Abscisa"] = tp["abscisa"].apply(_abscisa_txt)
     tp = tp.rename(columns={"on": "ON [mV]", "off": "OFF [mV]", "estado": "Estado",
                             "vac": "VAC [mV]", "observaciones": "Observaciones",
                             "lat": "Latitud", "lon": "Longitud"})
-    st.dataframe(tp[["Abscisa", "ON [mV]", "OFF [mV]", "Estado", "VAC [mV]",
-                     "Latitud", "Longitud", "Observaciones"]],
-                 use_container_width=True, height=280)
+    st.dataframe(_tabla_limpia(tp[["Abscisa", "ON [mV]", "OFF [mV]", "Estado",
+                                   "VAC [mV]", "Latitud", "Longitud",
+                                   "Observaciones"]]),
+                 use_container_width=True, height=280, hide_index=True)
 
     # Hallazgos
     st.markdown("**Hallazgos**")
@@ -452,7 +463,8 @@ def render_dashboard_cips(detalle):
             "Tipo": h.get("tipo"), "Descripción": h.get("descripcion"),
             "Latitud": h.get("lat_ini"), "Longitud°": h.get("lon_ini"),
         } for h in detalle["hallazgos"]])
-        st.dataframe(dh, use_container_width=True, height=220)
+        st.dataframe(_tabla_limpia(dh), use_container_width=True, height=220,
+                     hide_index=True)
     else:
         st.caption("Sin hallazgos registrados.")
 
@@ -465,7 +477,8 @@ def render_dashboard_cips(detalle):
             "Longitud [m]": t.get("longitud_m"),
             "Justificación": t.get("justificacion"),
         } for t in detalle["tramos"]])
-        st.dataframe(dt, use_container_width=True, height=160)
+        st.dataframe(_tabla_limpia(dt), use_container_width=True,
+                     height=(38 * (len(dt) + 1) + 4), hide_index=True)
     else:
         st.caption("Todo el tramo fue inspeccionado.")
 
@@ -482,16 +495,15 @@ def _grafica_vdc(dfp):
         d = dfp.dropna(subset=["abscisa", "off"]).sort_values("abscisa")
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=d["abscisa"], y=d["on"], mode="lines",
-                      name="ON", line=dict(color="#374151", width=1)))
+                      name="ON", line=dict(color=tema.TINTA_2, width=1)))
         fig.add_trace(go.Scatter(x=d["abscisa"], y=d["off"], mode="lines",
-                      name="OFF (Instant)", line=dict(color="#C7113A", width=1.5)))
-        fig.add_hline(y=-850, line=dict(color="#1A7A4A", dash="dash"),
+                      name="OFF (Instant)", line=dict(color=tema.MARCA, width=1.5)))
+        fig.add_hline(y=-850, line=dict(color=tema.VERDE, dash="dash"),
                       annotation_text="−850 mV")
-        fig.add_hline(y=-1200, line=dict(color="#F59E0B", dash="dash"),
+        fig.add_hline(y=-1200, line=dict(color=tema.AMBAR, dash="dash"),
                       annotation_text="−1200 mV")
         fig.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=10),
-                          xaxis_title="Abscisa [m]", yaxis_title="mV",
-                          legend=dict(orientation="h", y=-0.25))
+                          xaxis_title="Abscisa [m]", yaxis_title="mV")
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.caption(f"(gráfica no disponible: {e})")
@@ -504,12 +516,11 @@ def _grafica_vac(dfp):
         vac_v = d["vac"] / 1000.0                       # mV -> V
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=d["abscisa"], y=vac_v, mode="lines",
-                      name="VAC", line=dict(color="#1F6FEB", width=1.3)))
-        fig.add_hline(y=15, line=dict(color="#C7113A", dash="dash"),
+                      name="VAC", line=dict(color=tema.AZUL, width=1.3)))
+        fig.add_hline(y=15, line=dict(color=tema.MARCA, dash="dash"),
                       annotation_text="15 VAC (SP0177)")
         fig.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10),
-                          xaxis_title="Abscisa [m]", yaxis_title="V AC",
-                          legend=dict(orientation="h", y=-0.3))
+                          xaxis_title="Abscisa [m]", yaxis_title="V AC")
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.caption(f"(gráfica VAC no disponible: {e})")
@@ -523,17 +534,22 @@ def render_dashboard_pap(detalle):
     dfp = _df_puntos(detalle["puntos"])
 
     total = res.get("total", len(dfp))
-    pct = res.get("pct_cumple")
-    if pct is None and not dfp.empty:
-        cd = dfp["off"].dropna()
-        pct = round(100 * (cd <= -850).sum() / len(cd), 1) if len(cd) else 0.0
+    pct = _pct_cumple(res, dfp)
     long_km = (res.get("longitud_m") or 0) / 1000
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Postes medidos", total)
-    k2.metric("% Cumple ≤ −850 mV", f"{pct:.1f}%" if pct is not None else "—")
-    k3.metric("Longitud", f"{long_km:.2f} km" if long_km else "—")
-    k4.metric("Hallazgos", res.get("n_hallazgos", len(detalle["hallazgos"])))
+    _n_hall = res.get("n_hallazgos", len(detalle["hallazgos"]))
+    _fuera = int((dfp["off"].dropna() > -850).sum()) if not dfp.empty else 0
+    tema.seccion(st, "Veredicto de protección")
+    tema.veredicto(
+        st, "Cumplimiento del criterio", f"{pct:.1f}%" if pct is not None else "—",
+        tema.tono_cumple(pct), "Potencial OFF ≤ −850 mV (NACE SP0169)",
+        [("Postes medidos", f"{total:,}".replace(",", "."), "en el tramo", ""),
+         ("Fuera de criterio", f"{_fuera:,}".replace(",", "."), "postes > −850 mV",
+          "alerta" if _fuera else "bien"),
+         ("Longitud", f"{long_km:.2f} km" if long_km else "—", "inspeccionada", ""),
+         ("Hallazgos", _n_hall, "registrados en campo",
+          "aviso" if _n_hall else "bien")])
 
+    tema.seccion(st, "Evidencia de campo")
     cmap, cpot = st.columns([1, 1])
     with cmap:
         st.markdown("**Mapa — estado de protección**")
@@ -541,22 +557,27 @@ def render_dashboard_pap(detalle):
         if not mp.empty:
             st.map(mp.rename(columns={"lat": "latitude", "lon": "longitude"}),
                    latitude="latitude", longitude="longitude", color="color", size=8)
-            st.caption("🟢 Protegido · 🔴 Desprotegido · 🔵 Sobreprotegido")
+            st.markdown(
+                "".join(tema.chip(t, c, punto=True) + "&nbsp;"
+                        for t, c in [("Protegido", "ok"), ("Desprotegido", "mal"),
+                                     ("Sobreprotegido", "neu")]),
+                unsafe_allow_html=True)
         else:
             st.info("Los postes no tienen coordenadas.")
     with cpot:
         st.markdown("**Potencial ON/OFF por poste vs abscisa**")
         _grafica_potenciales_pap(dfp)
 
+    tema.seccion(st, "Detalle de la inspección")
     st.markdown("**Potenciales PAP**")
     tp = dfp.copy()
     tp["Abscisa"] = tp["abscisa"].apply(_abscisa_txt)
     tp = tp.rename(columns={"on": "ON [mV]", "off": "OFF [mV]", "estado": "Estado",
                             "observaciones": "Observaciones", "lat": "Latitud",
                             "lon": "Longitud"})
-    st.dataframe(tp[["Abscisa", "ON [mV]", "OFF [mV]", "Estado",
-                     "Latitud", "Longitud", "Observaciones"]],
-                 use_container_width=True, height=300)
+    st.dataframe(_tabla_limpia(tp[["Abscisa", "ON [mV]", "OFF [mV]", "Estado",
+                                   "Latitud", "Longitud", "Observaciones"]]),
+                 use_container_width=True, height=300, hide_index=True)
 
     st.markdown("**Hallazgos**")
     _tabla_hallazgos(detalle["hallazgos"])
@@ -569,26 +590,24 @@ def _grafica_potenciales_pap(dfp):
         d = dfp.dropna(subset=["abscisa", "off"]).sort_values("abscisa")
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=d["abscisa"], y=d["on"], mode="lines+markers",
-                      name="ON", line=dict(color="#374151", width=1),
+                      name="ON", line=dict(color=tema.TINTA_2, width=1),
                       marker=dict(size=5)))
         fig.add_trace(go.Scatter(x=d["abscisa"], y=d["off"], mode="lines+markers",
-                      name="OFF", line=dict(color="#C7113A", width=1.5),
+                      name="OFF", line=dict(color=tema.MARCA, width=1.5),
                       marker=dict(size=5)))
-        fig.add_hline(y=-850, line=dict(color="#1A7A4A", dash="dash"),
+        fig.add_hline(y=-850, line=dict(color=tema.VERDE, dash="dash"),
                       annotation_text="−850 mV")
-        fig.add_hline(y=-1200, line=dict(color="#F59E0B", dash="dash"),
+        fig.add_hline(y=-1200, line=dict(color=tema.AMBAR, dash="dash"),
                       annotation_text="−1200 mV")
         fig.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=10),
-                          xaxis_title="Abscisa [m]", yaxis_title="mV",
-                          legend=dict(orientation="h", y=-0.25))
+                          xaxis_title="Abscisa [m]", yaxis_title="mV")
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.caption(f"(gráfica no disponible: {e})")
 
 
 # ── Render del dashboard DCVG (defectos + resistividad) ──────────────────────
-COLOR_CLAS = {"Muy Pequeño": "#1A7A4A", "Pequeño": "#84B84C",
-              "Mediano": "#F59E0B", "Grande": "#C7113A"}
+COLOR_CLAS = tema.SEVERIDAD
 
 
 def render_dashboard_dcvg(detalle):
@@ -598,25 +617,35 @@ def render_dashboard_dcvg(detalle):
 
     dfd = pd.DataFrame(detalle["defectos"])
     conteo = res.get("por_clasificacion") or {}
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Defectos", res.get("n_defectos", len(dfd)))
-    k2.metric("Críticos (Med+Gr)", res.get("n_criticos",
-              (conteo.get("Mediano", 0) + conteo.get("Grande", 0))))
-    k3.metric("Postes", res.get("n_postes", len(detalle["postes"])))
-    k4.metric("Resistividades", res.get("n_resist", len(detalle["resistividades"])))
-    k5.metric("Hallazgos", res.get("n_hallazgos", len(detalle["hallazgos"])))
+    _n_def = res.get("n_defectos", len(dfd))
+    _n_crit = res.get("n_criticos",
+                      (conteo.get("Mediano", 0) + conteo.get("Grande", 0)))
+    _n_hall = res.get("n_hallazgos", len(detalle["hallazgos"]))
+    _tono_d = tema.ROJO if _n_crit else (tema.AMBAR if _n_def else tema.VERDE)
+    tema.seccion(st, "Veredicto del recubrimiento")
+    tema.veredicto(
+        st, "Defectos críticos", _n_crit, _tono_d,
+        "Severidad %IR Mediano o Grande — requieren intervención",
+        [("Defectos totales", _n_def, "detectados", ""),
+         ("Postes", res.get("n_postes", len(detalle["postes"])), "medidos", ""),
+         ("Resistividades", res.get("n_resist", len(detalle["resistividades"])),
+          "sondeos Wenner", ""),
+         ("Hallazgos", _n_hall, "registrados en campo",
+          "aviso" if _n_hall else "bien")])
 
     # distribución por clasificación (severidad del informe)
     if conteo:
-        st.markdown("**Distribución de defectos por severidad**")
-        cc = st.columns(4)
-        for i, clas in enumerate(["Muy Pequeño", "Pequeño", "Mediano", "Grande"]):
-            cc[i].markdown(
-                f"<div class='insp-meta'><b style='color:{COLOR_CLAS[clas]}'>"
-                f"● {clas}</b><br><span style='font-size:1.4rem'>"
-                f"{conteo.get(clas, 0)}</span></div>", unsafe_allow_html=True)
-        st.divider()
+        _cel = "".join(
+            f"<div class='kpi' style='--tono:{COLOR_CLAS[c]}'>"
+            f"<p class='kpi-lbl'>{c}</p>"
+            f"<p class='kpi-val' style='color:{COLOR_CLAS[c] if conteo.get(c) else tema.TINTA_3}'>"
+            f"{conteo.get(c, 0)}</p>"
+            f"<p class='kpi-sub'>{'defectos' if conteo.get(c) != 1 else 'defecto'}</p></div>"
+            for c in ["Muy Pequeño", "Pequeño", "Mediano", "Grande"])
+        tema.seccion(st, "Distribución por severidad")
+        st.markdown(f"<div class='kpi-row'>{_cel}</div>", unsafe_allow_html=True)
 
+    tema.seccion(st, "Evidencia de campo")
     cmap, csev = st.columns([1, 1])
     with cmap:
         st.markdown("**Mapa — defectos por severidad**")
@@ -649,8 +678,8 @@ def render_dashboard_dcvg(detalle):
             "comentarios": "Comentarios"})
         cols = ["Abscisa", "Carácter", "OL/RE [mV]", "P/RE [mV]", "Severidad %IR",
                 "Clasificación", "Profundidad", "Posición reloj", "Comentarios"]
-        st.dataframe(td[[c for c in cols if c in td.columns]],
-                     use_container_width=True, height=300)
+        st.dataframe(_tabla_limpia(td[[c for c in cols if c in td.columns]]),
+                     use_container_width=True, height=300, hide_index=True)
     else:
         st.caption("Sin defectos registrados.")
 
@@ -661,9 +690,10 @@ def render_dashboard_dcvg(detalle):
         tr["Abscisa"] = tr["abscisa"].apply(_abscisa_txt)
         tr = tr.rename(columns={"r1": "1 m [Ω·m]", "r2": "2 m [Ω·m]",
                                 "r3": "3 m [Ω·m]", "sector": "Sector"})
-        st.dataframe(tr[[c for c in ["Abscisa", "Sector", "1 m [Ω·m]", "2 m [Ω·m]",
-                         "3 m [Ω·m]"] if c in tr.columns]],
-                     use_container_width=True, height=200)
+        st.dataframe(_tabla_limpia(tr[[c for c in ["Abscisa", "Sector",
+                         "1 m [Ω·m]", "2 m [Ω·m]", "3 m [Ω·m]"]
+                         if c in tr.columns]]),
+                     use_container_width=True, height=200, hide_index=True)
 
     st.markdown("**Hallazgos**")
     _tabla_hallazgos(detalle["hallazgos"])
@@ -682,8 +712,8 @@ def _grafica_severidad_dcvg(dfd):
         fig.add_trace(go.Bar(x=d["abscisa"], y=d["severidad_pct"],
                       marker_color=list(colors), name="Severidad %IR",
                       width=[15] * len(d)))
-        for y, txt, col in [(15, "15%", "#84B84C"), (35, "35%", "#F59E0B"),
-                            (60, "60%", "#C7113A")]:
+        for y, txt, col in [(15, "15%", tema.SEVERIDAD["Pequeño"]),
+                            (35, "35%", tema.AMBAR), (60, "60%", tema.ROJO)]:
             fig.add_hline(y=y, line=dict(color=col, dash="dash"),
                           annotation_text=txt)
         fig.update_layout(height=340, margin=dict(t=10, b=10, l=10, r=10),
@@ -699,15 +729,15 @@ def _grafica_resistividad(dfr):
         import plotly.graph_objects as go
         d = dfr.dropna(subset=["abscisa"]).sort_values("abscisa")
         fig = go.Figure()
-        for col, nombre, color in [("r1", "1 m", "#374151"), ("r2", "2 m", "#1F6FEB"),
-                                   ("r3", "3 m", "#C7113A")]:
+        for col, nombre, color in [("r1", "1 m", tema.TINTA_2),
+                                   ("r2", "2 m", tema.AZUL),
+                                   ("r3", "3 m", tema.MARCA)]:
             if col in d.columns and d[col].notna().any():
                 fig.add_trace(go.Scatter(x=d["abscisa"], y=d[col], mode="lines+markers",
                               name=nombre, line=dict(color=color, width=1.2),
                               marker=dict(size=5)))
         fig.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10),
-                          xaxis_title="Abscisa [m]", yaxis_title="Resistividad [Ω·m]",
-                          legend=dict(orientation="h", y=-0.3))
+                          xaxis_title="Abscisa [m]", yaxis_title="Resistividad [Ω·m]")
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.caption(f"(gráfica resistividad no disponible: {e})")
@@ -722,7 +752,8 @@ def _tabla_hallazgos(hallazgos):
             "Tipo": h.get("tipo"), "Descripción": h.get("descripcion"),
             "Latitud": h.get("lat_ini"), "Longitud": h.get("lon_ini"),
         } for h in hallazgos])
-        st.dataframe(dh, use_container_width=True, height=200)
+        st.dataframe(_tabla_limpia(dh), use_container_width=True, height=200,
+                     hide_index=True)
     else:
         st.caption("Sin hallazgos registrados.")
 
@@ -736,18 +767,20 @@ def _descarga_informe(insp):
 
 # ── Listado de inspecciones ──────────────────────────────────────────────────
 def render_listado():
-    st.markdown("## Inspecciones publicadas")
+    tema.barra_titulo(st, "Inspecciones publicadas",
+                      via="Portal TGI <b>/</b> Inspecciones")
     try:
         lista = cargar_lista()
     except Exception as e:
         st.error(f"No se pudo leer el histórico: {e}")
         return
     if not lista:
-        st.info("Aún no hay inspecciones publicadas.")
+        st.info("Aún no hay inspecciones publicadas.", icon=":material/inbox:")
         return
 
     # filtros por tipo y tramo
-    cf1, cf2 = st.columns(2)
+    st.write("")
+    cf1, cf2, _sp = st.columns([1, 1, 1.4])
     tipos = sorted({i.get("tipo") for i in lista if i.get("tipo")})
     ft = cf1.selectbox("Tipo de inspección", ["Todos"] + tipos, index=0)
     if ft != "Todos":
@@ -759,61 +792,64 @@ def render_listado():
 
     # El revisor puede filtrar por estado (para ver lo que falta aprobar)
     if _ES_REVISOR:
-        fe = st.radio("Estado", ["Todas", "🕓 En revisión", "✅ Aprobadas",
-                                 "✋ Rechazadas"], horizontal=True, index=0)
-        mapa_e = {"🕓 En revisión": "en_revision", "✅ Aprobadas": "aprobada",
-                  "✋ Rechazadas": "rechazada"}
+        fe = st.radio("Estado", ["Todas", "En revisión", "Aprobadas",
+                                 "Rechazadas"], horizontal=True, index=0)
+        mapa_e = {"En revisión": "en_revision", "Aprobadas": "aprobada",
+                  "Rechazadas": "rechazada"}
         if fe in mapa_e:
             lista = [i for i in lista if i.get("estado") == mapa_e[fe]]
         pend = sum(1 for i in cargar_lista() if i.get("estado") == "en_revision")
         if pend:
-            st.warning(f"🕓 {pend} inspección(es) esperando tu aprobación.")
+            st.warning(f"{pend} inspección(es) esperando tu aprobación.",
+                       icon=":material/pending_actions:")
 
-    _EST = {"aprobada": ("✅", "#1A7A4A"), "en_revision": ("🕓", "#F59E0B"),
-            "rechazada": ("✋", "#C7113A")}
+    st.caption(f"{len(lista)} inspección(es)")
     for insp in lista:
         res = insp.get("resumen") or {}
         tipo = insp.get("tipo", "CIPS")
-        chip, extra = _chips_listado(tipo, res)
+        veredicto, extra = _chips_listado(tipo, res)
         est = insp.get("estado", "aprobada")
-        est_chip = ""
-        if _ES_REVISOR:
-            e = _EST.get(est, ("", "#666"))
-            est_chip = (f"<span class='chip' style='background:{e[1]}22;"
-                        f"color:{e[1]}'>{e[0]} {est.replace('_',' ')}</span>")
-        c1, c2 = st.columns([5, 1])
+        est_chip = _chip_estado(insp) if _ES_REVISOR else ""
+        c1, c2 = st.columns([6, 1.15], vertical_alignment="center")
         with c1:
-            st.markdown(f"""<div class="insp-card">
-              <h4><span class="chip chip-tipo">{tipo}</span> &nbsp;
-                 {insp.get('tramo','—')} · {insp.get('gasoducto','')} &nbsp; {est_chip}</h4>
-              <p class="insp-meta">📅 {insp.get('fecha','—')} &nbsp;·&nbsp;
-                 👷 {insp.get('inspector','—')} &nbsp;·&nbsp; OT {insp.get('ot','—')}
-                 &nbsp;·&nbsp; {extra} &nbsp; {chip}</p>
+            st.markdown(f"""<div class="fila">
+              <p class="fila-t">{tema.chip(tipo, 'tipo')}
+                 <b>{_txt(insp.get('tramo'))}</b>
+                 <span class="sep">|</span>
+                 <span class="gas">{_txt(insp.get('gasoducto'), '')}</span>
+                 {veredicto} {est_chip}</p>
+              <p class="fila-m">
+                 <span>Fecha <b>{_txt(insp.get('fecha'))}</b></span>
+                 <span>Inspector <b>{_txt(insp.get('inspector'))}</b></span>
+                 <span>OT <b>{_txt(insp.get('ot'))}</b></span>
+                 <span>{extra}</span></p>
             </div>""", unsafe_allow_html=True)
         with c2:
-            _lbl = "Revisar" if (_ES_REVISOR and est == "en_revision") else "Ver dashboard"
-            if st.button(_lbl, key=f"ver-{insp['id']}"):
+            _rev = _ES_REVISOR and est == "en_revision"
+            if st.button("Revisar" if _rev else "Abrir", key=f"ver-{insp['id']}",
+                         type="primary" if _rev else "secondary",
+                         use_container_width=True):
                 st.session_state.sel = insp["id"]
                 st.session_state.sel_tipo = tipo
                 st.rerun()
+        st.write("")
 
 
 def _chips_listado(tipo, res):
-    """Devuelve (chip_estado, texto_extra) según el tipo de inspección."""
+    """(chip de veredicto, texto de volumen) según el tipo de inspección."""
     if tipo == "DCVG":
         crit = res.get("n_criticos", 0)
-        extra = f"{res.get('n_defectos', '?')} defectos"
-        chip = (f"<span class='chip chip-warn'>{crit} críticos</span>" if crit
-                else "<span class='chip chip-ok'>Sin críticos</span>")
+        extra = f"{_txt(res.get('n_defectos'), '?')} defectos"
+        chip = (tema.chip(f"{crit} críticos", "mal", punto=True) if crit
+                else tema.chip("Sin críticos", "ok", punto=True))
         return chip, extra
     # CIPS / PAP: cumplimiento -850
     pct = res.get("pct_cumple")
-    extra = f"{res.get('total', '?')} lecturas"
-    chip = (f"<span class='chip chip-ok'>Cumple {pct:.0f}%</span>"
-            if (pct is not None and pct >= 85)
-            else f"<span class='chip chip-warn'>Cumple {pct:.0f}%</span>"
-            if pct is not None else "")
-    return chip, extra
+    extra = f"{_txt(res.get('total'), '?')} lecturas"
+    if pct is None:
+        return "", extra
+    tono = "ok" if pct >= 95 else ("warn" if pct >= 85 else "mal")
+    return tema.chip(f"Cumple {pct:.0f}%", tono, punto=True), extra
 
 
 # ── Vista consolidada por tramo (CIPS + PAP + DCVG juntos) ───────────────────
@@ -823,7 +859,8 @@ def _off_de_punto(p):
 
 
 def render_vista_tramo():
-    st.markdown("## Vista consolidada por tramo")
+    tema.barra_titulo(st, "Vista consolidada por tramo",
+                      via="Portal TGI <b>/</b> Por tramo")
     st.caption("Cruza protección catódica (CIPS/PAP) y defectos de recubrimiento "
                "(DCVG) del mismo tramo, alineados por abscisa, para priorizar.")
     try:
@@ -844,7 +881,7 @@ def render_vista_tramo():
     grupos = por_tramo[tramo]
 
     # elegir una inspección por tipo (por defecto la más reciente)
-    st.markdown("**Inspecciones del tramo**")
+    tema.seccion(st, "Inspecciones del tramo")
     cols = st.columns(3)
     elegidas = {}
     for j, tp in enumerate(["CIPS", "PAP", "DCVG"]):
@@ -876,34 +913,40 @@ def render_vista_tramo():
             else:
                 det[tp] = db.cargar_inspeccion_dcvg(insp["id"])
 
-    st.divider()
-    # KPIs por tipo
-    kcols = st.columns(3)
-    for j, tp in enumerate(["CIPS", "PAP", "DCVG"]):
-        with kcols[j]:
-            if tp in elegidas:
-                r = elegidas[tp].get("resumen") or {}
-                if tp == "DCVG":
-                    st.metric(f"{tp} · defectos críticos",
-                              r.get("n_criticos", 0),
-                              help="Defectos Mediano + Grande")
-                else:
-                    pct = r.get("pct_cumple")
-                    st.metric(f"{tp} · % cumple −850",
-                              f"{pct:.0f}%" if pct is not None else "—")
-            else:
-                st.metric(f"{tp}", "sin data")
+    tema.seccion(st, "Estado por técnica")
+    _tarjetas = []
+    for tp in ["CIPS", "PAP", "DCVG"]:
+        if tp not in elegidas:
+            _tarjetas.append((tp, "—", tema.TINTA_3, "sin inspección publicada"))
+            continue
+        r = elegidas[tp].get("resumen") or {}
+        if tp == "DCVG":
+            crit = r.get("n_criticos", 0)
+            _tarjetas.append(("DCVG · defectos críticos", crit,
+                              tema.ROJO if crit else tema.VERDE,
+                              "Mediano + Grande" if crit else "ninguno crítico"))
+        else:
+            pct = r.get("pct_cumple")
+            _tarjetas.append((f"{tp} · cumple ≤ −850 mV",
+                              f"{pct:.0f}%" if pct is not None else "—",
+                              tema.tono_cumple(pct),
+                              "del tramo protegido" if pct is not None else ""))
+    tema.kpi_row(st, _tarjetas)
 
     # gráfica alineada por abscisa (potencial arriba, severidad DCVG abajo)
-    st.markdown("**Protección vs defectos — alineado por abscisa**")
+    tema.seccion(st, "Protección vs defectos — alineado por abscisa")
+    if not ({"CIPS", "PAP"} & set(det)):
+        st.info("Este tramo aún no tiene CIPS ni PAP publicados: sin ellos no hay "
+                "curva de protección con la cual cruzar los defectos.",
+                icon=":material/info:")
     _grafica_consolidada(det)
 
     # mapa combinado
-    st.markdown("**Mapa combinado**")
+    tema.seccion(st, "Mapa combinado")
     _mapa_consolidado(det)
 
     # zonas críticas: desprotegido + defecto DCVG cercano
-    st.markdown("**🚩 Zonas críticas** (ducto desprotegido con defecto de recubrimiento)")
+    tema.seccion(st, "Zonas críticas · ducto desprotegido con defecto de recubrimiento")
     _zonas_criticas(det)
 
 
@@ -926,7 +969,7 @@ def _grafica_consolidada(det):
                 d["off"] = d.apply(_off_de_punto, axis=1)
                 d = d.dropna(subset=["abscisa", "off"]).sort_values("abscisa")
                 fig.add_trace(go.Scatter(x=d["abscisa"], y=d["off"], mode="lines",
-                              name="CIPS OFF", line=dict(color="#C7113A", width=1.3)),
+                              name="CIPS OFF", line=dict(color=tema.MARCA, width=1.3)),
                               row=1, col=1)
         # PAP (marcadores)
         if "PAP" in det:
@@ -935,9 +978,9 @@ def _grafica_consolidada(det):
                 d["off"] = d.apply(_off_de_punto, axis=1)
                 d = d.dropna(subset=["abscisa", "off"]).sort_values("abscisa")
                 fig.add_trace(go.Scatter(x=d["abscisa"], y=d["off"], mode="markers",
-                              name="PAP OFF", marker=dict(color="#1F6FEB", size=6)),
+                              name="PAP OFF", marker=dict(color=tema.AZUL, size=6)),
                               row=1, col=1)
-        fig.add_hline(y=-850, line=dict(color="#1A7A4A", dash="dash"), row=1, col=1)
+        fig.add_hline(y=-850, line=dict(color=tema.VERDE, dash="dash"), row=1, col=1)
         fig.update_yaxes(title_text="mV", row=1, col=1)
         # DCVG severidad (barras)
         if tiene_dcvg:
@@ -948,15 +991,15 @@ def _grafica_consolidada(det):
                 fig.add_trace(go.Bar(x=dd["abscisa"], y=dd["severidad_pct"],
                               marker_color=list(colores), name="Severidad %IR",
                               width=[15] * len(dd)), row=2, col=1)
-                for y, col in [(15, "#84B84C"), (35, "#F59E0B"), (60, "#C7113A")]:
+                for y, col in [(15, tema.SEVERIDAD["Pequeño"]), (35, tema.AMBAR),
+                               (60, tema.ROJO)]:
                     fig.add_hline(y=y, line=dict(color=col, dash="dash"), row=2, col=1)
                 fig.update_yaxes(title_text="%IR", row=2, col=1)
             fig.update_xaxes(title_text="Abscisa [m]", row=2, col=1)
         else:
             fig.update_xaxes(title_text="Abscisa [m]", row=1, col=1)
         fig.update_layout(height=520 if tiene_dcvg else 340, showlegend=True,
-                          margin=dict(t=40, b=10, l=10, r=10),
-                          legend=dict(orientation="h", y=-0.12))
+                          margin=dict(t=40, b=10, l=10, r=10))
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.caption(f"(gráfica consolidada no disponible: {e})")
@@ -1028,13 +1071,14 @@ def _zonas_criticas(det, umbral_m=25):
     if altas:
         st.error(f"⚠️ {altas} zona(s) de prioridad ALTA: defecto grande/mediano "
                  f"donde el ducto está desprotegido.")
-    st.dataframe(dfz.sort_values("Prioridad"), use_container_width=True, height=240)
+    st.dataframe(_tabla_limpia(dfz.sort_values("Prioridad")),
+                 use_container_width=True, height=240, hide_index=True)
 
 
 # ── Sección global de rectificadores (matriz) ───────────────────────────────
 def render_rectificadores():
     import rectificadores as rx
-    st.markdown("## ⚡ Rectificadores")
+    tema.barra_titulo(st, "Rectificadores", via="Portal TGI <b>/</b> Matriz")
     st.caption("Matriz de rectificadores inspeccionados: estado de operación, "
                "utilización y necesidades de mantenimiento. Cada unidad tiene su "
                "PDF descargable. Asigna un tramo para que aparezcan en su dashboard.")
@@ -1059,11 +1103,13 @@ def render_rectificadores():
 
     todos = [f.get("payload") for f in filas if f.get("payload")]
     k = rx.kpis(todos)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total", k["total"])
-    c2.metric("Distritos", k["distritos"])
-    c3.metric("En operación", k["operando"])
-    c4.metric("Fuera de servicio", k["fuera"])
+    tema.kpi_row(st, [
+        ("Total", k["total"], tema.NEUTRO, "unidades en la matriz"),
+        ("Distritos", k["distritos"], tema.NEUTRO, ""),
+        ("En operación", k["operando"], tema.VERDE, ""),
+        ("Fuera de servicio", k["fuera"],
+         tema.ROJO if k["fuera"] else tema.VERDE,
+         "requieren atención" if k["fuera"] else "ninguno")])
 
     # Asignación de tramo (solo revisor PCC)
     if _ES_REVISOR:
@@ -1123,54 +1169,62 @@ def render_rectificadores():
         por_distrito.setdefault(f.get("distrito") or "—", []).append(f)
     for distrito in sorted(por_distrito):
         grupo = por_distrito[distrito]
-        st.markdown(f"#### 🏭 {distrito} · {len(grupo)} rectificador(es)")
+        tema.seccion(st, f"{distrito} · {len(grupo)} rectificador(es)")
         for f in grupo:
             rx.render_card(f["payload"], st, key=f["id"])
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown(f"<div style='text-align:center'>{_logo}<br>"
-                "<b>Portal TGI</b><br><span style='opacity:.85'>fits you_</span></div>",
-                unsafe_allow_html=True)
-    st.divider()
-    if _DEMO:
-        st.warning("Modo demostración\n\nSupabase no configurado: se muestra data "
-                   "de ejemplo.", icon="⚠️")
-    else:
-        st.success("Conectado al histórico", icon="✅")
-    if _ES_REVISOR:
-        st.info("👷 Rol: **Revisor PCC**\n\nVes también las inspecciones en "
-                "revisión y puedes aprobarlas.", icon="🛠️")
-    if st.session_state.get("portal_ok") and st.button("Salir"):
-        for k in ("portal_ok", "rol", "sel", "sel_tipo"):
-            st.session_state.pop(k, None)
-        st.rerun()
-
-st.markdown(f"""<div class="pcc-hero">{_logo}
-  <div><h1>Portal de Inspecciones TGI_</h1>
-  <p>PCC Integrity — Protección catódica · CIPS · PAP · DCVG</p></div>
-  <div class="pcc-badge">fits<br>you_</div></div>""", unsafe_allow_html=True)
-
 st.session_state.setdefault("sel", None)
 st.session_state.setdefault("sel_tipo", None)
 st.session_state.setdefault("vista", "inspeccion")
 
-# Navegación: por inspección individual o vista consolidada por tramo
-if not st.session_state.sel:
-    nv1, nv2, nv3, _ = st.columns([1.2, 1.4, 1.4, 2])
-    if nv1.button("📋 Por inspección",
-                  type=("primary" if st.session_state.vista == "inspeccion" else "secondary")):
-        st.session_state.vista = "inspeccion"
-        st.rerun()
-    if nv2.button("🔎 Vista por tramo",
-                  type=("primary" if st.session_state.vista == "tramo" else "secondary")):
-        st.session_state.vista = "tramo"
-        st.rerun()
-    if nv3.button("⚡ Rectificadores",
-                  type=("primary" if st.session_state.vista == "rectificadores" else "secondary")):
-        st.session_state.vista = "rectificadores"
-        st.rerun()
+_VISTAS = [("inspeccion", "Inspecciones", ":material/description:"),
+           ("tramo", "Vista por tramo", ":material/timeline:"),
+           ("rectificadores", "Rectificadores", ":material/bolt:")]
+
+with st.sidebar:
+    st.markdown(f"<div class='sb-marca'>{_logo}<div><b>Portal TGI</b>"
+                "<span>PCC Integrity</span></div></div>", unsafe_allow_html=True)
+    st.markdown("<p class='sb-rot'>Navegación</p>", unsafe_allow_html=True)
+    # La navegación vive aquí: se ve siempre, también dentro de una inspección.
+    for _v, _lbl, _ic in _VISTAS:
+        _activo = (st.session_state.vista == _v and not st.session_state.sel)
+        if st.button(_lbl, key=f"nav_{_v}", icon=_ic,
+                     type="primary" if _activo else "secondary"):
+            st.session_state.vista = _v
+            st.session_state.sel = None
+            st.session_state.sel_tipo = None
+            st.rerun()
+    st.divider()
+    st.markdown("<p class='sb-rot'>Estado</p>", unsafe_allow_html=True)
+    if _DEMO:
+        st.markdown(f"<div class='sb-pill'><i style='background:{tema.AMBAR}'></i>"
+                    "Modo demostración · data de ejemplo</div>",
+                    unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='sb-pill'><i style='background:{tema.VERDE}'></i>"
+                    "Conectado al histórico</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sb-pill'><i style='background:%s'></i>%s</div>"
+                % (tema.MARCA if _ES_REVISOR else "#7C8899",
+                   "Revisor PCC · puedes aprobar" if _ES_REVISOR
+                   else "Cliente TGI · solo lectura"), unsafe_allow_html=True)
+    if not _PWD:
+        _sel = st.radio("Ver como (modo local)", ["Cliente TGI", "Revisor PCC"],
+                        key="rol_local", label_visibility="collapsed",
+                        horizontal=False)
+        _rol_nuevo = "revisor" if _sel == "Revisor PCC" else "tgi"
+        if _rol_nuevo != st.session_state.get("rol"):
+            st.session_state.rol = _rol_nuevo
+            st.rerun()
+        _ROL = _rol_nuevo
+        _ES_REVISOR = (_ROL == "revisor")
+    if st.session_state.get("portal_ok"):
+        st.divider()
+        if st.button("Salir", key="salir", icon=":material/logout:"):
+            for k in ("portal_ok", "rol", "sel", "sel_tipo"):
+                st.session_state.pop(k, None)
+            st.rerun()
 
 if st.session_state.sel:
     try:
@@ -1195,8 +1249,4 @@ elif st.session_state.vista == "rectificadores":
 else:
     render_listado()
 
-st.markdown("""<hr style="border:none;border-top:1px solid #DDDDDD;margin:2.2rem 0 .5rem;">
-<div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;
-  color:#666;font-size:0.8rem;">
-  <span><i>For Internal Use Only — Not For External Distribution. Property of PCC Integrity.</i></span>
-  <b style="color:#C7113A;">www.pccintegrity.com</b></div>""", unsafe_allow_html=True)
+tema.pie_pagina(st)
