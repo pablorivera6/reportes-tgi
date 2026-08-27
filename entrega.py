@@ -12,6 +12,7 @@ Estructura del entregable (6.3.5):
 from __future__ import annotations
 
 import io
+import os
 import zipfile
 from xml.sax.saxutils import escape
 
@@ -84,6 +85,96 @@ CATALOGO = {
 
 def _cat_por_clave(tipo):
     return {c["clave"]: c for c in CATALOGO.get(tipo, [])}
+
+
+# ── Iconos del KMZ por tipo de hallazgo ──────────────────────────────────────
+# Números del catálogo de iconos de Earth Point (el que usa TGI, 1-279). Los
+# PNG viven en `iconos_kml/` y se incrustan DENTRO del KMZ, así que el archivo
+# se ve igual sin conexión a internet.
+#
+# El orden IMPORTA: se evalúa de arriba abajo y gana el primero que case, así
+# que lo específico va antes que lo genérico ('derecho de vía' es invasión, no
+# cruce de vía; 'tubería aérea expuesta' es aérea, no expuesta).
+ICONOS_HALLAZGO = (
+    {"clave": "invasion_ddv", "numero": 214, "archivo": "214_invasion_ddv.png",
+     "nombre": "Invasión DDV",
+     "patrones": (r"invasi",)},
+    {"clave": "marco_h", "numero": 207, "archivo": "207_marco_h.png",
+     "nombre": "Marco H", "patrones": (r"marco\s*h\b",)},
+    {"clave": "anodo", "numero": 271, "archivo": "271_anodo.png",
+     "nombre": "Ánodo", "patrones": (r"[áa]nodo",)},
+    {"clave": "urpc_foranea", "numero": 242, "archivo": "242_urpc_foranea.png",
+     "nombre": "URPC foránea",
+     "patrones": (r"(urpc|rectificador)[^.]{0,30}for[áa]nea",
+                  r"for[áa]nea[^.]{0,30}(urpc|rectificador)")},
+    {"clave": "urpc_propia", "numero": 257, "archivo": "257_urpc_propia.png",
+     "nombre": "URPC propia", "patrones": (r"\burpc\b", r"rectificador")},
+    {"clave": "cruce_tuberia_foranea", "numero": 192,
+     "archivo": "192_cruce_tuberia_foranea.png", "nombre": "Cruce de tubería foránea",
+     "patrones": (r"(tuber[íi]a|l[íi]nea|ducto)[^.]{0,30}for[áa]nea",
+                  r"for[áa]nea[^.]{0,30}(tuber[íi]a|ducto)")},
+    {"clave": "cruce_linea_electrica", "numero": 240,
+     "archivo": "240_cruce_linea_electrica.png", "nombre": "Cruce de línea eléctrica",
+     "patrones": (r"l[íi]nea[^.]{0,20}el[ée]ctrica", r"el[ée]ctrica",
+                  r"(alta|media|baja)\s+tensi[óo]n", r"torre\s+de\s+energ")},
+    {"clave": "tuberia_aerea", "numero": 209, "archivo": "209_tuberia_aerea.png",
+     "nombre": "Tubería aérea", "patrones": (r"a[ée]re[oa]", r"aerio")},
+    {"clave": "cruce_cano", "numero": 231, "archivo": "231_cruce_cano.png",
+     "nombre": "Cruce de caño/quebrada/río",
+     "patrones": (r"ca[ñn]o", r"quebrada", r"\br[íi]o\b", r"arroyo",
+                  r"humedal", r"laguna")},
+    {"clave": "tuberia_expuesta", "numero": 244, "archivo": "244_tuberia_expuesta.png",
+     "nombre": "Tubería expuesta",
+     "patrones": (r"expuest", r"descubiert", r"aflorad")},
+    {"clave": "valvula", "numero": 206, "archivo": "206_valvula.png",
+     "nombre": "Válvula / Derivación / Enmallado",
+     "patrones": (r"v[áa]lvula", r"derivaci[óo]n", r"enmallad", r"\bmalla\b",
+                  r"encerramiento", r"enseramiento")},
+    {"clave": "vegetacion", "numero": 238, "archivo": "238_vegetacion.png",
+     "nombre": "Vegetación espesa o tramo sin rocería",
+     "patrones": (r"roce[rn][íi]a", r"enmontad", r"montad[oa]", r"maleza",
+                  r"vegetaci[óo]n", r"rastrojo", r"sin\s+paso", r"\bsalto\b")},
+    {"clave": "terreno_removido", "numero": 272, "archivo": "272_terreno_removido.png",
+     "nombre": "Terreno removido",
+     "patrones": (r"terreno\s+removido", r"remoci[óo]n", r"excavaci[óo]n",
+                  r"movimiento\s+de\s+tierra", r"derrumbe", r"deslizamiento")},
+    {"clave": "cultivo", "numero": 241, "archivo": "241_cultivo.png",
+     "nombre": "Cultivo", "patrones": (r"cultivo", r"sembrad", r"siembra",
+                                       r"plataci|plantaci[óo]n")},
+    {"clave": "cruce_via", "numero": 200, "archivo": "200_cruce_via.png",
+     "nombre": "Cruce de vía",
+     "patrones": (r"(?<!derecho de )\bv[íi]a\b", r"carretera",
+                  r"carreteable", r"camino")},
+    {"clave": "poste_potencial", "numero": 177, "archivo": "177_poste_potencial.png",
+     "nombre": "Poste de potencial", "patrones": (r"poste",)},
+)
+
+CARPETA_ICONOS = "iconos_kml"
+ICONO_BASE = "base_circulo.png"   # círculo de color de los puntos
+
+
+def ruta_icono(archivo):
+    """Ruta al PNG del icono dentro del proyecto."""
+    from generator import resource_path
+    return resource_path(os.path.join(CARPETA_ICONOS, archivo))
+
+
+def icono_de_hallazgo(texto, tipo=""):
+    """Icono que le corresponde a un hallazgo según lo que reportó la cuadrilla.
+    Devuelve el dict del catálogo, o None si no encaja en ninguna categoría."""
+    import re as _re
+    import unicodedata as _ud
+    crudo = f"{tipo} {texto}".strip()
+    plano = ''.join(c for c in _ud.normalize('NFD', crudo)
+                    if _ud.category(c) != 'Mn').lower()
+    for ic in ICONOS_HALLAZGO:
+        for patron in ic["patrones"]:
+            # los patrones traen tildes opcionales; se comparan contra el texto
+            # sin tildes y contra el original, para aceptar ambas escrituras
+            if _re.search(patron, plano, _re.IGNORECASE) or \
+               _re.search(patron, crudo.lower(), _re.IGNORECASE):
+                return ic
+    return None
 
 
 # ── KMZ de la inspección ─────────────────────────────────────────────────────
@@ -169,14 +260,20 @@ def kmz_de_inspeccion(data):
 def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> bytes:
     """Construye un KMZ (KML comprimido) con la traza, los puntos coloreados por
     estado (CIPS/PAP), los defectos DCVG por severidad y los hallazgos."""
+    # círculo base de los puntos por estado/severidad: también va dentro del
+    # KMZ, para que el archivo no dependa de internet en ningún punto
+    _base = ruta_icono(ICONO_BASE)
+    _href_base = (f'files/{ICONO_BASE}' if os.path.exists(_base)
+                  else 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png')
     estilos = "".join(
         f'<Style id="s_{k}"><IconStyle><color>{v}</color><scale>0.7</scale>'
-        f'<Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon>'
+        f'<Icon><href>{_href_base}</href></Icon>'
         f'</IconStyle></Style>' for k, v in _KML_COLOR.items())
     estilos += ('<Style id="s_linea"><LineStyle><color>ff8a8a8a</color>'
                 '<width>2</width></LineStyle></Style>')
 
     cuerpo = []
+    iconos_usados = {}      # clave -> icono; se incrustan al final en el KMZ
     cp = [p for p in (cp_puntos or []) if p.get("lat") is not None and p.get("lon") is not None]
     # traza (línea por los puntos ordenados por abscisa)
     if len(cp) >= 2:
@@ -215,10 +312,31 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
             continue
         abv = h.get("abscisa_val") if h.get("abscisa_val") is not None else h.get("abscisa_ini")
         desc = f"{h.get('tipo','')}\n{h.get('descripcion','')}"
-        car_h.append(_placemark(f"{h.get('tipo','Hallazgo')} {_absc(abv)}", la, lo,
-                                "s_Hallazgo", desc))
+        # icono según lo que reportó la cuadrilla (catálogo de TGI)
+        ic = icono_de_hallazgo(h.get('descripcion') or h.get('observaciones') or '',
+                               h.get('tipo', ''))
+        if ic:
+            iconos_usados[ic["clave"]] = ic
+            estilo, etiqueta = f"ic_{ic['clave']}", ic["nombre"]
+        else:
+            estilo, etiqueta = "s_Hallazgo", h.get('tipo', 'Hallazgo')
+        car_h.append(_placemark(f"{etiqueta} {_absc(abv)}", la, lo, estilo, desc))
     if car_h:
         cuerpo.append(f'<Folder><name>Hallazgos</name>{"".join(car_h)}</Folder>')
+
+    # un estilo por icono usado, apuntando al PNG que va DENTRO del KMZ
+    incrustar = {}
+    if os.path.exists(_base):
+        incrustar[f'files/{ICONO_BASE}'] = _base
+    for clave, ic in iconos_usados.items():
+        ruta = ruta_icono(ic["archivo"])
+        if os.path.exists(ruta):
+            href = f'files/{ic["archivo"]}'
+            incrustar[href] = ruta
+        else:   # respaldo: el icono público de Google
+            href = f'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png'
+        estilos += (f'<Style id="ic_{clave}"><IconStyle><scale>1.1</scale>'
+                    f'<Icon><href>{href}</href></Icon></IconStyle></Style>')
 
     kml = (f'<?xml version="1.0" encoding="UTF-8"?>'
            f'<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
@@ -227,6 +345,9 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("doc.kml", kml)
+        for href, ruta in incrustar.items():
+            with open(ruta, "rb") as f:
+                z.writestr(href, f.read())
     return buf.getvalue()
 
 
