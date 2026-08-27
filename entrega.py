@@ -155,6 +155,7 @@ ICONO_BASE = "base_circulo.png"   # círculo de color de los puntos
 # Defectos DCVG: triángulo (icono 205 del catálogo de TGI) teñido según el
 # carácter de la indicación. KML usa aabbggrr, no rrggbb.
 ICONO_DEFECTO = "205_defecto.png"
+ICONO_POSTE = "177_poste_potencial.png"   # puntos de potencial
 COLOR_CARACTER = {"AA": "ff0000ff",     # rojo
                   "CA": "ff00ffff",     # amarillo
                   "CC": "ffff0000"}     # azul
@@ -282,6 +283,7 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
     cuerpo = []
     iconos_usados = {}      # clave -> icono; se incrustan al final en el KMZ
     caracteres_usados = set()   # AA/CA/CC de los defectos dibujados
+    usa_poste = False           # ¿hay puntos de potencial?
     cp = [p for p in (cp_puntos or []) if p.get("lat") is not None and p.get("lon") is not None]
     # traza (línea por los puntos ordenados por abscisa)
     if len(cp) >= 2:
@@ -289,14 +291,17 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
         coords = " ".join(f"{p['lon']},{p['lat']},0" for p in orden)
         cuerpo.append(f'<Placemark><name>Traza</name><styleUrl>#s_linea</styleUrl>'
                       f'<LineString><coordinates>{coords}</coordinates></LineString></Placemark>')
-    # puntos CP por estado
+    # puntos de potencial: icono de poste (177). El estado de protección ya no
+    # se ve por color, así que va en el nombre y en la ficha del punto.
     car_cp = []
     for p in cp:
         est = p.get("estado") or estado_cp(p.get("off"))
         desc = (f"Abscisa: {_absc(p.get('abscisa'))}\nON: {p.get('on')} mV\n"
                 f"OFF: {p.get('off')} mV\nEstado: {est}")
-        car_cp.append(_placemark(_absc(p.get("abscisa")), p["lat"], p["lon"],
-                                 f"s_{est}", desc))
+        car_cp.append(_placemark(f"{_absc(p.get('abscisa'))} · {est}",
+                                 p["lat"], p["lon"], "ic_poste", desc))
+    if car_cp:
+        usa_poste = True
     if car_cp:
         cuerpo.append(f'<Folder><name>Potenciales</name>{"".join(car_cp)}</Folder>')
     # defectos DCVG
@@ -346,6 +351,16 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
     incrustar = {}
     if os.path.exists(_base):
         incrustar[f'files/{ICONO_BASE}'] = _base
+
+    # puntos de potencial: icono 177
+    if usa_poste:
+        _pos = ruta_icono(ICONO_POSTE)
+        _href_pos = (f'files/{ICONO_POSTE}' if os.path.exists(_pos)
+                     else 'http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png')
+        if os.path.exists(_pos):
+            incrustar[f'files/{ICONO_POSTE}'] = _pos
+        estilos += (f'<Style id="ic_poste"><IconStyle><scale>0.8</scale>'
+                    f'<Icon><href>{_href_pos}</href></Icon></IconStyle></Style>')
 
     # defectos DCVG: un estilo por carácter, con el triángulo teñido
     if caracteres_usados:
