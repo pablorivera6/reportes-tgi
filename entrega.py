@@ -152,6 +152,13 @@ ICONOS_HALLAZGO = (
 CARPETA_ICONOS = "iconos_kml"
 ICONO_BASE = "base_circulo.png"   # círculo de color de los puntos
 
+# Defectos DCVG: triángulo (icono 205 del catálogo de TGI) teñido según el
+# carácter de la indicación. KML usa aabbggrr, no rrggbb.
+ICONO_DEFECTO = "205_defecto.png"
+COLOR_CARACTER = {"AA": "ff0000ff",     # rojo
+                  "CA": "ff00ffff",     # amarillo
+                  "CC": "ffff0000"}     # azul
+
 
 def ruta_icono(archivo):
     """Ruta al PNG del icono dentro del proyecto."""
@@ -274,6 +281,7 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
 
     cuerpo = []
     iconos_usados = {}      # clave -> icono; se incrustan al final en el KMZ
+    caracteres_usados = set()   # AA/CA/CC de los defectos dibujados
     cp = [p for p in (cp_puntos or []) if p.get("lat") is not None and p.get("lon") is not None]
     # traza (línea por los puntos ordenados por abscisa)
     if len(cp) >= 2:
@@ -297,10 +305,20 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
         if d.get("lat") is None or d.get("lon") is None:
             continue
         clas = d.get("clasificacion") or "Sin dato"
-        desc = (f"Abscisa: {_absc(d.get('abscisa'))}\nSeveridad %IR: "
-                f"{d.get('severidad_pct')}\nClasificación: {clas}")
-        car_def.append(_placemark(f"Defecto {_absc(d.get('abscisa'))}", d["lat"],
-                                  d["lon"], f"s_{clas}", desc))
+        car = str(d.get("caracter") or "").strip().upper()
+        desc = (f"Abscisa: {_absc(d.get('abscisa'))}\nCarácter: {car or '—'}"
+                f"\nSeveridad %IR: {d.get('severidad_pct')}"
+                f"\nClasificación: {clas}")
+        # triángulo teñido por carácter (AA rojo · CA amarillo · CC azul); si el
+        # técnico no registró el carácter, se conserva el color por severidad
+        if car in COLOR_CARACTER:
+            caracteres_usados.add(car)
+            estilo_d = f"def_{car}"
+            etiqueta_d = f"Defecto {car}"
+        else:
+            estilo_d, etiqueta_d = f"s_{clas}", "Defecto"
+        car_def.append(_placemark(f"{etiqueta_d} {_absc(d.get('abscisa'))}",
+                                  d["lat"], d["lon"], estilo_d, desc))
     if car_def:
         cuerpo.append(f'<Folder><name>Defectos DCVG</name>{"".join(car_def)}</Folder>')
     # hallazgos
@@ -328,6 +346,18 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> 
     incrustar = {}
     if os.path.exists(_base):
         incrustar[f'files/{ICONO_BASE}'] = _base
+
+    # defectos DCVG: un estilo por carácter, con el triángulo teñido
+    if caracteres_usados:
+        _tri = ruta_icono(ICONO_DEFECTO)
+        _href_tri = (f'files/{ICONO_DEFECTO}' if os.path.exists(_tri)
+                     else 'http://maps.google.com/mapfiles/kml/shapes/triangle.png')
+        if os.path.exists(_tri):
+            incrustar[f'files/{ICONO_DEFECTO}'] = _tri
+        for car in sorted(caracteres_usados):
+            estilos += (f'<Style id="def_{car}"><IconStyle>'
+                        f'<color>{COLOR_CARACTER[car]}</color><scale>1.1</scale>'
+                        f'<Icon><href>{_href_tri}</href></Icon></IconStyle></Style>')
     for clave, ic in iconos_usados.items():
         ruta = ruta_icono(ic["archivo"])
         if os.path.exists(ruta):
