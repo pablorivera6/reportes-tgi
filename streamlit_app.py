@@ -760,11 +760,15 @@ with tabs[1]:
                 _t = _c.get('tipo') or '¿?'
                 _tipos[_t] = _tipos.get(_t, 0) + 1
             _n_arch_g = sum(len(_c.get('archivos') or []) for _c in _lista)
-            with st.container(border=True, key=f"caja_{_gk}"):
-                _ga, _gb = st.columns([4.2, 1.8])
-                _ga.markdown(f"**{_lista[0].get('tramo') or '—'}**")
-                _ga.caption(" · ".join(f"{t} ×{n}" for t, n in sorted(_tipos.items()))
-                            + f" · {_n_arch_g} archivo(s) en total")
+            # Cada tramo es una BARRA plegada: el encabezado alcanza para triar
+            # (tramo, tipos y volumen) y solo se despliega el que interesa. Con
+            # varios tramos la bandeja ocupaba miles de píxeles de scroll.
+            _resumen_g = " · ".join(f"{t} ×{n}" for t, n in sorted(_tipos.items()))
+            with st.expander(
+                    f"**{_lista[0].get('tramo') or '—'}**  —  {_resumen_g}"
+                    f" · {_n_arch_g} archivo(s)", expanded=False):
+                _ga, _gb = st.columns([4.2, 1.8], vertical_alignment="center")
+                _ga.caption(f"{len(_lista)} carga(s) en este tramo")
                 # Traer TODAS las cargas del tramo de una vez (informe unificado)
                 if len(_lista) > 1 and _gb.button(
                         f"Traer TODO el tramo ({len(_lista)})",
@@ -830,7 +834,7 @@ with tabs[1]:
                             st.rerun()
                     with _cb.popover("Archivos", use_container_width=True):
                         _lk_key = f"links_{_cg['id']}"
-                        if st.button("🔗 Preparar enlaces de descarga",
+                        if st.button("Preparar enlaces de descarga",
                                      key=f"lk_{_cg['id']}"):
                             st.session_state[_lk_key] = [
                                 (_a.get('nombre'), db.url_descarga_carga(_a.get('path')))
