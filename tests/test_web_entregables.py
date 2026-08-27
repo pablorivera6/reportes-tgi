@@ -14,8 +14,10 @@ from streamlit.testing.v1 import AppTest
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(SRC, "streamlit_app.py")
 
-BTN_ZIP = "📦 Generar paquete de entrega (ZIP)"
-BTN_KMZ = "🗺️ Descargar KMZ de la inspección"
+# Etiquetas sin emoji (el rediseño las limpió); lo que verifica el test sigue
+# siendo lo mismo: que AMBOS botones aparezcan.
+BTN_ZIP = "Generar paquete de entrega (ZIP)"
+BTN_KMZ = "Descargar KMZ"
 
 
 def _con_informe(data_extra):

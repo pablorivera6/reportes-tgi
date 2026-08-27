@@ -23,12 +23,18 @@ MARCA_TINTE = "#FDF2F5"
 TINTA = "#101418"          # títulos
 TINTA_2 = "#3D4551"        # cuerpo
 TINTA_3 = "#6B7280"        # metadatos
-LINEA = "#E4E7EC"
-LIENZO = "#F7F8FA"
-PANEL = "#FFFFFF"
+LINEA = "#CFD6E1"          # borde: mas marcado que el gris de la caja
+LIENZO = "#FFFFFF"         # lienzo de la pagina
+PANEL = "#ECEFF4"          # cajas de informacion: gris visible sobre el lienzo
 
-GRAFITO = "#151A21"        # cromo del sidebar
-GRAFITO_2 = "#1E242D"
+# El cromo lateral es ROJO PCC: es la identidad de la empresa y así se ve en
+# toda la casa. Sobre ese rojo, lo elevado es un velo blanco y lo activo es una
+# pastilla blanca con texto rojo (el contraste manda mejor que otro rojo).
+CROMO = "#C7113A"          # fondo del cromo lateral (rojo de marca)
+CROMO_2 = "rgba(255,255,255,.14)"   # superficie elevada sobre el rojo
+CROMO_BORDE = "#8E0C2A"
+GRAFITO = CROMO            # compatibilidad con lo ya escrito
+GRAFITO_2 = "#A50E30"
 
 VERDE = "#0F7A46"
 AMBAR = "#B45309"
@@ -36,6 +42,8 @@ ROJO = MARCA
 AZUL = "#1F6FEB"
 NEUTRO = TINTA
 
+VERDE_CLARO = "#8FE6B8"    # verde/ámbar legibles sobre el rojo del cromo
+AMBAR_CLARO = "#FFD79A"
 VERDE_T = "#E8F4EE"
 AMBAR_T = "#FEF3E2"
 ROJO_T = MARCA_TINTE
@@ -106,41 +114,44 @@ CSS = """
     text-transform:uppercase; color:var(--tinta3); white-space:nowrap; }
   .sec-l { flex:1; height:1px; background:var(--linea); }
 
-  /* ── Cromo lateral: navegación persistente ────────────────────────────── */
-  [data-testid="stSidebar"] { background:var(--grafito) !important;
-    border-right:1px solid #000; }
-  [data-testid="stSidebar"] > div:first-child { background:var(--grafito) !important;
+  /* ── Cromo lateral: navegación persistente, en el rojo de la marca ───── */
+  [data-testid="stSidebar"] { background:__CROMO__ !important;
+    border-right:1px solid __CROMO_BORDE__; }
+  [data-testid="stSidebar"] > div:first-child { background:__CROMO__ !important;
     padding-top:1.1rem; }
-  [data-testid="stSidebar"] * { color:#E7EAEE; }
-  [data-testid="stSidebar"] hr { border-color:rgba(255,255,255,.10) !important;
+  [data-testid="stSidebar"] * { color:#FFFFFF; }
+  [data-testid="stSidebar"] hr { border-color:rgba(255,255,255,.22) !important;
     margin:.85rem 0; }
   .sb-marca { display:flex; align-items:center; gap:.6rem; padding:0 .35rem .2rem; }
   .sb-marca img { height:30px; }
   .sb-marca b { font-size:.95rem; font-weight:700; letter-spacing:-.01em;
     color:#FFF; display:block; line-height:1.15; }
-  .sb-marca span { font-size:.7rem; color:#9AA4B2; letter-spacing:.02em; }
+  .sb-marca span { font-size:.7rem; color:rgba(255,255,255,.78); letter-spacing:.02em; }
   .stApp .sb-rot { font-size:.665rem; font-weight:700; letter-spacing:.1em;
-    text-transform:uppercase; color:#7C8899; margin:.2rem 0 .35rem .45rem; }
-  /* Ítems de navegación: el activo lleva barra roja y fondo elevado. */
-  [data-testid="stSidebar"] .stButton > button { width:100%; justify-content:flex-start;
-    text-align:left; background:transparent !important; color:#C4CBD6 !important;
-    border:none !important; border-left:3px solid transparent !important;
-    border-radius:0 var(--r-ctrl) var(--r-ctrl) 0 !important; font-weight:500 !important;
-    font-size:.865rem !important; padding:.45rem .7rem !important; box-shadow:none !important; }
-  [data-testid="stSidebar"] .stButton > button * { color:inherit !important; }
-  [data-testid="stSidebar"] .stButton > button:hover { background:var(--grafito2) !important;
+    text-transform:uppercase; color:rgba(255,255,255,.68); margin:.2rem 0 .35rem .45rem; }
+  /* Navegación: el paso activo es una pastilla BLANCA con texto rojo. */
+  [data-testid="stSidebar"] .stButton button { width:100%; justify-content:flex-start;
+    text-align:left; background:transparent !important; color:rgba(255,255,255,.88) !important;
+    border:1px solid transparent !important; border-radius:var(--r-ctrl) !important;
+    font-weight:500 !important; font-size:.865rem !important;
+    padding:.45rem .7rem !important; box-shadow:none !important; }
+  [data-testid="stSidebar"] .stButton button * { color:inherit !important; }
+  [data-testid="stSidebar"] .stButton button:hover { background:rgba(255,255,255,.16) !important;
     color:#FFF !important; }
-  [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-    background:var(--grafito2) !important; color:#FFF !important;
-    border-left:3px solid var(--marca) !important; font-weight:600 !important; }
-  /* Estado de conexión / rol: píldoras discretas, no cajas de alerta */
+  [data-testid="stSidebar"] .stButton button[kind="primary"] {
+    background:#FFFFFF !important; color:__MARCA__ !important; font-weight:700 !important;
+    box-shadow:0 1px 3px rgba(0,0,0,.16) !important; }
+  [data-testid="stSidebar"] .stButton button[kind="primary"] * {
+    color:__MARCA__ !important; }
+  /* Estado / rol: velo blanco sobre el rojo, nunca una caja de alerta */
   .sb-pill { display:flex; align-items:center; gap:.45rem; font-size:.735rem;
-    color:#AEB7C4; padding:.35rem .5rem; border-radius:6px; background:var(--grafito2);
-    margin:.3rem .1rem; line-height:1.3; }
+    color:rgba(255,255,255,.92); padding:.35rem .5rem; border-radius:6px;
+    background:rgba(255,255,255,.14); margin:.3rem .1rem; line-height:1.3; }
   .sb-pill i { width:7px; height:7px; border-radius:50%; flex:none; display:block; }
-  [data-testid="stSidebar"] [data-testid="stAlert"] { background:var(--grafito2);
-    border-radius:8px; }
-
+  [data-testid="stSidebar"] [data-testid="stAlert"] {
+    background:rgba(255,255,255,.14); border-radius:8px; }
+  [data-testid="stSidebar"] [data-baseweb="radio"] label {
+    color:rgba(255,255,255,.92) !important; }
   /* ── Barra de título de página ────────────────────────────────────────── */
   .barra { display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap;
     padding-bottom:.85rem; border-bottom:1px solid var(--linea); margin-bottom:.2rem; }
@@ -231,24 +242,29 @@ CSS = """
     display:block; flex:none; }
 
   /* ── Controles ────────────────────────────────────────────────────────── */
-  .stMain .stButton > button { border-radius:var(--r-ctrl) !important;
+  .stMain .stButton button { border-radius:var(--r-ctrl) !important;
     font-weight:600 !important; font-size:.845rem !important;
     padding:.36rem .85rem !important; transition:all .14s ease; }
-  .stMain .stButton > button[kind="primary"] { background:var(--marca) !important;
+  .stMain .stButton button[kind="primary"] { background:var(--marca) !important;
     color:#FFF !important; border:1px solid var(--marca) !important;
     box-shadow:0 1px 2px rgba(199,17,58,.25) !important; }
-  .stMain .stButton > button[kind="primary"]:hover { background:var(--marca-osc) !important;
+  .stMain .stButton button[kind="primary"]:hover { background:var(--marca-osc) !important;
     border-color:var(--marca-osc) !important; }
-  .stMain .stButton > button[kind="secondary"] { background:var(--panel) !important;
+  .stMain .stButton button[kind="secondary"] { background:var(--panel) !important;
     color:var(--tinta2) !important; border:1px solid #D7DBE2 !important; }
-  .stMain .stButton > button[kind="secondary"]:hover { border-color:var(--marca) !important;
+  .stMain .stButton button[kind="secondary"]:hover { border-color:var(--marca) !important;
     color:var(--marca) !important; background:var(--marca-tinte) !important; }
-  [data-testid="stDownloadButton"] > button, .stMain .stLinkButton > a {
+  [data-testid="stDownloadButton"] button, .stMain .stLinkButton a {
     background:var(--panel) !important; color:var(--marca) !important;
     border:1px solid var(--marca) !important; border-radius:var(--r-ctrl) !important;
     font-weight:600 !important; font-size:.845rem !important; }
-  [data-testid="stDownloadButton"] > button:hover, .stMain .stLinkButton > a:hover {
+  [data-testid="stDownloadButton"] button:hover, .stMain .stLinkButton a:hover {
     background:var(--marca-tinte) !important; }
+  /* Deshabilitado: se ve que la acción existe, pero que aún no está disponible. */
+  .stMain .stButton button:disabled,
+  .stMain [data-testid="stDownloadButton"] button:disabled {
+    background:#EDEFF2 !important; color:#98A0AB !important;
+    border:1px solid #E4E7EC !important; box-shadow:none !important; }
   /* Foco visible: se navega con teclado */
   .stApp button:focus-visible, .stApp a:focus-visible, .stApp input:focus-visible {
     outline:2px solid var(--marca) !important; outline-offset:2px !important; }
@@ -263,6 +279,45 @@ CSS = """
     font-weight:500 !important; letter-spacing:0 !important;
     color:var(--tinta2) !important; }
 
+  /* ── Pasos del flujo (st.tabs) ───────────────────────────────────────── */
+  /* Envuelve en varias filas: nunca se esconde un paso (antes 'Generar',
+     el paso final, quedaba fuera de pantalla por debajo de ~1440 px). */
+  .stTabs [data-baseweb="tab-list"] { flex-wrap:wrap !important; gap:.1rem .35rem;
+    border-bottom:1px solid var(--linea); overflow:visible !important; }
+  .stTabs [data-baseweb="tab"] { color:var(--tinta3) !important; font-weight:600;
+    font-size:.83rem; padding:.42rem .6rem !important; height:auto !important;
+    white-space:nowrap; }
+  .stTabs [data-baseweb="tab"]:hover { color:var(--tinta) !important; }
+  .stTabs [aria-selected="true"] { color:var(--marca) !important; font-weight:700; }
+  .stTabs [data-baseweb="tab-highlight"] { background:var(--marca) !important; }
+  .stTabs [data-baseweb="tab-border"] { display:none !important; }
+  /* Marca de paso surtido: un punto antes de la etiqueta. */
+  .stTabs [data-baseweb="tab"] .pt { display:inline-block; width:6px; height:6px;
+    border-radius:50%; margin-right:.4rem; vertical-align:middle;
+    background:var(--linea); }
+  /* ── Botón terciario: acciones secundarias y destructivas ────────────── */
+  .stMain .stButton button[kind="tertiary"] { background:transparent !important;
+    color:var(--tinta3) !important; border:1px solid transparent !important;
+    font-weight:600 !important; }
+  .stMain .stButton button[kind="tertiary"]:hover { color:var(--rojo) !important;
+    background:var(--marca-tinte) !important; border-color:#F0CDD5 !important; }
+  /* ── Panel de estado del trabajo (cromo lateral) ─────────────────────── */
+  .sb-item { display:flex; align-items:center; gap:.5rem; padding:.28rem .5rem;
+    border-radius:6px; font-size:.775rem; color:rgba(255,255,255,.9); line-height:1.35; }
+  .sb-item i { width:7px; height:7px; border-radius:50%; flex:none; display:block; }
+  .sb-item span { margin-left:auto; font-weight:700; color:#FFF;
+    font-variant-numeric:tabular-nums; }
+  .sb-item.apagado { color:rgba(255,255,255,.6); }
+  .sb-item.apagado span { color:rgba(255,255,255,.6); font-weight:600; }
+  .sb-veredicto { margin:.55rem .1rem .2rem; padding:.5rem .6rem; border-radius:8px;
+    background:rgba(255,255,255,.16); border-left:3px solid var(--tono,#FFF);
+    font-size:.755rem; color:rgba(255,255,255,.92); line-height:1.35; }
+  .sb-veredicto b { display:block; color:#FFF; font-size:.8rem; margin-bottom:.1rem; }
+  /* Cajas de informacion creadas con st.container(border=True, key="caja_..."):
+     Streamlit las deja con fondo transparente y se funden con el lienzo. */
+  .stApp [class*="st-key-caja"] { background:var(--panel) !important;
+    border:1px solid var(--linea) !important; border-radius:var(--r-card) !important;
+    padding:.85rem 1rem !important; }
   /* ── Datos ────────────────────────────────────────────────────────────── */
   [data-testid="stDataFrame"] { border:1px solid var(--linea) !important;
     border-radius:var(--r-card) !important; overflow:hidden; box-shadow:var(--sombra); }
@@ -294,6 +349,8 @@ for _k, _v in (("MARCA", MARCA), ("MARCA_OSC", MARCA_OSC), ("MARCA_TINTE", MARCA
                ("TINTA_2", TINTA_2), ("TINTA_3", TINTA_3), ("TINTA", TINTA),
                ("LINEA", LINEA), ("LIENZO", LIENZO), ("PANEL", PANEL),
                ("GRAFITO_2", GRAFITO_2), ("GRAFITO", GRAFITO),
+               ("CROMO_BORDE", CROMO_BORDE), ("CROMO_2", CROMO_2), ("CROMO", CROMO),
+               ("VERDE_CLARO", VERDE_CLARO), ("AMBAR_CLARO", AMBAR_CLARO),
                ("VERDE_T", VERDE_T), ("AMBAR_T", AMBAR_T),
                ("VERDE", VERDE), ("AMBAR", AMBAR), ("ROJO", ROJO)):
     CSS = CSS.replace("__%s__" % _k, _v)
@@ -387,6 +444,23 @@ def kpi_row(st, items):
         f"<p class='kpi-val'>{val}</p><p class='kpi-sub'>{sub or '&nbsp;'}</p></div>"
         for lbl, val, t, sub in items)
     st.markdown(f"<div class='kpi-row'>{cards}</div>", unsafe_allow_html=True)
+
+
+def estado_trabajo(st, items, veredicto=None):
+    """Panel de estado del trabajo en curso (cromo lateral).
+    items = [(etiqueta, valor, activo)] · veredicto = (titulo, detalle, tono)"""
+    filas = "".join(
+        "<div class='sb-item%s'><i style='background:%s'></i>%s<span>%s</span></div>"
+        % ("" if act else " apagado",
+           (VERDE_CLARO if act else "rgba(255,255,255,.38)"), lbl, val)
+        for lbl, val, act in items)
+    st.markdown(filas, unsafe_allow_html=True)
+    if veredicto:
+        tit, det, tono = veredicto
+        # sobre el rojo del cromo, el verde/ámbar oscuros no se leen
+        tono = {VERDE: VERDE_CLARO, AMBAR: AMBAR_CLARO, ROJO: "#FFFFFF"}.get(tono, tono)
+        st.markdown(f"<div class='sb-veredicto' style='--tono:{tono}'>"
+                    f"<b>{tit}</b>{det}</div>", unsafe_allow_html=True)
 
 
 def pie_pagina(st):

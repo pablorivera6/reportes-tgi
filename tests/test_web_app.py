@@ -29,10 +29,11 @@ def test_estado_inicial():
     assert at.session_state["active_inspections"]["marco_h"] is False
 
 
-ETIQUETAS_TABS = ["📝 Datos Generales", "📂 Cargar Archivos", "📊 Potenciales PAP",
-                  "📉 CIPS", "⚠️ Hallazgos", "🔌 Rectificadores",
-                  "🛠️ Insp. Especiales", "🔗 Aislamientos", "📋 Conclusiones",
-                  "🚀 Generar"]
+# Etiquetas cortas y sin emoji: con las largas la tira de 10 pasos se recortaba
+# por debajo de ~1440 px y escondia el paso final ("Generar").
+ETIQUETAS_TABS = ["Datos generales", "Archivos", "Potenciales PAP", "CIPS",
+                  "Hallazgos", "Rectificadores", "Insp. especiales",
+                  "Aislamientos", "Conclusiones", "Generar"]
 
 
 def test_tabs_y_boton_generar():
@@ -42,6 +43,9 @@ def test_tabs_y_boton_generar():
     etiquetas = [str(t.label) for t in at.tabs]
     faltan = [e for e in ETIQUETAS_TABS if e not in etiquetas]
     assert not faltan, f"faltan pestañas: {faltan}"
-    # El botón GENERAR existe y está deshabilitado sin datos
-    botones = [b for b in at.button if "GENERAR" in str(b.label).upper()]
-    assert botones, "No se encontró el botón GENERAR INFORME"
+    # El botón que genera el informe existe y, sin data, está deshabilitado.
+    # (Filtrar por "generar" a secas atrapa también "Auto-generar conclusiones".)
+    botones = [b for b in at.button
+               if str(b.label).strip().lower() == "generar informe"]
+    assert botones, "No se encontró el botón para generar el informe"
+    assert botones[0].disabled, "Sin data cargada, generar debe estar deshabilitado"

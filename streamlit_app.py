@@ -20,6 +20,7 @@ import nombres
 from conclusions import ConclusionGenerator
 from ppm_generator import PPMGenerator
 from cips_infra import InfraTramos
+import portal_theme as tema
 import db
 
 def _b64_img(nombre):
@@ -39,61 +40,9 @@ st.set_page_config(page_title="PCC Integrity – Reportes TGI",
                    layout="wide", initial_sidebar_state="expanded")
 
 # ── Design system PCC Integrity ──────────────────────────────────────────────
-# Paleta exacta de marca: Rojo PCC C7113A · gris 333333 / 666666 / F5F5F5 /
-# DDDDDD. Tipografía Calibri. Títulos en rojo terminados en "_".
-st.markdown("""
-<style>
-  html, body, .stApp, .stApp * { font-family: Calibri, 'Segoe UI',
-    -apple-system, 'Helvetica Neue', sans-serif; }
-  /* Restaurar la fuente de íconos (el override anterior la pisa y los
-     ligature-icons como "upload" se ven como texto encima del botón). */
-  .stApp [data-testid="stIconMaterial"], .stApp .material-symbols-rounded,
-  .stApp .material-symbols-outlined, .stApp .material-icons {
-    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined',
-      'Material Icons' !important;
-  }
-  .stApp { background: #FFFFFF; }
-  h2, h3 { color: #C7113A !important; font-weight: 700 !important; }
-
-  [data-testid="stSidebar"] > div:first-child { background: #C7113A !important; }
-  [data-testid="stSidebar"] * { color: #FFFFFF !important; }
-  [data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.35) !important; }
-
-  .stButton > button {
-    background: #C7113A !important; color: #FFFFFF !important;
-    border: none !important; border-radius: 6px !important;
-    font-weight: 700 !important;
-  }
-  .stButton > button:hover { background: #A50E30 !important; }
-  .stButton > button:disabled { background: #DDDDDD !important; color: #666666 !important; }
-
-  [data-testid="stDownloadButton"] > button {
-    background: #FFFFFF !important; color: #C7113A !important;
-    border: 1.5px solid #C7113A !important; border-radius: 6px !important;
-    font-weight: 700 !important;
-  }
-  [data-testid="stDownloadButton"] > button:hover { background: #F5F5F5 !important; }
-
-  .stTabs [data-baseweb="tab-list"] {
-    gap: 0.15rem; border-bottom: 1px solid #DDDDDD;
-  }
-  .stTabs [data-baseweb="tab"] { color: #666666; font-weight: 600; }
-  .stTabs [aria-selected="true"] { color: #C7113A !important; font-weight: 700; }
-
-  [data-testid="stMetricValue"] { color: #C7113A; }
-  .pcc-hero { background: #C7113A; color: #FFFFFF; border-radius: 8px;
-    padding: 1.1rem 1.6rem; margin-bottom: 1rem;
-    display: flex; align-items: center; gap: 1.2rem; }
-  .pcc-hero h1 { margin: 0; font-size: 1.55rem; font-weight: 800;
-    color: #FFFFFF !important; }
-  .pcc-hero p { margin: 0.15rem 0 0; opacity: 0.9; font-size: 0.9rem; }
-  .pcc-badge { margin-left: auto; background: #FFFFFF; color: #C7113A;
-    font-weight: 800; font-size: 0.8rem; line-height: 1.05;
-    border-radius: 6px; padding: 0.45rem 0.6rem; text-align: center; }
-
-  #MainMenu, footer { visibility: hidden; }
-</style>
-""", unsafe_allow_html=True)
+# La apariencia vive en portal_theme.py: el generador y el portal
+# comparten el MISMO sistema (tokens, tipografia, tarjetas, chips).
+tema.aplicar(st)
 
 
 # ── Candado de acceso ────────────────────────────────────────────────────────
@@ -362,35 +311,56 @@ if st.session_state.get("pending_autofill"):
 kmz = cargar_kmz()
 infra_tramos = cargar_infra_tramos()
 
+def _estado_del_trabajo(data, kmz):
+    """Qué hay cargado y qué falta para generar, SEGÚN EL TIPO de inspección.
+    El panel anterior solo contaba PAP/CIPS: en un trabajo DCVG mostraba todo
+    en cero aunque la data estuviera cargada."""
+    tipo = (data['info'].get('tipo_inspeccion') or 'PAP').upper()
+    if tipo == 'DCVG':
+        principales = [("Postes", len(data['dcvg_postes'])),
+                       ("Defectos", len(data['dcvg_defectos'])),
+                       ("Resistividades", len(data['dcvg_resist'])),
+                       ("Hallazgos", len(data['dcvg_hallazgos']))]
+        hay = bool(data['dcvg_postes'] or data['dcvg_defectos'])
+    elif tipo == 'CIPS':
+        principales = [("Puntos CIPS", len(data['cips'])),
+                       ("Hallazgos", len(data['hallazgos']))]
+        hay = bool(data['cips'])
+    else:
+        principales = [("Potenciales", len(data['potenciales'])),
+                       ("Hallazgos", len(data['hallazgos']))]
+        hay = bool(data['potenciales'])
+    comunes = [("Rectificadores", len(data['rectificadores'])),
+               ("Aislamientos", len(data['aislamientos']))]
+    items = [(lbl, val, bool(val)) for lbl, val in principales + comunes]
+    items.append(("KMZ", "cargado" if kmz else "falta", bool(kmz)))
+    falta = [lbl for lbl, val in principales if not val]
+    if hay:
+        ver = ("Listo para generar",
+               f"Tipo {tipo} con data suficiente.", tema.VERDE)
+    else:
+        ver = ("Falta la data de campo",
+               f"Carga {tipo} en «Archivos» para poder generar.", tema.AMBAR)
+    return tipo, items, ver, falta
+
+
 with st.sidebar:
     _logo_html = (f'<img src="data:image/png;base64,{_LOGO_BLANCO}" '
-                  f'style="width:110px;margin-bottom:0.4rem;" alt="PCC Integrity">'
-                  if _LOGO_BLANCO else
-                  '<div style="font-size:1.25rem;font-weight:800;">PCC Integrity</div>')
-    st.markdown(f"""
-    <div style="padding:1rem 0 0.4rem;text-align:center;">
-      {_logo_html}
-      <div style="font-size:0.8rem;opacity:0.9;">Reportes TGI</div>
-      <div style="font-size:0.75rem;font-weight:800;margin-top:0.2rem;">fits you_</div>
-    </div><hr style="margin:0.4rem 0;">
-    """, unsafe_allow_html=True)
-    st.caption(f"KMZ: {'✅ cargado' if kmz else '❌ no encontrado'}")
-    st.caption(f"Potenciales: {len(data['potenciales'])}")
-    st.caption(f"CIPS: {len(data['cips'])} · Hallazgos: {len(data['hallazgos'])}")
-    st.caption(f"Rectificadores: {len(data['rectificadores'])} · Aislam.: {len(data['aislamientos'])}")
+                  f'style="height:30px;" alt="PCC Integrity">'
+                  if _LOGO_BLANCO else '')
+    st.markdown(f"<div class='sb-marca'>{_logo_html}<div><b>Reportes TGI</b>"
+                "<span>PCC Integrity</span></div></div>", unsafe_allow_html=True)
+    _tipo_act, _items_est, _ver_est, _falta_est = _estado_del_trabajo(data, kmz)
+    st.markdown(f"<p class='sb-rot'>Trabajo en curso · {_tipo_act}</p>",
+                unsafe_allow_html=True)
+    tema.estado_trabajo(st, _items_est, _ver_est)
 
-_hero_logo = (f'<img src="data:image/png;base64,{_LOGO_BLANCO}" '
-              f'style="height:52px;" alt="PCC Integrity">' if _LOGO_BLANCO else '')
-st.markdown(f"""
-<div class="pcc-hero">
-  {_hero_logo}
-  <div>
-    <h1>Generador de Reportes TGI_</h1>
-    <p>PCC Integrity — Inspecciones PAP / CIPS</p>
-  </div>
-  <div class="pcc-badge">fits<br>you_</div>
-</div>
-""", unsafe_allow_html=True)
+tema.barra_titulo(
+    st, "Generador de informes",
+    via="PCC Integrity <b>/</b> Reportes TGI",
+    derecha=tema.chip(f"Tipo {_tipo_act}", "neu")
+    + tema.chip(_ver_est[0], "ok" if _ver_est[2] == tema.VERDE else "warn",
+                punto=True))
 
 def _resolver_shapefile_por_tramo(nombre_tramo):
     """Busca el shapefile de un tramo por su nombre (para auto-cargar CIPS sin
@@ -641,9 +611,11 @@ def _armar_paquete_entrega(codigo, kmz_bytes):
                                      informe=informe, ppm=ppm, kmz=kmz_bytes)
 
 
-tabs = st.tabs(["📝 Datos Generales", "📂 Cargar Archivos", "📊 Potenciales PAP",
-                "📉 CIPS", "⚠️ Hallazgos", "🔌 Rectificadores", "🛠️ Insp. Especiales",
-                "🔗 Aislamientos", "📋 Conclusiones", "🚀 Generar"])
+# Etiquetas cortas y sin emoji: con 10 pasos, la tira se recortaba por debajo
+# de ~1440 px y escondia justamente "Generar". El tema ademas la deja envolver.
+tabs = st.tabs(["Datos generales", "Archivos", "Potenciales PAP", "CIPS",
+                "Hallazgos", "Rectificadores", "Insp. especiales", "Aislamientos",
+                "Conclusiones", "Generar"])
 
 # Firmas fijas del informe (ya no se editan en la app; siempre son las mismas).
 # El informe las incluye siempre vía gen.fill_firmas(...).
@@ -661,16 +633,52 @@ FIELD_LABELS = [('gasoducto', 'Gasoducto'), ('tramo', 'Tramo'),
                 ('tipo_recubrimiento', 'Tipo Recubrimiento'), ('ciclo', 'Ciclo')]
 
 # ── Tab 1: Datos Generales ────────────────────────────────────────────────────
+# Los 13 campos agrupados como en la caratula del informe, y el autollenado
+# JUNTO al tramo (es el camino rapido: escribir el tramo llena casi todo).
+_GRUPOS_INFO = [
+    ("Identificación del ducto",
+     ['gasoducto', 'tramo', 'tipo_ducto', 'diametro', 'tipo_recubrimiento']),
+    ("Contrato y orden de trabajo", ['contrato', 'ot', 'contratista']),
+    ("Inspección y equipo",
+     ['fecha', 'ciclo', 'inspector', 'serial_equipo', 'fecha_calibracion']),
+]
+_ETIQUETA = dict(FIELD_LABELS)
+_AUTOLLENADOS = {'gasoducto', 'tipo_ducto', 'diametro', 'tipo_recubrimiento',
+                 'contrato', 'ot', 'contratista', 'inspector', 'serial_equipo',
+                 'fecha_calibracion'}
+
 with tabs[0]:
-    cols = st.columns(3)
-    for i, (key, label) in enumerate(FIELD_LABELS):
-        with cols[i % 3]:
-            data['info'][key] = st.text_input(label, value=data['info'].get(key, ''),
-                                              key=f"info_{key}")
-    data['info']['tipo_inspeccion'] = st.selectbox(
+    _ci1, _ci2 = st.columns([1, 3])
+    _tipo_prev = data['info'].get('tipo_inspeccion', 'PAP')
+    _tipo_sel = _ci1.selectbox(
         "Tipo Inspección", ["PAP", "CIPS", "DCVG"],
-        index=["PAP", "CIPS", "DCVG"].index(data['info'].get('tipo_inspeccion', 'PAP')))
-    if st.button("🔄 Autollenar desde el tramo"):
+        index=["PAP", "CIPS", "DCVG"].index(_tipo_prev),
+        help="Define la plantilla del informe y qué data hace falta cargar.")
+    data['info']['tipo_inspeccion'] = _tipo_sel
+    # El panel de estado se dibuja ANTES que esta pestaña: al cambiar el tipo hay
+    # que releer para que el cromo lateral no quede un paso atrás. (Sin `key`
+    # en el selectbox: la autocarga fija el tipo directo en data['info'] y un
+    # key de widget le ganaría.)
+    if _tipo_sel != _tipo_prev:
+        st.rerun()
+    _autofill = False
+    for _titulo, _claves in _GRUPOS_INFO:
+        tema.seccion(st, _titulo)
+        cols = st.columns(3)
+        for i, key in enumerate(_claves):
+            with cols[i % 3]:
+                data['info'][key] = st.text_input(
+                    _ETIQUETA.get(key, key), value=data['info'].get(key, ''),
+                    key=f"info_{key}",
+                    help="Se autollena desde el tramo." if key in _AUTOLLENADOS else None)
+        if 'tramo' in _claves:
+            # El camino rápido: con el tramo escrito se llena casi todo lo demás.
+            _ba, _bb = st.columns([1.25, 3])
+            _autofill = _ba.button("Autollenar desde el tramo", type="primary",
+                                   use_container_width=True)
+            _bb.caption("Escribe el Tramo y esto completa gasoducto, contrato, OT, "
+                        "contratista, inspector, serial y calibración.")
+    if _autofill:
         tramo = data['info'].get('tramo', '')
         if tramo.strip():
             cambios, eqs = _autollenar_tramo(tramo, data['info'].get('inspector', ''))
@@ -703,74 +711,30 @@ with tabs[1]:
             except Exception as e:
                 cargas = []
                 errs.append(f"cargas: {e}")
-            try:
-                cola = db.listar_cola_fastfield("nuevo")
-            except Exception as e:
-                cola = []
-                errs.append(f"FastField: {e}")
-            return cargas, cola, errs
+            return cargas, errs
 
-        _cargas, _cola, _errs = _bandeja_datos()
+        _cargas, _errs = _bandeja_datos()
 
-        _hb1, _hb2 = st.columns([5, 1.2])
-        _hb1.markdown("#### 📬 Bandeja de entrada")
-        _hb1.caption(f"📡 {len(_cola)} envío(s) FastField · 📥 {len(_cargas)} carga(s) pendiente(s)")
-        if _hb2.button("🔄 Actualizar", key="bandeja_refresh",
-                       help="Vuelve a consultar FastField y las cargas"):
+        _hb1, _hb2 = st.columns([5, 1.2], vertical_alignment="center")
+        _hb1.markdown(
+            "<h2 style='margin:0'>Bandeja de entrada</h2>"
+            + tema.chip(f"{len(_cargas)} cargas pendientes",
+                        "warn" if _cargas else "neu", punto=bool(_cargas)),
+            unsafe_allow_html=True)
+        if _hb2.button("Actualizar", key="bandeja_refresh", type="secondary",
+                       use_container_width=True,
+                       help="Vuelve a consultar las cargas de los técnicos"):
             _bandeja_datos.clear()
             st.rerun()
         for _e in _errs:
             st.caption(f"⚠️ {_e}")
-        if st.session_state.get("flash_fastfield"):
-            st.success(st.session_state.flash_fastfield)
-            st.session_state.flash_fastfield = None
         if st.session_state.get("flash_autocarga"):
             st.success(st.session_state.flash_autocarga)
             st.session_state.flash_autocarga = None
-        if not _cola and not _cargas:
-            st.caption("✅ Sin novedades por ahora.")
+        if not _cargas:
+            st.caption("Sin cargas pendientes por ahora.")
 
-        # — Paso 1 · Envíos de FastField: traerlos y convertirlos en carga —
-        if _cola:
-            st.markdown("**📡 Nuevos envíos de FastField**")
-            import fastfield_ingest as _ffi
-            _ffi_ok = _ffi.disponible()
-            if not _ffi_ok:
-                st.warning("Faltan credenciales de FastField en secrets "
-                           "(`[fastfield]`: email, password, api_key).")
-            for _q in _cola:
-                with st.container(border=True):
-                    _qa, _qb = st.columns([4.2, 1.8])
-                    _qa.markdown(f"**{_q.get('form_name') or 'Formulario FastField'}**")
-                    _qa.caption(f"🧾 Envío `{str(_q.get('submission_id'))[:8]}…` · "
-                                f"📅 {str(_q.get('recibido_en', ''))[:16].replace('T', ' ')}")
-                    if _qb.button("⚙️ Traer y crear carga", key=f"ffi_{_q['id']}",
-                                  disabled=not _ffi_ok):
-                        with st.spinner("Bajando envío + fotos de FastField..."):
-                            try:
-                                r = _ffi.procesar_submission(_q.get("submission_id"),
-                                                             _q.get("form_id"))
-                                db.marcar_cola_fastfield(_q["id"], "procesada",
-                                                         carga_id=r["carga_id"])
-                                cc = r.get("conteos") or {}
-                                det = ", ".join(f"{v} {k}" for k, v in cc.items() if v)
-                                st.session_state.flash_fastfield = (
-                                    f"📡 {r['tipo']} de '{r['tramo']}' convertida en "
-                                    f"carga ({det or 'sin registros'}; {r['n_fotos']} "
-                                    "fotos). Ya aparece abajo como carga pendiente.")
-                                _bandeja_datos.clear()
-                                st.rerun()
-                            except Exception as e:
-                                db.marcar_cola_fastfield(_q["id"], "error", error=str(e))
-                                _bandeja_datos.clear()
-                                st.error(f"No se pudo traer: {e}")
-                    if _qb.button("🗑️ Descartar", key=f"ffd_{_q['id']}"):
-                        db.marcar_cola_fastfield(_q["id"], "error",
-                                                 error="descartada manualmente")
-                        _bandeja_datos.clear()
-                        st.rerun()
-
-        # — Paso 2 · Cargas pendientes, agrupadas por tramo ————————————————
+        # — Cargas pendientes de los técnicos, agrupadas por tramo ———————
         # Un informe suele unir varias cargas del MISMO tramo (CIPS + postes
         # PAP + aislamientos...). Se agrupan por tramo normalizado y se pueden
         # traer todas juntas con un clic.
@@ -788,7 +752,7 @@ with tabs[1]:
             _grupos.setdefault(_tramo_norm(_cg.get('tramo')), []).append(_cg)
 
         if _cargas:
-            st.markdown(f"**📥 Cargas pendientes** · {len(_grupos)} tramo(s)")
+            tema.seccion(st, f"Cargas pendientes · {len(_grupos)} tramo(s)")
 
         for _gk, _lista in _grupos.items():
             _tipos = {}
@@ -796,17 +760,16 @@ with tabs[1]:
                 _t = _c.get('tipo') or '¿?'
                 _tipos[_t] = _tipos.get(_t, 0) + 1
             _n_arch_g = sum(len(_c.get('archivos') or []) for _c in _lista)
-            with st.container(border=True):
+            with st.container(border=True, key=f"caja_{_gk}"):
                 _ga, _gb = st.columns([4.2, 1.8])
-                _ga.markdown(f"**🧭 {_lista[0].get('tramo', '—')}**")
-                _ga.caption(" · ".join(
-                    f"{_ICONO_TIPO.get(t, '📦')} {t} ×{n}"
-                    for t, n in sorted(_tipos.items()))
-                    + f" · {_n_arch_g} archivo(s) en total")
+                _ga.markdown(f"**{_lista[0].get('tramo') or '—'}**")
+                _ga.caption(" · ".join(f"{t} ×{n}" for t, n in sorted(_tipos.items()))
+                            + f" · {_n_arch_g} archivo(s) en total")
                 # Traer TODAS las cargas del tramo de una vez (informe unificado)
                 if len(_lista) > 1 and _gb.button(
-                        f"⚙️ Traer TODO el tramo ({len(_lista)})",
-                        key=f"all_{_gk}"):
+                        f"Traer TODO el tramo ({len(_lista)})",
+                        key=f"all_{_gk}", type="primary",
+                        use_container_width=True):
                     with st.spinner(f"Trayendo {len(_lista)} cargas del tramo..."):
                         _msgs_t, _avisos_t = [], []
                         for _c in _lista:
@@ -833,15 +796,18 @@ with tabs[1]:
                         _c = _a.get('categoria') or 'otros'
                         _cats[_c] = _cats.get(_c, 0) + 1
                     _ca, _cb = st.columns([4.2, 1.8])
-                    _ca.markdown(f"{_ICONO_TIPO.get(_cg.get('tipo'), '📦')} "
-                                 f"**{_cg.get('tipo', '')}** · {_cg.get('fecha', '—')} · "
-                                 f"👷 {_cg.get('tecnico', '—')}"
-                                 + ("  · SharePoint ✓" if _cg.get('sharepoint_ok') else ""))
+                    _ca.markdown(
+                        tema.chip(_cg.get('tipo') or '—', "tipo")
+                        + f"&nbsp; {_cg.get('fecha') or '—'} &nbsp;·&nbsp; "
+                        + f"{_cg.get('tecnico') or '—'}"
+                        + ("&nbsp;·&nbsp; SharePoint ✓" if _cg.get('sharepoint_ok') else ""),
+                        unsafe_allow_html=True)
                     if _cats:
-                        _ca.caption("🗂 " + " · ".join(
+                        _ca.caption(" · ".join(
                             f"{c} ×{n}" for c, n in sorted(_cats.items())))
                     # Auto-carga: baja los archivos y los mete al pipeline solo
-                    if _cb.button("⚙️ Traer y procesar", key=f"auto_{_cg['id']}"):
+                    if _cb.button("Traer y procesar", key=f"auto_{_cg['id']}",
+                                  type="primary", use_container_width=True):
                         with st.spinner("Descargando y procesando la carga..."):
                             try:
                                 msgs, avisos = autocargar_carga(_cg)
@@ -854,11 +820,15 @@ with tabs[1]:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"No se pudo auto-cargar: {e}")
-                    if _cb.button("✔️ Marcar procesada", key=f"proc_{_cg['id']}"):
-                        db.marcar_carga_procesada(_cg['id'])
-                        _bandeja_datos.clear()
-                        st.rerun()
-                    with _cb.popover("⬇️ Archivos"):
+                    # Saca la carga de la bandeja sin procesarla: también confirma.
+                    with _cb.popover("Marcar procesada", use_container_width=True):
+                        st.caption("La carga sale de la bandeja sin traerla a la app.")
+                        if st.button("Sí, marcar", key=f"proc_{_cg['id']}",
+                                     type="primary"):
+                            db.marcar_carga_procesada(_cg['id'])
+                            _bandeja_datos.clear()
+                            st.rerun()
+                    with _cb.popover("Archivos", use_container_width=True):
                         _lk_key = f"links_{_cg['id']}"
                         if st.button("🔗 Preparar enlaces de descarga",
                                      key=f"lk_{_cg['id']}"):
@@ -875,7 +845,7 @@ with tabs[1]:
                                 st.caption(f"[{_a.get('categoria')}] {_a.get('nombre')}")
 
     # ── Carga manual, organizada por tipo de informe ──────────────────────────
-    st.markdown("#### 🗂 Carga manual")
+    tema.seccion(st, "Carga manual")
     _tipo_act = data['info'].get('tipo_inspeccion', 'PAP')
     st.caption("Si la data no llegó por la bandeja, súbela en la pestaña de su "
                f"tipo de informe. Tipo actual: **{_tipo_act}** "
@@ -1309,7 +1279,7 @@ with tabs[7]:
 
 # ── Tab 9: Conclusiones ───────────────────────────────────────────────────────
 with tabs[8]:
-    if st.button("🔄 Auto-generar Conclusiones y Recomendaciones"):
+    if st.button("Auto-generar conclusiones y recomendaciones"):
         if 'longitud_km' not in data['info'] and data['potenciales']:
             ps = sorted(data['potenciales'], key=lambda x: x.get('abscisa', 0))
             data['info']['longitud_km'] = (ps[-1].get('abscisa', 0) - ps[0].get('abscisa', 0)) / 1000.0
@@ -1327,7 +1297,7 @@ with tabs[8]:
 
 # ── Tab 10: Generar ───────────────────────────────────────────────────────────
 with tabs[9]:
-    st.subheader("Generar Informe_")
+    tema.seccion(st, "Generar el informe")
     if st.session_state.get("flash_generar"):
         st.success(st.session_state.flash_generar)
         st.session_state.flash_generar = None
@@ -1335,7 +1305,8 @@ with tabs[9]:
                       or data['dcvg_postes'])
     if not _hay_datos:
         st.info("Carga FASTFIELD, CIPS o DCVG antes de generar.")
-    if st.button("🚀 GENERAR INFORME", disabled=not _hay_datos):
+    if st.button("Generar informe", type="primary", disabled=not _hay_datos,
+                 help=None if _hay_datos else "Primero carga la data de campo."):
         st.session_state.publicado_id = None   # nuevo informe → permite republicar
         try:
             prog = st.progress(5, text="Iniciando...")
@@ -1530,12 +1501,12 @@ with tabs[9]:
         _mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         if st.session_state.ppm_bytes:
             d1, d2 = st.columns(2)
-            d1.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
+            d1.download_button("Descargar informe", data=st.session_state.informe_bytes,
                                file_name=st.session_state.informe_nombre, mime=_mime)
-            d2.download_button("⬇️ Descargar PPM", data=st.session_state.ppm_bytes,
+            d2.download_button("Descargar PPM", data=st.session_state.ppm_bytes,
                                file_name=_nombre_ppm(), mime=_mime)
         else:
-            st.download_button("⬇️ Descargar Informe", data=st.session_state.informe_bytes,
+            st.download_button("Descargar informe", data=st.session_state.informe_bytes,
                                file_name=st.session_state.informe_nombre, mime=_mime)
 
         # ── KMZ de la inspección + Paquete de entrega (numeral 6.3.5) ─────────
@@ -1546,13 +1517,13 @@ with tabs[9]:
         _codigo = os.path.splitext(st.session_state.informe_nombre or "inspeccion")[0]
         e1, e2 = st.columns(2)
         if _kmz_bytes:
-            e1.download_button("🗺️ Descargar KMZ de la inspección", data=_kmz_bytes,
+            e1.download_button("Descargar KMZ", data=_kmz_bytes,
                                file_name=f"{_codigo}.kmz",
                                mime="application/vnd.google-earth.kmz")
         else:
             e1.info(f"Sin KMZ: {_kmz_motivo}")
         with e2:
-            if st.button("📦 Generar paquete de entrega (ZIP)"):
+            if st.button("Generar paquete de entrega (ZIP)", type="primary"):
                 try:
                     with st.spinner("Armando el paquete con la estructura del contrato..."):
                         zip_bytes, resumen = _armar_paquete_entrega(_codigo, _kmz_bytes)
@@ -1567,7 +1538,7 @@ with tabs[9]:
         if st.session_state.get("paquete_zip"):
             st.success("Paquete listo — carpetas: "
                        + " · ".join(f"{c} ({n})" for c, n in st.session_state.paquete_resumen))
-            st.download_button("⬇️ Descargar paquete de entrega",
+            st.download_button("Descargar paquete de entrega",
                                data=st.session_state.paquete_zip,
                                file_name=st.session_state.paquete_nombre,
                                mime="application/zip")
@@ -1588,7 +1559,7 @@ with tabs[9]:
                 st.success(f"Enviado al portal ✓ — queda **En revisión** (id "
                            f"{st.session_state.publicado_id}). Un ingeniero debe "
                            f"aprobarlo en el portal para que TGI lo vea.")
-            elif st.button(f"📤 Publicar {_tipo_pub} al portal"):
+            elif st.button(f"Publicar {_tipo_pub} al portal", type="primary"):
                 try:
                     from cips_adapter import cips_a_hallazgos
                     _info = dict(data['info'])
@@ -1621,14 +1592,4 @@ with tabs[9]:
                     st.error(f"No se pudo publicar al portal: {e}")
 
 # ── Pie de página de marca ────────────────────────────────────────────────────
-st.markdown("""
-<hr style="border:none;border-top:1px solid #DDDDDD;margin:2.2rem 0 0.5rem;">
-<div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;
-            font-size:0.68rem;color:#888888;font-style:italic;">
-  <span>For Internal Use Only—Not For External Distribution.
-  This document is the property of PCC Integrity.
-  It contains proprietary and confidential information.</span>
-  <span style="font-style:normal;font-weight:700;color:#C7113A;">
-    www.pccintegrity.com</span>
-</div>
-""", unsafe_allow_html=True)
+tema.pie_pagina(st)
