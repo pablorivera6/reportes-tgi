@@ -689,13 +689,19 @@ def cargar_historico(historico_id, write: bool = False):
 
 
 def historico_de_tramo(tramo, tipo="CIPS", write: bool = False):
-    """El histórico más reciente de un tramo/tipo (con puntos), o None."""
+    """El histórico más reciente de un tramo/tipo (con puntos), o None.
+
+    Se consulta en dos pasos —primero los metadatos de todos, después los
+    `puntos` del que casó— porque `puntos` es el 98 % del peso de la tabla y
+    bajarlos todos para descartarlos hacía lenta cada carga del dashboard."""
     cli = _client(write=write)
-    r = cli.table("historicos").select("*").eq("tipo", tipo).order(
-        "creado_en", desc=True).execute()
+    r = cli.table("historicos").select("id,tramo,tipo,periodo").eq(
+        "tipo", tipo).order("creado_en", desc=True).execute()
     for h in (r.data or []):
         if _mismo_tramo(h.get("tramo"), tramo):
-            return h
+            fila = cli.table("historicos").select("*").eq(
+                "id", h["id"]).limit(1).execute().data
+            return fila[0] if fila else None
     return None
 
 
@@ -731,13 +737,11 @@ def guardar_rectificador(rect, tramo=None, fuente=None):
 def listar_rectificadores(tramo=None, write: bool = False):
     """Todos los rectificadores (o los de un tramo). Devuelve filas con `payload`."""
     cli = _client(write=write)
-    r = cli.table("rectificadores").select("*").order("distrito").order(
-        "creado_en", desc=True).execute()
-    filas = r.data or []
+    q = cli.table("rectificadores").select("*")
     if tramo is not None:
-        t = (tramo or "").strip().lower()
-        filas = [x for x in filas if (x.get("tramo") or "").strip().lower() == t]
-    return filas
+        # ilike sin comodines = igualdad sin distinguir mayúsculas, en el servidor
+        q = q.ilike("tramo", (tramo or "").strip())
+    return q.order("distrito").order("creado_en", desc=True).execute().data or []
 
 
 def rectificadores_de_tramo(tramo, write: bool = False):

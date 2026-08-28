@@ -167,22 +167,74 @@ def _demo_detalle(insp_id):
 _DEMO = not db.disponible(write=False)
 
 
+# Streamlit re-ejecuta el script COMPLETO en cada clic (abrir un tablero, mover
+# un filtro, pasar de pestaña). Sin caché, eso son 3-4 consultas a Supabase de
+# ~1 s cada una por interacción, que es lo que hacía lento el portal. El caché
+# es GLOBAL (compartido entre sesiones), así que `revisor` va SIEMPRE en la
+# firma: si no, lo que cachea un revisor —inspecciones aún no aprobadas— se le
+# serviría al cliente TGI. Al aprobar o rechazar se limpia (`_refrescar`).
+_TTL_LISTA = 60        # publicaciones nuevas: aparecen rápido
+_TTL_DETALLE = 600     # una inspección publicada no cambia
+_TTL_HIST = 900        # los históricos se cargan a mano, muy de vez en cuando
+
+
+@st.cache_data(ttl=_TTL_LISTA, show_spinner=False)
+def _lista_cached(revisor: bool):
+    # revisor ve TODAS (incl. en revisión); TGI solo aprobadas (RLS)
+    return db.listar_inspecciones(None, revisor=revisor)
+
+
 def cargar_lista():
     if _DEMO:
         return _demo_dataset()
-    # revisor ve TODAS (incl. en revisión); TGI solo aprobadas (RLS)
-    return db.listar_inspecciones(None, revisor=_ES_REVISOR)
+    return _lista_cached(_ES_REVISOR)
+
+
+@st.cache_data(ttl=_TTL_DETALLE, show_spinner=False)
+def _detalle_cached(insp_id, tipo, revisor: bool):
+    if tipo == "PAP":
+        return db.cargar_inspeccion_pap(insp_id, write=revisor)
+    if tipo == "DCVG":
+        return db.cargar_inspeccion_dcvg(insp_id, write=revisor)
+    return db.cargar_inspeccion_cips(insp_id, write=revisor)
 
 
 def cargar_detalle(insp_id, tipo):
     if _DEMO:
         return _demo_detalle(insp_id)
-    w = _ES_REVISOR
-    if tipo == "PAP":
-        return db.cargar_inspeccion_pap(insp_id, write=w)
-    if tipo == "DCVG":
-        return db.cargar_inspeccion_dcvg(insp_id, write=w)
-    return db.cargar_inspeccion_cips(insp_id, write=w)
+    return _detalle_cached(insp_id, tipo, _ES_REVISOR)
+
+
+@st.cache_data(ttl=_TTL_HIST, show_spinner=False)
+def _historico_cached(tramo, tipo, revisor: bool):
+    return db.historico_de_tramo(tramo, tipo, write=revisor)
+
+
+@st.cache_data(ttl=_TTL_HIST, show_spinner=False)
+def _rectificadores_cached(tramo, revisor: bool):
+    return db.rectificadores_de_tramo(tramo, write=revisor)
+
+
+@st.cache_data(ttl=_TTL_HIST, show_spinner=False)
+def _lista_rectificadores_cached(revisor: bool):
+    return db.listar_rectificadores(write=revisor)
+
+
+def _contexto_tramo(insp, tipo):
+    """Histórico y rectificadores del tramo, cacheados. ({}/[] si no hay o si
+    Supabase no responde: son secciones opcionales del tablero)."""
+    try:
+        if not db.disponible():
+            return None, []
+        return (_historico_cached(insp.get("tramo"), tipo, _ES_REVISOR),
+                _rectificadores_cached(insp.get("tramo"), _ES_REVISOR))
+    except Exception:
+        return None, []
+
+
+def _refrescar():
+    """Invalida el caché tras aprobar/rechazar/reabrir una inspección."""
+    st.cache_data.clear()
 
 
 # ── Normalización de puntos para mapa/gráficas ───────────────────────────────
@@ -269,6 +321,7 @@ def _barra_revision(insp):
         ca, cb, _ = st.columns([1, 1, 3])
         if ca.button("✅ Aprobar y publicar", key=f"apr_{insp['id']}"):
             db.aprobar_inspeccion(insp["id"], revisor="PCC")
+            _refrescar()
             st.session_state.sel = None
             st.session_state.sel_tipo = None
             st.success("Inspección aprobada. Ya es visible para TGI.")
@@ -277,12 +330,14 @@ def _barra_revision(insp):
             _nota = st.text_input("Motivo del rechazo", key=f"nota_{insp['id']}")
             if st.button("Confirmar rechazo", key=f"rej_{insp['id']}"):
                 db.rechazar_inspeccion(insp["id"], revisor="PCC", nota=_nota)
+                _refrescar()
                 st.session_state.sel = None
                 st.session_state.sel_tipo = None
                 st.rerun()
     elif estado == "rechazada":
         if st.button("↩️ Reabrir para revisión", key=f"reab_{insp['id']}"):
             _client_reabrir(insp["id"])
+            _refrescar()
             st.rerun()
     st.divider()
 
@@ -384,14 +439,7 @@ def render_dashboard_cips(detalle):
         _grafica_vac(dfp)
 
     # ── Comparativa con histórico + rectificadores del tramo ─────────────────
-    _hist = None
-    _rects = []
-    try:
-        if db.disponible():
-            _hist = db.historico_de_tramo(insp.get("tramo"), "CIPS")
-            _rects = db.rectificadores_de_tramo(insp.get("tramo"))
-    except Exception:
-        pass
+    _hist, _rects = _contexto_tramo(insp, "CIPS")
     if _hist and not dfp.empty:
         import comparativa
         tema.seccion(st, f"Comparativa con histórico · {_hist.get('periodo','')}")
@@ -667,12 +715,7 @@ def render_dashboard_dcvg(detalle):
         _grafica_resistividad(pd.DataFrame(detalle["resistividades"]))
 
     # ── Comparativa con la inspección DCVG anterior ──────────────────────────
-    _hist = None
-    try:
-        if db.disponible():
-            _hist = db.historico_de_tramo(insp.get("tramo"), "DCVG")
-    except Exception:
-        pass
+    _hist, _ = _contexto_tramo(insp, "DCVG")
     if _hist:
         import comparativa
         tema.seccion(st, f"Comparativa con histórico · {_hist.get('periodo','')}")
@@ -941,18 +984,9 @@ def render_vista_tramo():
         return
 
     # cargar detalles
-    det = {}
-    if _DEMO:
-        for tp, insp in elegidas.items():
-            det[tp] = _demo_detalle(insp["id"])
-    else:
-        for tp, insp in elegidas.items():
-            if tp == "CIPS":
-                det[tp] = db.cargar_inspeccion_cips(insp["id"])
-            elif tp == "PAP":
-                det[tp] = db.cargar_inspeccion_pap(insp["id"])
-            else:
-                det[tp] = db.cargar_inspeccion_dcvg(insp["id"])
+    # por `cargar_detalle` (cacheado): esta vista abre hasta 3 inspecciones y sin
+    # caché eran 3 consultas completas en cada rerun de la página
+    det = {tp: cargar_detalle(insp["id"], tp) for tp, insp in elegidas.items()}
 
     tema.seccion(st, "Estado por técnica")
     _tarjetas = []
@@ -1128,7 +1162,7 @@ def render_rectificadores():
                 "cargados.")
         return
     try:
-        filas = db.listar_rectificadores(write=_ES_REVISOR)
+        filas = _lista_rectificadores_cached(_ES_REVISOR)
     except Exception as e:
         if "rectificadores" in str(e) and "schema cache" in str(e):
             st.warning("La tabla de rectificadores aún no existe en Supabase. "
