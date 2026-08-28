@@ -525,6 +525,26 @@ anteriores. Ahí no hay perfil de potenciales sino defectos, así que:
   NACE, mejora igual). PENDIENTE: nota metodológica de transparencia en el portal +
   (opcional) toggle crudo/procesado; conseguir el crudo real de 2023 si se puede.
 
+### 10.9b Rendimiento del portal (2026-08-28) — ⚠️ LEER ANTES DE TOCAR portal_app
+**Streamlit re-ejecuta el script COMPLETO en cada clic** (abrir un tablero, mover
+un filtro, cambiar de página). El portal no tenía NINGÚN `cache_data`, así que
+cada interacción eran 3-4 consultas a Supabase de ~1 s. Ahora:
+- `_lista_cached` (ttl 60 s) · `_detalle_cached` (600 s) · `_historico_cached` /
+  `_rectificadores_cached` / `_lista_rectificadores_cached` (900 s), y
+  `_contexto_tramo(insp, tipo)` que envuelve histórico+rectificadores.
+- **`revisor` SIEMPRE en la firma de la función cacheada.** El caché de Streamlit
+  es GLOBAL (compartido entre sesiones): sin ese argumento, lo que cachea un
+  revisor —inspecciones en revisión— se le serviría al cliente TGI.
+- Al aprobar/rechazar/reabrir se llama `_refrescar()` (`st.cache_data.clear()`),
+  si no el listado queda viejo hasta que expire el TTL.
+- `db.historico_de_tramo` consulta en **dos pasos** (metadatos de todos → `puntos`
+  del que casó): `puntos` es el 98 % del peso de la tabla. 1,04 s → 0,24 s.
+- `listar_rectificadores(tramo=…)` filtra con `ilike` en el servidor, no en Python.
+- Medido en local: abrir un tablero DCVG 1,92 s en frío → 0,68 s con caché.
+- **NO** sirve meter los históricos como CSV en el repo: `historicos/` está
+  gitignored a propósito (el repo es PÚBLICO) y el cuello era la latencia por
+  rerun, no el formato.
+
 ### 10.10 Entregables a TGI (docs/PDF, esta sesión)
 - **Matriz de cumplimiento TGI** (artifact HTML + PDF): qué se cumple completo vs. qué
   cambia con solución. Cambios que TGI debe saber: informes SIN antecedentes escritos, sin
