@@ -622,6 +622,18 @@ def guardar_cola_fastfield(submission_id, form_id=None, form_name=None, payload=
 
 
 # ── Históricos por tramo (comparativa) ──────────────────────────────────────
+def _mismo_tramo(a, b):
+    """¿El histórico es de este tramo? El nombre se escribe distinto en cada
+    fuente ('Ansermanuevo' en el informe del contratista, 'Ramal Ansermanuevo'
+    en el portal), así que se compara con la normalización de `nombres`
+    (sin tildes, sin 'Ramal/Troncal' al frente, sin el 'PK …' del final)."""
+    try:
+        from nombres import mismo_tramo
+        return mismo_tramo(a, b)
+    except Exception:                       # sin la tabla de infraestructura
+        return (a or "").strip().lower() == (b or "").strip().lower()
+
+
 def _resumen_historico(puntos):
     offs = [p.get("off") for p in puntos if isinstance(p.get("off"), (int, float))]
     if not offs:
@@ -634,12 +646,18 @@ def _resumen_historico(puntos):
             "min_off": round(min(offs), 1), "max_off": round(max(offs), 1)}
 
 
-def guardar_historico(tramo, tipo, periodo, puntos, fuente=None, fecha=None):
-    """Crea (o reemplaza) el histórico de un tramo. `puntos`: [{abscisa,on,off}]."""
+def guardar_historico(tramo, tipo, periodo, puntos, fuente=None, fecha=None,
+                      resumen=None):
+    """Crea el histórico de un tramo.
+
+    `puntos`: [{abscisa, on, off}] en CIPS/PAP; en DCVG cada punto lleva su
+    `clase` ('poste' | 'defecto') y, en los defectos, la severidad. Como el
+    resumen de DCVG no se calcula sobre potenciales, quien lo lee (historicos.py)
+    puede pasarlo hecho en `resumen`."""
     cli = _client(write=True)
     fila = {"tramo": tramo, "tipo": tipo, "periodo": periodo,
             "fecha": _fecha(fecha), "fuente": fuente, "puntos": puntos,
-            "resumen": _resumen_historico(puntos)}
+            "resumen": resumen or _resumen_historico(puntos)}
     return cli.table("historicos").insert(fila).execute().data[0]["id"]
 
 
@@ -659,8 +677,7 @@ def listar_historicos(tramo=None, tipo=None):
         q = q.eq("tipo", tipo)
     r = q.execute().data or []
     if tramo:
-        t = tramo.strip().lower()
-        r = [h for h in r if (h.get("tramo") or "").strip().lower() == t]
+        r = [h for h in r if _mismo_tramo(h.get("tramo"), tramo)]
     return r
 
 
@@ -676,9 +693,8 @@ def historico_de_tramo(tramo, tipo="CIPS", write: bool = False):
     cli = _client(write=write)
     r = cli.table("historicos").select("*").eq("tipo", tipo).order(
         "creado_en", desc=True).execute()
-    t = (tramo or "").strip().lower()
     for h in (r.data or []):
-        if (h.get("tramo") or "").strip().lower() == t:
+        if _mismo_tramo(h.get("tramo"), tramo):
             return h
     return None
 

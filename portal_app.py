@@ -666,6 +666,47 @@ def render_dashboard_dcvg(detalle):
         st.markdown("**Resistividad del suelo vs abscisa**")
         _grafica_resistividad(pd.DataFrame(detalle["resistividades"]))
 
+    # ── Comparativa con la inspección DCVG anterior ──────────────────────────
+    _hist = None
+    try:
+        if db.disponible():
+            _hist = db.historico_de_tramo(insp.get("tramo"), "DCVG")
+    except Exception:
+        pass
+    if _hist:
+        import comparativa
+        tema.seccion(st, f"Comparativa con histórico · {_hist.get('periodo','')}")
+        _r = comparativa.resumen_comparativo_dcvg(dfd, _hist, res.get("longitud_m"))
+        _a, _h = _r["actual"], _r["historico"]
+
+        def _delta(clave, fmt="{:+d}"):
+            va, vh = _a.get(clave), _h.get(clave)
+            if isinstance(va, (int, float)) and isinstance(vh, (int, float)):
+                return fmt.format(va - vh)
+            return None
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Defectos", _a["n_defectos"], delta=_delta("n_defectos"),
+                  delta_color="inverse")
+        m2.metric("Defectos críticos", _a["n_criticos"], delta=_delta("n_criticos"),
+                  delta_color="inverse")
+        m3.metric("Densidad",
+                  f"{_a['densidad_km']:.2f} def/km" if _a["densidad_km"] is not None else "—",
+                  delta=_delta("densidad_km", "{:+.2f} def/km"), delta_color="inverse")
+        m4.metric("Severidad máx.",
+                  f"{_a['max_severidad']:.1f} %" if _a["max_severidad"] is not None else "—",
+                  delta=_delta("max_severidad", "{:+.1f} pp"), delta_color="inverse")
+        st.plotly_chart(
+            comparativa.overlay_dcvg_plotly(dfd, _hist, _hist.get("periodo", "histórico")),
+            use_container_width=True)
+        st.caption(
+            f"Histórico: {_h.get('n_defectos', 0)} defectos · "
+            + " · ".join(f"{k} {v}" for k, v in
+                         (_h.get("por_clasificacion") or {}).items())
+            + f" · fuente: {_hist.get('fuente') or '—'}. "
+            "Dos campañas DCVG no encuentran el defecto en la misma abscisa: "
+            "lo comparable es cuántos hay, de qué severidad y cada cuánto.")
+
     # tabla de defectos (Inspección DCVG)
     st.markdown("**Defectos**")
     if not dfd.empty:

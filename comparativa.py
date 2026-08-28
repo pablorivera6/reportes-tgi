@@ -1,8 +1,15 @@
-"""Comparativa CIPS: inspección actual vs histórico de un tramo.
+"""Comparativa: inspección actual vs histórico de un tramo.
 
+CIPS/PAP (perfil de potenciales):
 - `overlay_plotly`: gráfica interactiva para el portal (perfil OFF vs abscisa).
 - `resumen_comparativo`: métricas antes/ahora.
 - `pdf_bytes`: PDF de una página (matplotlib, sirve en Streamlit Cloud sin Chrome).
+
+DCVG (defectos de recubrimiento):
+- `resumen_comparativo_dcvg` / `overlay_dcvg_plotly`. Aquí lo comparable no es
+  un perfil continuo sino CUÁNTOS defectos hay, de qué severidad y cada cuánto
+  (densidad por km): dos inspecciones DCVG del mismo tramo rara vez encuentran
+  el defecto en la misma abscisa, así que se comparan poblaciones, no puntos.
 """
 from __future__ import annotations
 
@@ -65,6 +72,85 @@ def overlay_plotly(dfp, hist_puntos, periodo="histórico"):
         height=430, margin=dict(l=10, r=10, t=30, b=10),
         yaxis=dict(title="Potencial OFF [mV]", autorange="reversed"),
         xaxis=dict(title="Abscisado (progresiva)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        plot_bgcolor="rgba(0,0,0,0)")
+    fig.update_xaxes(gridcolor="#E3E5E9"); fig.update_yaxes(gridcolor="#E3E5E9")
+    return fig
+
+
+# ── DCVG ─────────────────────────────────────────────────────────────────────
+COLOR_CLAS = {"Muy Pequeño": "#2E7D32", "Pequeño": "#7CB342",
+              "Mediano": "#B7791F", "Grande": "#C8102E"}
+_CLASES = ("Muy Pequeño", "Pequeño", "Mediano", "Grande")
+
+
+def _defectos_hist(hist):
+    """Los puntos de un histórico DCVG que son defectos."""
+    return [p for p in (hist.get("puntos") or [])
+            if (p.get("clase") or "defecto") == "defecto"
+            and p.get("severidad_pct") is not None]
+
+
+def _stats_dcvg(defectos, long_m=None):
+    """defectos: [{abscisa, severidad_pct, clasificacion}]"""
+    conteo = {c: 0 for c in _CLASES}
+    sev = []
+    for d in defectos:
+        if d.get("clasificacion") in conteo:
+            conteo[d["clasificacion"]] += 1
+        s = d.get("severidad_pct")
+        if isinstance(s, (int, float)):
+            sev.append(s)
+    km = (long_m or 0) / 1000
+    return {"n_defectos": len(defectos), "por_clasificacion": conteo,
+            "n_criticos": conteo["Mediano"] + conteo["Grande"],
+            "long_m": long_m,
+            "densidad_km": round(len(defectos) / km, 2) if km else None,
+            "prom_severidad": round(sum(sev) / len(sev), 1) if sev else None,
+            "max_severidad": round(max(sev), 1) if sev else None}
+
+
+def resumen_comparativo_dcvg(dfd, hist, long_m=None):
+    """{'actual':{...}, 'historico':{...}, 'periodo':str} para DCVG."""
+    act = _stats_dcvg(
+        [] if dfd is None or dfd.empty else dfd.to_dict("records"), long_m)
+    h = hist.get("resumen") or {}
+    if not h.get("n_defectos") and h.get("n_defectos") != 0:
+        h = _stats_dcvg(_defectos_hist(hist), h.get("long_m"))
+    return {"actual": act, "historico": h,
+            "periodo": hist.get("periodo") or "histórico"}
+
+
+def overlay_dcvg_plotly(dfd, hist, periodo="histórico"):
+    """Severidad %IR vs abscisa: histórico (gris, rombos) contra actual
+    (círculos por severidad). No se unen con línea: cada defecto es un punto
+    independiente, no una serie continua."""
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    hd = _defectos_hist(hist)
+    if hd:
+        fig.add_trace(go.Scatter(
+            x=[d["abscisa"] for d in hd], y=[d["severidad_pct"] for d in hd],
+            mode="markers", name=f"Histórico · {periodo}",
+            marker=dict(color=GRIS, size=9, symbol="diamond-open",
+                        line=dict(width=1.6))))
+    if dfd is not None and not dfd.empty:
+        d = dfd.dropna(subset=["abscisa", "severidad_pct"])
+        if not d.empty:
+            fig.add_trace(go.Scatter(
+                x=d["abscisa"], y=d["severidad_pct"], mode="markers",
+                name="Inspección actual",
+                marker=dict(size=10,
+                            color=[COLOR_CLAS.get(c, ROJO)
+                                   for c in d["clasificacion"]],
+                            line=dict(color="white", width=1))))
+    for y, txt, col in ((15, "15 %", COLOR_CLAS["Pequeño"]),
+                        (35, "35 %", AMBAR), (60, "60 %", ROJO)):
+        fig.add_hline(y=y, line=dict(color=col, width=1.2, dash="dash"),
+                      annotation_text=txt, annotation_position="top right")
+    fig.update_layout(
+        height=430, margin=dict(l=10, r=10, t=30, b=10),
+        yaxis=dict(title="Severidad %IR"), xaxis=dict(title="Abscisado (progresiva)"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         plot_bgcolor="rgba(0,0,0,0)")
     fig.update_xaxes(gridcolor="#E3E5E9"); fig.update_yaxes(gridcolor="#E3E5E9")

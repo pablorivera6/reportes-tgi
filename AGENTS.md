@@ -481,6 +481,34 @@ viejo (`VTG_REP_*.xlsx`, hoja única con 77 imágenes). Va al ZIP en
 - **La Dorada** ya cargado (histórico Nov-2023 del informe TELMACOM, 756 pts, 100%
   protegido) y probado en vivo.
 
+**Históricos DCVG (2026-08-28):** `historicos.py` también lee informes **DCVG**
+anteriores. Ahí no hay perfil de potenciales sino defectos, así que:
+- la hoja `Inspección DCVG` se lee **por etiqueta de encabezado** con spans
+  (`_mapa_columnas_dcvg`): cada etiqueta manda hasta la siguiente, para que
+  `SEVERIDAD [%IR]` cubra las 3 columnas AA/CA/CC de la plantilla PCC y la
+  columna única de la plantilla TELMACOM. La metadata (tramo/fecha/contratista)
+  NO está en la hoja de datos sino en la hoja **`Informe`** (`_meta_informe`).
+- el %IR del informe viene en **fracción** (0,111) y el portal usa **%** (11,1);
+  el carácter 'C-A' se normaliza a 'CA' y la clasificación rota ('#DIV/0!') se
+  recalcula del %IR.
+- cada punto guarda su `clase` ('poste' con ON/OFF | 'defecto' con severidad).
+  `resumen_dcvg` = n_defectos, por_clasificacion, n_criticos, long_m,
+  **densidad_km**, prom/max severidad.
+- `comparativa.resumen_comparativo_dcvg` + `overlay_dcvg_plotly` (histórico en
+  rombos grises, actual en círculos por severidad). **Dos campañas DCVG no
+  encuentran el defecto en la misma abscisa**: se comparan poblaciones
+  (cuántos, de qué severidad, cada cuánto), no puntos.
+- `db.guardar_historico(..., resumen=...)` acepta el resumen ya calculado, y el
+  match tramo↔histórico pasa por `nombres.mismo_tramo` (`db._mismo_tramo`):
+  el histórico dice 'Ansermanuevo' y el portal 'Ramal Ansermanuevo'.
+- `cargar_historico.py` acepta **varios archivos o una carpeta**.
+- **Cargados en vivo (11, contratista TELMACOM 2024):** DCVG de Andalucía,
+  Ansermanuevo, Bugalagrande, Cartago, La Victoria, Montenegro, Quimbaya,
+  Roldanillo, Salento y Zarzal + CIPS de San Pedro. Enganchan con 9 de las
+  inspecciones DCVG que ya están en el portal; Cartago y el CIPS de San Pedro
+  quedan esperando su inspección. Sin histórico: Chinchiná, Praderas, San Pedro
+  (DCVG) y la inspección cuyo tramo quedó como 'ramal'.
+
 **⚠️ OJO INTEGRIDAD DEL DATO (CIPS):**
 - El pipeline propio guarda `off_mv` (crudo) **y** `off_limpio` (procesado). La "limpieza"
   = `_suavizar_outliers` (cips_lrs.py): reemplaza **picos AISLADOS** que se desvían >250 mV
