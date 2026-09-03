@@ -79,3 +79,43 @@ def test_estructurar_nota_con_json_roto_falla_claro():
 
     with pytest.raises(ia_revision.IARevisionError):
         ia_revision.estructurar_nota("x", {}, cliente=_Roto())
+
+
+DATA = {
+    "info": {"tramo": "Cartago", "ot": "OT-9"},
+    "cips": [{"abscisa_val": 12000, "observaciones": "cruze de bia", "off_mv": -900.0},
+             {"abscisa_val": 13000, "observaciones": "balbula", "off_mv": -880.0},
+             {"abscisa_val": 90000, "observaciones": "lejos", "off_mv": -870.0}],
+}
+OBS = [{"categoria": "texto_campo", "abscisa_ini": 12000, "abscisa_fin": 13000,
+        "nota": "comentarios ilegibles"}]
+
+
+def test_solo_manda_las_filas_de_las_abscisas_senaladas():
+    cli = _ClienteFalso({"cambios": []})
+    ia_revision.proponer_correcciones(OBS, DATA, "CIPS", cliente=cli)
+    enviado = json.loads(cli.messages.ultima_llamada["messages"][0]["content"])
+    absc = [f["abscisa_val"] for f in enviado["filas"]["cips"]]
+    assert absc == [12000, 13000]      # la de 90000 no viaja
+
+
+def test_descarta_las_propuestas_sobre_datos_de_medicion():
+    cli = _ClienteFalso({"cambios": [
+        {"ruta": "cips[0].observaciones", "valor_antes": "cruze de bia",
+         "valor_despues": "cruce de vía", "razon": "ortografía"},
+        {"ruta": "cips[0].off_mv", "valor_antes": -900.0, "valor_despues": -850.0,
+         "razon": "parece fuera de rango"},
+    ]})
+    ok, fuera = ia_revision.proponer_correcciones(OBS, DATA, "CIPS", cliente=cli)
+    assert [c["ruta"] for c in ok] == ["cips[0].observaciones"]
+    assert [c["ruta"] for c in fuera] == ["cips[0].off_mv"]
+
+
+def test_sin_abscisas_manda_una_muestra_acotada():
+    cli = _ClienteFalso({"cambios": []})
+    ia_revision.proponer_correcciones(
+        [{"categoria": "datos_generales", "nota": "el tramo está mal"}],
+        DATA, "CIPS", cliente=cli)
+    enviado = json.loads(cli.messages.ultima_llamada["messages"][0]["content"])
+    assert enviado["info"]["tramo"] == "Cartago"
+    assert len(enviado["filas"].get("cips", [])) <= ia_revision.MAX_FILAS

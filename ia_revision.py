@@ -192,3 +192,136 @@ def estructurar_nota(nota, contexto, api_key=None, cliente=None):
                 for o in datos.get("observaciones") or []]
     except ValueError as e:
         raise IARevisionError(f"Claude devolvió una categoría inválida: {e}") from e
+
+
+# ── 2. Observaciones + datos → diff propuesto ───────────────────────────────
+#: Techo de filas que viajan a la API. Un CIPS tiene ~100.000 puntos: mandarlos
+#: todos sería carísimo e inútil. Las observaciones dicen dónde mirar.
+MAX_FILAS = 60
+
+#: Qué lista de `data` mira cada tipo de informe.
+_LISTAS = {
+    "CIPS": ("cips", "hallazgos"),
+    "PAP": ("potenciales", "hallazgos"),
+    "DCVG": ("dcvg_postes", "dcvg_defectos", "dcvg_resist", "dcvg_hallazgos"),
+}
+
+_ABSCISA = ("abscisa_val", "abscisa", "pk_m")
+
+
+def _abscisa_de(fila):
+    for k in _ABSCISA:
+        if fila.get(k) is not None:
+            try:
+                return float(fila[k])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _rangos(observaciones):
+    """(ini, fin) de cada observación que señale abscisas."""
+    out = []
+    for o in observaciones or []:
+        ini, fin = o.get("abscisa_ini"), o.get("abscisa_fin")
+        if ini is not None:
+            out.append((float(ini), float(fin if fin is not None else ini)))
+    return out
+
+
+def _filas_relevantes(data, tipo, observaciones):
+    """Solo las filas que las observaciones señalan; si no señalan ninguna, una
+    muestra acotada para que el modelo vea la forma del dato."""
+    rangos = _rangos(observaciones)
+    seleccion = {}
+    for lista in _LISTAS.get(tipo, ()):
+        filas = data.get(lista) or []
+        if rangos:
+            elegidas = [f for f in filas
+                        if any(a is not None and ini <= a <= fin
+                               for ini, fin in rangos
+                               for a in (_abscisa_de(f),))]
+        else:
+            elegidas = list(filas)
+        if elegidas:
+            seleccion[lista] = elegidas[:MAX_FILAS]
+    return seleccion
+
+
+_SISTEMA_DIFF = """\
+Eres el asistente de un ingeniero de PCC Integrity que va a corregir un informe
+de inspección rechazado.
+
+Recibes las observaciones del revisor, los Datos Generales y SOLO las filas
+señaladas. Propón los cambios mínimos que resuelvan cada observación.
+
+Puedes proponer cambios ÚNICAMENTE sobre:
+- `info.<campo>` — Datos Generales (tramo, ot, contrato, contratista, ...).
+- `<lista>[<i>].<campo>` donde campo sea texto escrito por una persona:
+  observaciones, descripcion, comentarios, ref_geografica, sector, tipo.
+
+NUNCA propongas cambios sobre potenciales (on/off), severidades, abscisas,
+coordenadas, clasificaciones ni ningún valor medido o calculado: son el dato de
+ingeniería que se entrega bajo contrato. Si una observación pide algo así,
+devuelve el cambio con razon explicando que requiere reprocesar los crudos y
+ruta "info.nota_reproceso".
+
+Al corregir texto de campo: arregla ortografía y claridad en español técnico
+colombiano de protección catódica (cruce, aéreo, tensión, válvula, línea, río,
+abscisado, rocería). NO cambies el significado ni añadas información que el
+técnico no escribió.
+
+`valor_antes` debe ser exactamente el valor actual. `razon` es una frase corta.\
+"""
+
+_ESQUEMA_DIFF = {
+    "type": "object",
+    "properties": {
+        "cambios": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "ruta": {"type": "string"},
+                    "valor_antes": {"type": ["string", "number", "null"]},
+                    "valor_despues": {"type": ["string", "number", "null"]},
+                    "razon": {"type": "string"},
+                },
+                "required": ["ruta", "valor_antes", "valor_despues", "razon"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["cambios"],
+    "additionalProperties": False,
+}
+
+
+def proponer_correcciones(observaciones, data, tipo, api_key=None, cliente=None):
+    """Devuelve (permitidos, descartados). Los índices de `ruta` son relativos a
+    las filas ENVIADAS, así que se remapean a los índices reales de `data` antes
+    de devolverlos: si no, un cambio aterrizaría en la fila equivocada."""
+    seleccion = _filas_relevantes(data, tipo, observaciones)
+    indices = {lista: [(data.get(lista) or []).index(f) for f in filas]
+               for lista, filas in seleccion.items()}
+    payload = {
+        "observaciones": [
+            {k: o.get(k) for k in ("categoria", "campo", "abscisa_ini",
+                                   "abscisa_fin", "nota")}
+            for o in observaciones or []],
+        "info": dict(data.get("info") or {}),
+        "filas": seleccion,
+    }
+    datos = _pedir(cliente, api_key, _SISTEMA_DIFF, payload, _ESQUEMA_DIFF)
+
+    remapeados = []
+    for c in datos.get("cambios") or []:
+        m = _RE_RUTA.match(str(c.get("ruta") or "").strip())
+        if m and m.group("lista"):
+            lista, i = m.group("lista"), int(m.group("idx"))
+            reales = indices.get(lista) or []
+            if not (0 <= i < len(reales)):
+                continue                      # índice inventado: se descarta
+            c = dict(c, ruta=f"{lista}[{reales[i]}].{m.group('campo')}")
+        remapeados.append(c)
+    return filtrar_cambios(remapeados)
