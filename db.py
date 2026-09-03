@@ -88,6 +88,32 @@ def _fecha(v):
 
 
 # ── Publicar (escritura, app PCC) ───────────────────────────────────────────
+def _puntos_cips_filas(insp_id, cips):
+    """Filas de `puntos_cips` a partir de los dicts CIPS del generador.
+    Pura: no toca red. `revision.cips_desde_filas` es su inversa."""
+    filas = []
+    for i, c in enumerate(cips, 1):
+        off = (_f(c.get("off_limpio")) if c.get("off_limpio") is not None
+               else _f(c.get("off_mv")))
+        filas.append({
+            "inspeccion_id": insp_id, "item": i,
+            "abscisa": _i(c.get("abscisa_val")), "fecha": _fecha(c.get("fecha")),
+            "on_mv": _f(c.get("on_mv")), "off_mv": _f(c.get("off_mv")),
+            "on_limpio": _f(c.get("on_limpio")), "off_limpio": _f(c.get("off_limpio")),
+            "natural_mv": _f(c.get("natural_mv")),
+            "polarizacion_mv": _f(c.get("polarizacion_mv")),
+            "vac_mv": _f(c.get("vac_mv")),
+            "metal_on": _f(c.get("metal_on")), "metal_off": _f(c.get("metal_off")),
+            "lejano_on": _f(c.get("far_on")), "lejano_off": _f(c.get("far_off")),
+            "cercano_on": _f(c.get("near_on")), "cercano_off": _f(c.get("near_off")),
+            "ir_on_off": _f(c.get("ir_on_off")),
+            "lat": _f(c.get("lat")), "lon": _f(c.get("lon")),
+            "observaciones": (c.get("observaciones") or c.get("referencia") or None),
+            "estado": estado_cp(off),
+        })
+    return filas
+
+
 def guardar_inspeccion_cips(info: dict, cips: list, hallazgos: list,
                             tramos: list | None = None,
                             excel_bytes: bytes | None = None,
@@ -157,26 +183,7 @@ def guardar_inspeccion_cips(info: dict, cips: list, hallazgos: list,
         ).eq("id", insp_id).execute()
 
     # Puntos CIPS
-    puntos = []
-    for i, c in enumerate(cips, 1):
-        off = _f(c.get("off_limpio")) if c.get("off_limpio") is not None else _f(c.get("off_mv"))
-        puntos.append({
-            "inspeccion_id": insp_id, "item": i,
-            "abscisa": _i(c.get("abscisa_val")), "fecha": _fecha(c.get("fecha")),
-            "on_mv": _f(c.get("on_mv")), "off_mv": _f(c.get("off_mv")),
-            "on_limpio": _f(c.get("on_limpio")), "off_limpio": _f(c.get("off_limpio")),
-            "natural_mv": _f(c.get("natural_mv")),
-            "polarizacion_mv": _f(c.get("polarizacion_mv")),
-            "vac_mv": _f(c.get("vac_mv")),
-            "metal_on": _f(c.get("metal_on")), "metal_off": _f(c.get("metal_off")),
-            "lejano_on": _f(c.get("far_on")), "lejano_off": _f(c.get("far_off")),
-            "cercano_on": _f(c.get("near_on")), "cercano_off": _f(c.get("near_off")),
-            "ir_on_off": _f(c.get("ir_on_off")),
-            "lat": _f(c.get("lat")), "lon": _f(c.get("lon")),
-            "observaciones": (c.get("observaciones") or c.get("referencia") or None),
-            "estado": estado_cp(off),
-        })
-    _insert_lotes(cli, "puntos_cips", puntos)
+    _insert_lotes(cli, "puntos_cips", _puntos_cips_filas(insp_id, cips))
 
     # Hallazgos
     hs = []
@@ -351,6 +358,34 @@ def _hallazgos_filas(insp_id, hallazgos):
 
 
 # ── PAP (poste a poste) ─────────────────────────────────────────────────────
+def _puntos_pap_filas(insp_id, potenciales):
+    """Filas de `puntos_pap`. Pura. Inversa: `revision.pap_desde_filas`."""
+    def _absc(p):
+        return _i(p.get("abscisa") if p.get("abscisa") is not None else p.get("pk_m"))
+
+    def _off(p):
+        return _f(p.get("off_mv") if p.get("off_mv") is not None else p.get("off"))
+
+    def _on(p):
+        return _f(p.get("on_mv") if p.get("on_mv") is not None else p.get("on"))
+
+    filas = []
+    for i, p in enumerate(potenciales, 1):
+        off = _off(p)
+        filas.append({
+            "inspeccion_id": insp_id, "item": i, "abscisa": _absc(p),
+            "fecha": _fecha(p.get("fecha")), "on_mv": _on(p), "off_mv": off,
+            "natural_mv": _f(p.get("potencial_natural")),
+            "polarizacion_mv": _f(p.get("polarizacion")),
+            "vac_mv": _f(p.get("vac")), "ir_on_off": _f(p.get("ir_on_off")),
+            "resistencia": _f(p.get("resistencia")),
+            "lat": _f(p.get("lat")), "lon": _f(p.get("lon")),
+            "ref_geografica": p.get("ref_geografica"),
+            "observaciones": p.get("observaciones"), "estado": estado_cp(off),
+        })
+    return filas
+
+
 def guardar_inspeccion_pap(info, potenciales, hallazgos,
                            excel_bytes=None, excel_nombre=None,
                            ppm_bytes=None, ppm_nombre=None, creado_por="PCC"):
@@ -381,21 +416,7 @@ def guardar_inspeccion_pap(info, potenciales, hallazgos,
     ).execute().data[0]["id"]
     _subir_excel(cli, insp_id, excel_bytes, excel_nombre, ppm_bytes, ppm_nombre)
 
-    filas = []
-    for i, p in enumerate(potenciales, 1):
-        off = _off(p)
-        filas.append({
-            "inspeccion_id": insp_id, "item": i, "abscisa": _absc(p),
-            "fecha": _fecha(p.get("fecha")), "on_mv": _on(p), "off_mv": off,
-            "natural_mv": _f(p.get("potencial_natural")),
-            "polarizacion_mv": _f(p.get("polarizacion")),
-            "vac_mv": _f(p.get("vac")), "ir_on_off": _f(p.get("ir_on_off")),
-            "resistencia": _f(p.get("resistencia")),
-            "lat": _f(p.get("lat")), "lon": _f(p.get("lon")),
-            "ref_geografica": p.get("ref_geografica"),
-            "observaciones": p.get("observaciones"), "estado": estado_cp(off),
-        })
-    _insert_lotes(cli, "puntos_pap", filas)
+    _insert_lotes(cli, "puntos_pap", _puntos_pap_filas(insp_id, potenciales))
     _insert_lotes(cli, "hallazgos", _hallazgos_filas(insp_id, hallazgos))
     return insp_id
 
@@ -450,6 +471,44 @@ def _severidad_dcvg(postes, defectos):
     return out
 
 
+def _postes_dcvg_filas(insp_id, postes):
+    """Filas de `postes_dcvg`. Pura. Inversa: `revision.postes_desde_filas`."""
+    return [{
+        "inspeccion_id": insp_id, "item": i, "abscisa": _i(p.get("pk_m")),
+        "tipo": p.get("tipo"), "on_mv": _f(p.get("on")), "off_mv": _f(p.get("off")),
+        "vac_mv": _f(p.get("vac")), "resistencia": _f(p.get("resistencia")),
+        "lat": _f(p.get("lat")), "lon": _f(p.get("lon")),
+    } for i, p in enumerate(postes or [], 1)]
+
+
+def _defectos_dcvg_filas(insp_id, defectos, sev):
+    """Filas de `defectos_dcvg`. `sev` viene de `_severidad_dcvg` (derivados).
+    Pura. Inversa: `revision.defectos_desde_filas` (que NO devuelve derivados)."""
+    return [{
+        "inspeccion_id": insp_id, "item": i, "abscisa": _i(d.get("pk_m")),
+        "sector": d.get("sector"),
+        "forma_n": _f(d.get("forma_n")), "forma_e": _f(d.get("forma_e")),
+        "forma_s": _f(d.get("forma_s")), "forma_o": _f(d.get("forma_o")),
+        "caracter": d.get("caracter"), "ol_re": _f(d.get("ol_re")),
+        "p_re": sev[i - 1]["p_re"], "severidad_pct": sev[i - 1]["severidad_pct"],
+        "clasificacion": sev[i - 1]["clasificacion"],
+        "profundidad": _f(d.get("profundidad")),
+        "posicion_reloj": d.get("posicion_reloj"),
+        "lat": _f(d.get("lat")), "lon": _f(d.get("lon")),
+        "comentarios": d.get("comentarios"),
+    } for i, d in enumerate(defectos or [], 1)]
+
+
+def _resist_dcvg_filas(insp_id, resistividades):
+    """Filas de `resistividades_dcvg`. Pura. Inversa: `revision.resist_desde_filas`."""
+    return [{
+        "inspeccion_id": insp_id, "item": i, "abscisa": _i(r.get("pk_m")),
+        "sector": r.get("sector"), "profundidad": _f(r.get("profundidad")),
+        "r1": _f(r.get("r1")), "r2": _f(r.get("r2")), "r3": _f(r.get("r3")),
+        "lat": _f(r.get("lat")), "lon": _f(r.get("lon")),
+    } for i, r in enumerate(resistividades or [], 1)]
+
+
 def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
                             excel_bytes=None, excel_nombre=None, creado_por="PCC"):
     cli = _client(write=True)
@@ -474,33 +533,9 @@ def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
     ).execute().data[0]["id"]
     _subir_excel(cli, insp_id, excel_bytes, excel_nombre, None, None)
 
-    _insert_lotes(cli, "postes_dcvg", [{
-        "inspeccion_id": insp_id, "item": i, "abscisa": _i(p.get("pk_m")),
-        "tipo": p.get("tipo"), "on_mv": _f(p.get("on")), "off_mv": _f(p.get("off")),
-        "vac_mv": _f(p.get("vac")), "resistencia": _f(p.get("resistencia")),
-        "lat": _f(p.get("lat")), "lon": _f(p.get("lon")),
-    } for i, p in enumerate(postes or [], 1)])
-
-    _insert_lotes(cli, "defectos_dcvg", [{
-        "inspeccion_id": insp_id, "item": i, "abscisa": _i(d.get("pk_m")),
-        "sector": d.get("sector"),
-        "forma_n": _f(d.get("forma_n")), "forma_e": _f(d.get("forma_e")),
-        "forma_s": _f(d.get("forma_s")), "forma_o": _f(d.get("forma_o")),
-        "caracter": d.get("caracter"), "ol_re": _f(d.get("ol_re")),
-        "p_re": sev[i - 1]["p_re"], "severidad_pct": sev[i - 1]["severidad_pct"],
-        "clasificacion": sev[i - 1]["clasificacion"],
-        "profundidad": _f(d.get("profundidad")),
-        "posicion_reloj": d.get("posicion_reloj"),
-        "lat": _f(d.get("lat")), "lon": _f(d.get("lon")),
-        "comentarios": d.get("comentarios"),
-    } for i, d in enumerate(defectos or [], 1)])
-
-    _insert_lotes(cli, "resistividades_dcvg", [{
-        "inspeccion_id": insp_id, "item": i, "abscisa": _i(r.get("pk_m")),
-        "sector": r.get("sector"), "profundidad": _f(r.get("profundidad")),
-        "r1": _f(r.get("r1")), "r2": _f(r.get("r2")), "r3": _f(r.get("r3")),
-        "lat": _f(r.get("lat")), "lon": _f(r.get("lon")),
-    } for i, r in enumerate(resistividades or [], 1)])
+    _insert_lotes(cli, "postes_dcvg", _postes_dcvg_filas(insp_id, postes))
+    _insert_lotes(cli, "defectos_dcvg", _defectos_dcvg_filas(insp_id, defectos, sev))
+    _insert_lotes(cli, "resistividades_dcvg", _resist_dcvg_filas(insp_id, resistividades))
 
     _insert_lotes(cli, "hallazgos", _hallazgos_filas(insp_id, hallazgos))
     return insp_id
