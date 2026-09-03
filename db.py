@@ -244,6 +244,24 @@ def listar_inspecciones(tipo: str | None = "CIPS", estado: str | None = None,
     return q.execute().data or []
 
 
+def borrar_inspeccion(insp_id: str):
+    """Elimina una inspección: sus puntos/hallazgos/defectos se van por el
+    `on delete cascade` del esquema, pero los archivos del bucket NO, así que
+    se borran aquí para no dejar huérfanos. Irreversible: respalda antes."""
+    cli = _client(write=True)
+    r = (cli.table("inspecciones").select("excel_path,ppm_path")
+         .eq("id", insp_id).limit(1).execute().data)
+    rutas = [p for p in ((r[0].get("excel_path"), r[0].get("ppm_path")) if r
+                         else ()) if p]
+    if rutas:
+        try:
+            cli.storage.from_(_BUCKET).remove(rutas)
+        except Exception:
+            pass                      # el archivo ya no estaba: sigue con la fila
+    cli.table("inspecciones").delete().eq("id", insp_id).execute()
+    return True
+
+
 def aprobar_inspeccion(insp_id: str, revisor: str = "PCC"):
     _client(write=True).table("inspecciones").update(
         {"estado": "aprobada", "revisado_por": revisor,

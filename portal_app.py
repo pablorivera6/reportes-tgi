@@ -715,7 +715,7 @@ def render_dashboard_dcvg(detalle):
         _grafica_resistividad(pd.DataFrame(detalle["resistividades"]))
 
     # ── Comparativa con la inspección DCVG anterior ──────────────────────────
-    _hist, _ = _contexto_tramo(insp, "DCVG")
+    _hist, _rects_d = _contexto_tramo(insp, "DCVG")
     if _hist:
         import comparativa
         tema.seccion(st, f"Comparativa con histórico · {_hist.get('periodo','')}")
@@ -749,6 +749,18 @@ def render_dashboard_dcvg(detalle):
             + f" · fuente: {_hist.get('fuente') or '—'}. "
             "Dos campañas DCVG no encuentran el defecto en la misma abscisa: "
             "lo comparable es cuántos hay, de qué severidad y cada cuánto.")
+
+    # PDF del dashboard (mismo criterio que en CIPS: si hay con qué comparar)
+    if _hist or _rects_d:
+        try:
+            import comparativa
+            _pdf = comparativa.pdf_dashboard_dcvg(detalle, dfd, _hist, rects=_rects_d)
+            st.download_button(
+                "⬇️ Descargar PDF del dashboard", data=_pdf,
+                file_name=f"Dashboard_{(insp.get('tramo') or 'tramo').replace(' ', '_')}.pdf",
+                mime="application/pdf")
+        except Exception as e:
+            st.caption(f"(No se pudo generar el PDF: {e})")
 
     # tabla de defectos (Inspección DCVG)
     st.markdown("**Defectos**")

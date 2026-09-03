@@ -502,12 +502,24 @@ anteriores. Ahí no hay perfil de potenciales sino defectos, así que:
   match tramo↔histórico pasa por `nombres.mismo_tramo` (`db._mismo_tramo`):
   el histórico dice 'Ansermanuevo' y el portal 'Ramal Ansermanuevo'.
 - `cargar_historico.py` acepta **varios archivos o una carpeta**.
-- **Cargados en vivo (11, contratista TELMACOM 2024):** DCVG de Andalucía,
-  Ansermanuevo, Bugalagrande, Cartago, La Victoria, Montenegro, Quimbaya,
-  Roldanillo, Salento y Zarzal + CIPS de San Pedro. Enganchan con 9 de las
-  inspecciones DCVG que ya están en el portal; Cartago y el CIPS de San Pedro
-  quedan esperando su inspección. Sin histórico: Chinchiná, Praderas, San Pedro
-  (DCVG) y la inspección cuyo tramo quedó como 'ramal'.
+- **Cargados en vivo: 22 históricos (contratista TELMACOM 2024)**, desde
+  `~/Downloads` (`HIstoricos inspecciones/` 11 + `Historicos/` 10, más La Dorada
+  que ya estaba):
+  · DCVG (19): Andalucía, Ansermanuevo, Balboa, Bugalagrande, Cartago, Chinchiná,
+    Dos Quebradas, La Unión, La Victoria, Manizales, Marsella, Montenegro,
+    Pereira, Quimbaya, Roldanillo, Salento, San Pedro, Tebaida, Zarzal.
+  · CIPS (3): La Dorada, Palestina, San Pedro.
+  **16 de las 19 inspecciones del portal tienen comparativa.** Esperando su
+  inspección actual: Cartago, Balboa, Tebaida, La Unión (DCVG) y San Pedro,
+  Palestina (CIPS). Las 3 sin comparativa: Praderas (no hay histórico), la
+  inspección cuyo tramo quedó grabado como 'ramal' (sin nombre, nunca casará) y
+  **Palestina** — su histórico es CIPS y la inspección publicada es DCVG, así
+  que no cruzan (técnicas distintas, no es un bug).
+- **Limpieza (2026-09-01):** se borraron del portal las 9 inspecciones de prueba
+  (3 demos `OT-2026-*`, 3 del consolidado `OT-CONS-*`, 1 de revisión `OT-REV-001`
+  y 2 rechazadas duplicadas), con respaldo en `respaldos/` (gitignored). Para eso
+  se agregó `db.borrar_inspeccion(id)`: el `on delete cascade` del esquema limpia
+  las filas hijas, pero el Excel del bucket NO, así que la función lo borra.
 
 **⚠️ OJO INTEGRIDAD DEL DATO (CIPS):**
 - El pipeline propio guarda `off_mv` (crudo) **y** `off_limpio` (procesado). La "limpieza"

@@ -164,6 +164,18 @@ def _abscisa_txt(v):
         return str(v or "")
 
 
+_ESTADO_TXT = {"aprobada": "Aprobada", "en_revision": "En revisión",
+               "rechazada": "Rechazada"}
+
+
+def _titulo_tramo(t):
+    """'ramal salento' -> 'Ramal Salento'. Respeta lo que ya venga en mayúscula
+    (siglas como URPC) y los nombres ya bien escritos."""
+    partes = str(t or "Inspección").split()
+    return " ".join(p if (p.isupper() or (p[:1].isupper() and not p.islower()))
+                    else p.capitalize() for p in partes)
+
+
 def _cabecera(fig, plt, tramo, sub, pag, total_pag):
     fig.text(0.06, 0.955, tramo, fontsize=15, fontweight="bold", color="#191C20")
     fig.text(0.06, 0.930, sub, fontsize=9.5, color="#646A73")
@@ -215,7 +227,7 @@ def pdf_dashboard(detalle, dfp, hist=None, rects=None) -> bytes:
     hall = detalle.get("hallazgos", []) or []
     tramos = detalle.get("tramos", []) or []
     res = insp.get("resumen") or {}
-    tramo = insp.get("tramo") or "Inspección"
+    tramo = _titulo_tramo(insp.get("tramo"))
     sub = f"Protección catódica (CIPS) · Dashboard de inspección"
     offs = [o for o in dfp["off"].tolist() if isinstance(o, (int, float))]
     pct = res.get("pct_cumple")
@@ -238,7 +250,8 @@ def pdf_dashboard(detalle, dfp, hist=None, rects=None) -> bytes:
         _cabecera(fig, plt, tramo, sub, 1, NP)
         meta = [("Gasoducto", insp.get("gasoducto")), ("Fecha", insp.get("fecha")),
                 ("Inspector", insp.get("inspector")), ("OT", insp.get("ot")),
-                ("Ciclo", insp.get("ciclo")), ("Estado", insp.get("estado", "aprobada"))]
+                ("Ciclo", insp.get("ciclo")),
+                ("Estado", _ESTADO_TXT.get(insp.get("estado"), insp.get("estado")))]
         y = 0.895
         for i, (k, v) in enumerate([m for m in meta if m[1]]):
             x = 0.06 + (i % 3) * 0.30
@@ -273,7 +286,7 @@ def pdf_dashboard(detalle, dfp, hist=None, rects=None) -> bytes:
                 fig.text(x, cy - 0.05, f"{was} → ", fontsize=8.5, color="#646A73")
                 fig.text(x + 0.075, cy - 0.052, now, fontsize=12, fontweight="bold",
                          color="#191C20")
-            ax = fig.add_axes([0.09, 0.08, 0.85, cy - 0.13])
+            ax = fig.add_axes([0.09, 0.09, 0.85, cy - 0.19])
             hx, hy = _serie(hist.get("puntos"))
             ax.axhline(CRIT, color=AMBAR, lw=1.4, ls="--", label="Criterio −850 mV")
             ax.plot(hx, hy, color=GRIS, lw=.9, label=f"Histórico · {r['periodo']}")
@@ -379,3 +392,224 @@ def pdf_dashboard(detalle, dfp, hist=None, rects=None) -> bytes:
 def pdf_bytes(tramo, dfp, hist) -> bytes:
     return pdf_dashboard({"inspeccion": {"tramo": tramo}, "hallazgos": [],
                           "tramos": []}, dfp, hist)
+
+
+def pdf_dashboard_dcvg(detalle, dfd, hist=None, rects=None) -> bytes:
+    """PDF multipágina del dashboard DCVG, con la comparativa histórica.
+
+    El de CIPS imprime un perfil continuo de potenciales; aquí lo que importa
+    son los defectos de recubrimiento: cuántos, de qué severidad, dónde, y cómo
+    se compara esa POBLACIÓN con la campaña anterior (dos campañas no
+    encuentran el defecto en la misma abscisa). matplotlib, para que corra en
+    Streamlit Cloud sin Chrome.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+    from matplotlib.patches import Patch
+
+    insp = detalle.get("inspeccion", {})
+    hall = detalle.get("hallazgos", []) or []
+    resist = detalle.get("resistividades", []) or []
+    postes = detalle.get("postes", []) or []
+    res = insp.get("resumen") or {}
+    tramo = _titulo_tramo(insp.get("tramo"))
+    conteo = res.get("por_clasificacion") or {}
+    long_km = (res.get("longitud_m") or 0) / 1000
+    vacio = dfd is None or len(dfd) == 0
+    d = (dfd.dropna(subset=["abscisa", "severidad_pct"]).sort_values("abscisa")
+         if not vacio else dfd)
+
+    _n_rect = 0
+    if rects:
+        try:
+            import rectificadores as _rx
+            _n_rect = _rx.paginas_pdf_count(rects)
+        except Exception:
+            _n_rect = 0
+    NP = 3 + _n_rect
+
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        # ── Página 1: ficha + KPIs + comparativa con el histórico ────────────
+        fig = plt.figure(figsize=(8.3, 11.7), dpi=150)
+        _cabecera(fig, plt, tramo,
+                  "Defectos de recubrimiento (DCVG) · Dashboard de inspección", 1, NP)
+        meta = [("Gasoducto", insp.get("gasoducto")), ("Fecha", insp.get("fecha")),
+                ("Inspector", insp.get("inspector")), ("OT", insp.get("ot")),
+                ("Ciclo", insp.get("ciclo")),
+                ("Estado", _ESTADO_TXT.get(insp.get("estado"), insp.get("estado")))]
+        y = 0.895
+        for i, (k, v) in enumerate([m for m in meta if m[1]]):
+            x = 0.06 + (i % 3) * 0.30
+            if i % 3 == 0 and i:
+                y -= 0.035
+            fig.text(x, y, k.upper(), fontsize=7, color="#9AA0A6")
+            fig.text(x, y - 0.016, str(v), fontsize=9.5, color="#191C20",
+                     fontweight="bold")
+        ky = y - 0.06
+        kpis = [("Defectos", res.get("n_defectos", len(dfd) if not vacio else 0)),
+                ("Críticos", res.get("n_criticos", 0)),
+                ("Postes", res.get("n_postes", len(postes))),
+                ("Resistividades", res.get("n_resist", len(resist))),
+                ("Hallazgos", res.get("n_hallazgos", len(hall)))]
+        for i, (k, v) in enumerate(kpis):
+            x = 0.06 + i * 0.178
+            fig.text(x, ky, str(v), fontsize=17, fontweight="bold", color=ROJO)
+            fig.text(x, ky - 0.022, k, fontsize=7.2, color="#646A73")
+        # distribución por severidad (la lectura rápida del recubrimiento)
+        sy = ky - 0.06
+        fig.text(0.06, sy, "DISTRIBUCIÓN POR SEVERIDAD", fontsize=9.5,
+                 fontweight="bold", color="#191C20")
+        for i, c in enumerate(_CLASES):
+            x = 0.06 + i * 0.225
+            fig.text(x, sy - 0.032, str(conteo.get(c, 0)), fontsize=15,
+                     fontweight="bold",
+                     color=COLOR_CLAS[c] if conteo.get(c) else "#9AA0A6")
+            fig.text(x, sy - 0.052, c.upper(), fontsize=6.8, color="#646A73")
+        cy = sy - 0.085
+        if hist:
+            r = resumen_comparativo_dcvg(dfd, hist, res.get("longitud_m"))
+            a, h = r["actual"], r["historico"]
+
+            def _par(clave, fmt="{}"):
+                va, vh = a.get(clave), h.get(clave)
+                f = lambda v: "—" if v is None else fmt.format(v)
+                return f(vh), f(va)
+
+            fig.text(0.06, cy, f"COMPARATIVA CON HISTÓRICO · {r['periodo']}",
+                     fontsize=9.5, fontweight="bold", color="#191C20")
+            comp = [("Defectos", *_par("n_defectos")),
+                    ("Críticos", *_par("n_criticos")),
+                    ("Densidad", *_par("densidad_km", "{:.2f}/km")),
+                    ("Severidad máx.", *_par("max_severidad", "{:.1f} %"))]
+            for i, (k, was, now) in enumerate(comp):
+                x = 0.06 + i * 0.225
+                fig.text(x, cy - 0.03, k.upper(), fontsize=6.8, color="#9AA0A6")
+                fig.text(x, cy - 0.05, f"{was} → ", fontsize=8.5, color="#646A73")
+                fig.text(x + 0.075, cy - 0.052, now, fontsize=12, fontweight="bold",
+                         color="#191C20")
+            ax = fig.add_axes([0.09, 0.11, 0.85, cy - 0.21])
+            hd = _defectos_hist(hist)
+            if hd:
+                ax.scatter([p["abscisa"] for p in hd],
+                           [p["severidad_pct"] for p in hd], s=42, marker="D",
+                           facecolors="none", edgecolors=GRIS, linewidths=1.3,
+                           label=f"Histórico · {r['periodo']}")
+            if not vacio and not d.empty:
+                ax.scatter(d["abscisa"], d["severidad_pct"], s=46,
+                           c=[COLOR_CLAS.get(c, ROJO) for c in d["clasificacion"]],
+                           edgecolors="white", linewidths=.8,
+                           label="Inspección actual", zorder=3)
+            for yv, col in ((15, COLOR_CLAS["Pequeño"]), (35, AMBAR), (60, ROJO)):
+                ax.axhline(yv, color=col, lw=1, ls="--")
+                ax.text(1.002, yv, f"{yv} %", transform=ax.get_yaxis_transform(),
+                        fontsize=6.5, color=col, va="center")
+            ax.set_xlabel("Abscisado (progresiva)"); ax.set_ylabel("Severidad %IR")
+            ax.grid(True, color="#E3E5E9", lw=.6); ax.set_axisbelow(True)
+            for sp in ("top", "right"):
+                ax.spines[sp].set_visible(False)
+            ax.legend(loc="upper right", fontsize=8); ax.margins(x=.03)
+            fig.text(0.06, 0.055,
+                     "Dos campañas DCVG no encuentran el defecto en la misma "
+                     "abscisa: lo comparable es cuántos hay,",
+                     fontsize=7, color="#646A73")
+            fig.text(0.06, 0.040,
+                     f"de qué severidad y cada cuánto.  Fuente del histórico: "
+                     f"{str(hist.get('fuente') or '—')[:88]}",
+                     fontsize=7, color="#646A73")
+        else:
+            fig.text(0.06, cy, "Sin campaña anterior cargada para este tramo.",
+                     fontsize=9, color="#9AA0A6")
+        pdf.savefig(fig); plt.close(fig)
+
+        # ── Página 2: mapa + severidad vs abscisa + resistividad ─────────────
+        fig = plt.figure(figsize=(8.3, 11.7), dpi=150)
+        _cabecera(fig, plt, tramo, "Mapa, severidad y resistividad del suelo", 2, NP)
+        axm = fig.add_axes([0.08, 0.60, 0.86, 0.30])
+        mp = (d.dropna(subset=["lat", "lon"])
+              if not vacio and "lat" in d.columns else None)
+        if mp is not None and not mp.empty:
+            axm.scatter(mp["lon"], mp["lat"], s=38,
+                        c=[COLOR_CLAS.get(c, "#9CA3AF") for c in mp["clasificacion"]],
+                        edgecolors="white", linewidths=.7)
+            axm.set_xlabel("Longitud"); axm.set_ylabel("Latitud")
+            axm.grid(True, color="#EEF0F2", lw=.6); axm.set_axisbelow(True)
+            axm.legend(handles=[Patch(color=COLOR_CLAS[c], label=c)
+                                for c in _CLASES if conteo.get(c)],
+                       fontsize=7.5, loc="best")
+        else:
+            axm.axis("off")
+            axm.text(0, .5, "Los defectos no tienen coordenadas.", fontsize=9,
+                     color="#9AA0A6")
+        axm.set_title("Mapa — defectos por severidad", fontsize=10, loc="left",
+                      fontweight="bold", color="#191C20")
+        axs = fig.add_axes([0.08, 0.33, 0.86, 0.20])
+        if not vacio and not d.empty:
+            axs.bar(d["abscisa"], d["severidad_pct"],
+                    color=[COLOR_CLAS.get(c, "#9CA3AF") for c in d["clasificacion"]],
+                    width=max(12, (long_km * 1000) / 90 if long_km else 12))
+            for yv, col in ((15, COLOR_CLAS["Pequeño"]), (35, AMBAR), (60, ROJO)):
+                axs.axhline(yv, color=col, lw=1, ls="--")
+        else:
+            axs.text(.5, .5, "Sin defectos registrados.", ha="center", fontsize=9,
+                     color="#9AA0A6", transform=axs.transAxes)
+        axs.set_title("Severidad %IR vs abscisa", fontsize=10, loc="left",
+                      fontweight="bold", color="#191C20")
+        axs.set_ylabel("%IR"); axs.grid(True, color="#E3E5E9", lw=.6)
+        axs.set_axisbelow(True)
+        for sp in ("top", "right"):
+            axs.spines[sp].set_visible(False)
+        axr = fig.add_axes([0.08, 0.07, 0.86, 0.18])
+        if resist:
+            rr = sorted((x for x in resist if x.get("abscisa") is not None),
+                        key=lambda x: x["abscisa"])
+            xs = [x["abscisa"] for x in rr]
+            for col, nombre, color in (("r1", "1 m", "#646A73"), ("r2", "2 m", "#2B5F8E"),
+                                       ("r3", "3 m", ROJO)):
+                ys = [x.get(col) for x in rr]
+                if any(v is not None for v in ys):
+                    axr.plot(xs, ys, marker="o", ms=3, lw=1, color=color, label=nombre)
+            axr.legend(fontsize=7.5)
+        else:
+            axr.text(.5, .5, "Sin sondeos de resistividad.", ha="center", fontsize=9,
+                     color="#9AA0A6", transform=axr.transAxes)
+        axr.set_title("Resistividad del suelo vs abscisa", fontsize=10, loc="left",
+                      fontweight="bold", color="#191C20")
+        axr.set_xlabel("Abscisado"); axr.set_ylabel("Ω·m")
+        axr.grid(True, color="#E3E5E9", lw=.6); axr.set_axisbelow(True)
+        for sp in ("top", "right"):
+            axr.spines[sp].set_visible(False)
+        pdf.savefig(fig); plt.close(fig)
+
+        # ── Página 3: tablas de defectos y hallazgos ─────────────────────────
+        fig = plt.figure(figsize=(8.3, 11.7), dpi=150)
+        _cabecera(fig, plt, tramo, "Detalle: defectos y hallazgos de campo", 3, NP)
+        filas = [] if vacio else [
+            [_abscisa_txt(x.get("abscisa")), str(x.get("caracter") or "—"),
+             _fmt(x.get("ol_re")), _fmt(x.get("p_re")),
+             _fmt(x.get("severidad_pct"), "{:.1f} %"),
+             str(x.get("clasificacion") or "—"), _fmt(x.get("profundidad"), "{:.2f}")]
+            for x in dfd.to_dict("records")[:26]]
+        _tabla(fig, plt, [0.06, 0.50, 0.88, 0.36], "Defectos",
+               ["Abscisa", "Carácter", "OL/RE", "P/RE", "%IR", "Clasificación",
+                "Prof. [m]"], filas,
+               anchos=[.17, .11, .12, .13, .12, .21, .14])
+        fh = [[_abscisa_txt(h.get("abscisa_ini")), str(h.get("tipo") or "—"),
+               str(h.get("descripcion") or "")[:58]] for h in hall[:24]]
+        _tabla(fig, plt, [0.06, 0.07, 0.88, 0.34], "Hallazgos de campo",
+               ["Abscisa", "Tipo", "Descripción"], fh, anchos=[.18, .25, .57])
+        pdf.savefig(fig); plt.close(fig)
+
+        if rects:
+            try:
+                import rectificadores as _rx
+                _rx.paginas_pdf(pdf, plt, rects, tramo, 4, NP)
+            except Exception:
+                pass
+    return buf.getvalue()
+
+
+def _fmt(v, patron="{:.1f}"):
+    return patron.format(v) if isinstance(v, (int, float)) else "—"
