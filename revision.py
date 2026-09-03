@@ -14,6 +14,64 @@ Sin Streamlit y sin red: todo aquí es puro.
 """
 from __future__ import annotations
 
+# ── Categorías de rechazo ───────────────────────────────────────────────────
+# Cada una termina en un sitio distinto: por eso el rechazo se clasifica en vez
+# de ser un párrafo suelto.
+CATEGORIAS = ("datos_generales", "procesamiento", "texto_campo", "falta_info")
+
+_ETIQUETAS = {
+    "datos_generales": "Datos Generales (tramo, OT, contrato, fechas)",
+    "procesamiento": "Procesamiento (abscisa, tramo, picos, clasificación)",
+    "texto_campo": "Texto de campo (comentarios, hallazgos, conclusiones)",
+    "falta_info": "Falta información (la debe subir el técnico)",
+}
+
+
+def etiqueta(categoria):
+    """Nombre legible de una categoría, para la UI."""
+    return _ETIQUETAS.get(categoria, categoria)
+
+
+def _entero(v):
+    try:
+        if v is None or str(v).strip() == "":
+            return None
+        return int(round(float(v)))
+    except (TypeError, ValueError):
+        return None
+
+
+def normalizar(obs):
+    """Completa y valida una observación venga de donde venga (formulario del
+    revisor, `st.data_editor` o la IA). Lanza ValueError si la categoría no es
+    una de las cuatro: es la única forma de enrutar bien la devolución."""
+    cat = str(obs.get("categoria") or "").strip()
+    if cat not in CATEGORIAS:
+        raise ValueError(
+            f"Categoría '{cat}' inválida. Debe ser una de: {', '.join(CATEGORIAS)}")
+    return {
+        "categoria": cat,
+        "campo": (str(obs["campo"]).strip() or None) if obs.get("campo") else None,
+        "abscisa_ini": _entero(obs.get("abscisa_ini")),
+        "abscisa_fin": _entero(obs.get("abscisa_fin")),
+        "nota": (str(obs.get("nota") or "").strip() or None),
+        "origen": obs.get("origen") or "revisor",
+        "estado": obs.get("estado") or "abierta",
+    }
+
+
+def requiere_crudos(observaciones):
+    """¿Alguna observación obliga a reprocesar desde los archivos del técnico?
+    Solo 'procesamiento': lo demás se arregla con la data ya publicada."""
+    return any(o.get("categoria") == "procesamiento" for o in observaciones or [])
+
+
+def es_para_tecnico(obs):
+    """'falta_info' no abre el buzón: no hay nada que corregir en el generador,
+    falta un archivo que solo el técnico puede subir."""
+    return obs.get("categoria") == "falta_info"
+
+
 # ── Mapeos columna BD → clave del generador ─────────────────────────────────
 _CIPS = {
     "abscisa": "abscisa_val", "fecha": "fecha",
