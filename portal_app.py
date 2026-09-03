@@ -327,14 +327,58 @@ def _barra_revision(insp):
             st.success("Inspección aprobada. Ya es visible para TGI.")
             st.rerun()
         with cb.popover("✋ Rechazar"):
-            _nota = st.text_input("Motivo del rechazo", key=f"nota_{insp['id']}")
+            import revision as _rev
+            st.caption("Marca **qué** está mal y **dónde**. El generador usa esto "
+                       "para abrir el informe en el punto exacto.")
+            _obs = st.data_editor(
+                [{"categoria": "datos_generales", "campo": "", "abscisa_ini": None,
+                  "abscisa_fin": None, "nota": ""}],
+                key=f"obs_{insp['id']}", num_rows="dynamic",
+                use_container_width=True,
+                column_config={
+                    "categoria": st.column_config.SelectboxColumn(
+                        "Qué está mal", options=list(_rev.CATEGORIAS),
+                        required=True, width="medium"),
+                    "campo": st.column_config.TextColumn(
+                        "Campo", help="Opcional: 'info.tramo', 'hallazgo.descripcion'"),
+                    "abscisa_ini": st.column_config.NumberColumn("Abscisa desde (m)"),
+                    "abscisa_fin": st.column_config.NumberColumn("Abscisa hasta (m)"),
+                    "nota": st.column_config.TextColumn("Qué hay que corregir",
+                                                        width="large"),
+                })
+            st.caption(" · ".join(f"**{c}**: {_rev.etiqueta(c)}"
+                                  for c in _rev.CATEGORIAS))
             if st.button("Confirmar rechazo", key=f"rej_{insp['id']}"):
-                db.rechazar_inspeccion(insp["id"], revisor="PCC", nota=_nota)
-                _refrescar()
-                st.session_state.sel = None
-                st.session_state.sel_tipo = None
-                st.rerun()
+                _lista = [o for o in _obs if (o.get("nota") or "").strip()]
+                if not _lista:
+                    st.warning("Escribe al menos una observación con su nota.")
+                else:
+                    try:
+                        db.rechazar_inspeccion(insp["id"], revisor="PCC",
+                                               observaciones=_lista)
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        _refrescar()
+                        st.session_state.sel = None
+                        st.session_state.sel_tipo = None
+                        st.rerun()
     elif estado == "rechazada":
+        try:
+            _obs_ab = db.observaciones_de(insp["id"])
+        except Exception:
+            _obs_ab = []
+        if _obs_ab:
+            import revision as _rev
+            st.markdown("**Pendiente de corregir en el generador:**")
+            for _o in _obs_ab:
+                _donde = ""
+                if _o.get("abscisa_ini") is not None:
+                    _donde = f" · {_abscisa_txt(_o['abscisa_ini'])}"
+                    if _o.get("abscisa_fin") is not None:
+                        _donde += f" a {_abscisa_txt(_o['abscisa_fin'])}"
+                st.caption(f"· *{_rev.etiqueta(_o['categoria'])}*{_donde} — "
+                           f"{_o.get('nota') or ''}")
         if st.button("↩️ Reabrir para revisión", key=f"reab_{insp['id']}"):
             _client_reabrir(insp["id"])
             _refrescar()
