@@ -21,6 +21,10 @@ import re
 MODELO = "claude-opus-5"
 MAX_TOKENS = 8000
 
+import revision as _revision
+
+CATEGORIAS_VALIDAS = _revision.CATEGORIAS
+
 #: Único campo de una fila que la IA puede reescribir: texto que escribió una
 #: persona en campo. Añadir aquí es una decisión consciente.
 CAMPOS_TEXTO = ("observaciones", "descripcion", "comentarios", "ref_geografica",
@@ -74,3 +78,117 @@ def aplicar_cambios(data, cambios) -> int:
             filas[i][m.group("campo")] = c.get("valor_despues")
             n += 1
     return n
+
+
+# ── Cliente ─────────────────────────────────────────────────────────────────
+def disponible(api_key=None) -> bool:
+    """¿Se puede llamar a Claude? Sin esto la app funciona igual, a mano."""
+    if not api_key:
+        return False
+    try:
+        import anthropic          # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _cliente(api_key):
+    try:
+        import anthropic
+    except Exception as e:        # el paquete es opcional, como google-generativeai
+        raise IARevisionError(
+            "El paquete 'anthropic' no está instalado; el asistente queda "
+            "desactivado y el flujo manual sigue igual.") from e
+    return anthropic.Anthropic(api_key=api_key)
+
+
+def _json_de(resp):
+    """Texto → dict. `output_config.format` garantiza JSON válido, pero una
+    negativa o un corte por max_tokens no lo garantizan: por eso se valida."""
+    if getattr(resp, "stop_reason", None) == "refusal":
+        raise IARevisionError("Claude declinó la solicitud.")
+    try:
+        texto = next(b.text for b in resp.content if b.type == "text")
+        return json.loads(texto)
+    except (StopIteration, ValueError, AttributeError) as e:
+        raise IARevisionError(f"Respuesta no interpretable: {e}") from e
+
+
+def _pedir(cliente, api_key, sistema, payload, esquema):
+    cli = cliente or _cliente(api_key)
+    try:
+        resp = cli.messages.create(
+            model=MODELO, max_tokens=MAX_TOKENS,
+            system=sistema,
+            messages=[{"role": "user",
+                       "content": json.dumps(payload, ensure_ascii=False,
+                                             default=str)}],
+            output_config={"format": {"type": "json_schema", "schema": esquema}},
+        )
+    except IARevisionError:
+        raise
+    except Exception as e:        # red, credencial, cuota: nunca tumba la app
+        raise IARevisionError(f"No se pudo consultar a Claude: {e}") from e
+    return _json_de(resp)
+
+
+# ── 1. La nota del revisor → observaciones estructuradas ────────────────────
+_SISTEMA_OBS = """\
+Eres el asistente de un ingeniero de protección catódica de PCC Integrity que
+revisa informes de inspección del gasoducto TGI (PAP, CIPS y DCVG).
+
+Recibes la nota con la que un revisor rechazó un informe, escrita informalmente.
+Devuélvela partida en observaciones concretas. Una observación por problema.
+
+Categorías (elige exactamente una por observación):
+- datos_generales: tramo, OT, contrato, inspector, fecha, ciclo, contratista.
+- procesamiento: abscisa corrida, tramo o shapefile equivocado, picos de
+  potencial, clasificación o severidad mal calculada. Obliga a reprocesar.
+- texto_campo: comentarios del técnico, redacción de hallazgos, conclusiones.
+- falta_info: falta un archivo, fotos o mediciones que el técnico no subió.
+
+Reglas:
+- Las abscisas van en METROS enteros. "K12" o "12+000" es 12000. Si la nota no
+  da abscisa, deja null; no la inventes.
+- `campo` solo cuando la nota señale uno concreto ("info.tramo",
+  "hallazgo.descripcion"); si no, cadena vacía.
+- `nota` reformula el problema en una frase clara y accionable, en español.
+- No inventes problemas que la nota no menciona.\
+"""
+
+_ESQUEMA_OBS = {
+    "type": "object",
+    "properties": {
+        "observaciones": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "categoria": {"type": "string",
+                                  "enum": list(CATEGORIAS_VALIDAS)},
+                    "campo": {"type": "string"},
+                    "abscisa_ini": {"type": ["integer", "null"]},
+                    "abscisa_fin": {"type": ["integer", "null"]},
+                    "nota": {"type": "string"},
+                },
+                "required": ["categoria", "campo", "abscisa_ini",
+                             "abscisa_fin", "nota"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["observaciones"],
+    "additionalProperties": False,
+}
+
+
+def estructurar_nota(nota, contexto, api_key=None, cliente=None):
+    """Nota en lenguaje natural → lista de observaciones ya normalizadas.
+    `cliente` es para los tests; en producción se pasa `api_key`."""
+    datos = _pedir(cliente, api_key, _SISTEMA_OBS,
+                   {"nota_del_revisor": nota, "informe": contexto}, _ESQUEMA_OBS)
+    try:
+        return [_revision.normalizar(dict(o, origen="ia"))
+                for o in datos.get("observaciones") or []]
+    except ValueError as e:
+        raise IARevisionError(f"Claude devolvió una categoría inválida: {e}") from e

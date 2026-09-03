@@ -18,3 +18,7 @@ supabase>=2,<3
 # grpcio/protobuf/google-api-core que rompían el build. El código maneja su
 # ausencia sin fallar. Para reactivar Fotos IA, añadir aquí una versión probada.
 matplotlib>=3.6,<4
+
+# Asistente de revisión (ia_revision.py). Opcional: el módulo maneja su
+# ausencia y el flujo de corrección funciona a mano sin él.
+anthropic>=0.40,<2
