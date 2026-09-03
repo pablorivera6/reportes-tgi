@@ -295,6 +295,13 @@ def _autollenar_tramo(tramo, inspector="", tipo=None):
     return cambios, equipos
 
 
+def _revision_actual():
+    """Letra de revisión del entregable. Si se está corrigiendo un rechazo,
+    sube a la siguiente para no entregar dos archivos llamados Rev.A."""
+    _c = st.session_state.get("corrigiendo") or {}
+    return nombres.siguiente_revision(_c.get("revision")) if _c else "A"
+
+
 def _contexto_generacion(tipo):
     """Snapshot pequeño de con qué se generó el informe. Es lo que rehidrata
     Datos Generales al reabrirlo: la fila `inspecciones` solo guarda algunos
@@ -1472,7 +1479,7 @@ with tabs[9]:
                 gen.fill_conclusiones(data['conclusiones'])
                 gen.fill_recomendaciones(data['recomendaciones'])
                 tmpd = tempfile.mkdtemp(prefix="tgi_out_")
-                nombre = nombres.nombre_archivo(info)
+                nombre = nombres.nombre_archivo(info, revision=_revision_actual())
                 out = os.path.join(tmpd, nombre)
                 gen.save(out)
                 with open(out, 'rb') as f:
@@ -1485,7 +1492,7 @@ with tabs[9]:
                 st.session_state.ppm_nombre = ""
                 try:
                     from ppm_generator import PPMDcvgGenerator
-                    ppm_nom = nombres.nombre_archivo(info, doc="PPM")
+                    ppm_nom = nombres.nombre_archivo(info, doc="PPM", revision=_revision_actual())
                     ppm_out = os.path.join(tmpd, ppm_nom)
                     PPMDcvgGenerator().generate(
                         info, data['dcvg_postes'], data['dcvg_defectos'],
@@ -1579,11 +1586,11 @@ with tabs[9]:
             gen.fill_firmas(FIRMAS_FIJAS['elaboro'], FIRMAS_FIJAS['reviso'],
                             FIRMAS_FIJAS['aprobo'])
             tmpd = tempfile.mkdtemp(prefix="tgi_out_")
-            nombre = nombres.nombre_archivo(info)
+            nombre = nombres.nombre_archivo(info, revision=_revision_actual())
             pap_path = os.path.join(tmpd, nombre)
             gen.save(pap_path)
             prog.progress(90, text="Generando PPM...")
-            ppm_path = os.path.join(tmpd, nombres.nombre_archivo(info, doc="PPM"))
+            ppm_path = os.path.join(tmpd, nombres.nombre_archivo(info, doc="PPM", revision=_revision_actual()))
             PPMGenerator().generate(info, data['potenciales'], data['aislamientos'],
                                     ppm_path, cips=data['cips'])
             with open(pap_path, 'rb') as f:
@@ -1591,7 +1598,7 @@ with tabs[9]:
             with open(ppm_path, 'rb') as f:
                 st.session_state.ppm_bytes = f.read()
             st.session_state.informe_nombre = nombre
-            st.session_state.ppm_nombre = nombres.nombre_archivo(info, doc="PPM")
+            st.session_state.ppm_nombre = nombres.nombre_archivo(info, doc="PPM", revision=_revision_actual())
             prog.progress(100, text="¡Listo!")
             st.success("Informes generados.")
             _no_cupo = (getattr(gen, 'conclusiones_omitidas', 0)
@@ -1674,6 +1681,12 @@ with tabs[9]:
         if _tipo_pub:
             st.divider()
             st.markdown(f"**Portal TGI** · publicar inspección {_tipo_pub}")
+            _corr = st.session_state.get("corrigiendo") or {}
+            if _corr:
+                st.info(f"Estás corrigiendo un informe rechazado. Al publicar se "
+                        f"**actualiza la misma inspección** como "
+                        f"Rev.{_revision_actual()} y vuelve a la cola del revisor.",
+                        icon=":material/history:")
             if not db.disponible(write=True):
                 st.caption("ℹ️ Configura Supabase (`[supabase] service_key`) en los "
                            "Secrets para poder publicar la inspección al portal.")
@@ -1689,8 +1702,11 @@ with tabs[9]:
                                             _info.get('tramo', '')).strip()
                     _ppm_nombre = _nombre_ppm()
                     _cargas = st.session_state.get("cargas_usadas") or []
+                    _corr = st.session_state.get("corrigiendo") or {}
                     _origen = {"carga_id": _cargas[0] if _cargas else None,
-                               "contexto": _contexto_generacion(_tipo_pub)}
+                               "contexto": _contexto_generacion(_tipo_pub),
+                               "revision": _revision_actual(),
+                               "reemplaza_id": _corr.get("id") or None}
                     if _tipo_pub == "CIPS":
                         _id = db.guardar_inspeccion_cips(
                             _info, data['cips'], cips_a_hallazgos(data['cips']),
@@ -1712,6 +1728,9 @@ with tabs[9]:
                             excel_nombre=st.session_state.informe_nombre,
                             ppm_bytes=st.session_state.ppm_bytes,
                             ppm_nombre=_ppm_nombre, creado_por="PCC", **_origen)
+                    if _corr.get("id"):
+                        db.marcar_observaciones(_corr["id"], "resuelta")
+                        st.session_state.corrigiendo = None
                     st.session_state.publicado_id = _id
                     st.rerun()
                 except Exception as e:
