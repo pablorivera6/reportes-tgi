@@ -644,3 +644,49 @@ esta appcita (199 líneas, solo sube archivos + crea carga) a **web estática**.
   build). La generadora Streamlit se QUEDA (es de oficina/PCC, el sueño no molesta).
 - **PENDIENTE**: usuario corre schema_v8.sql → probar envío real e2e → desplegar en
   Vercel y reemplazar el link que usan los técnicos. Rotar contraseña FastField sigue.
+
+### 10.14 Devolución de informes rechazados (+ asistente Claude) — 2026-09
+Un rechazo en el portal dejó de ser un párrafo muerto: ahora enruta la corrección.
+- **`portal/schema_v9.sql`**: `inspecciones.carga_id` (de qué carga salió),
+  `.contexto` jsonb (el `info` completo + selección de tramo, que la fila NO guarda:
+  sin él se pierden contrato, tipo de ducto, distrito y calibración al reabrir) y
+  `.revision` ('A','B'…); tabla `observaciones_revision` (categoría, campo, abscisas,
+  nota, origen revisor|ia, estado). RLS: solo service_role.
+- **4 categorías** (`revision.CATEGORIAS`): `datos_generales` · `procesamiento`
+  (la ÚNICA que obliga a reprocesar crudos) · `texto_campo` · `falta_info` (NO
+  vuelve al generador: `revision.mensaje_tecnico` arma el texto para el técnico;
+  no hay canal automático hacia él, la web de carga es de una sola vía).
+- **`revision.py`**: mapeadores inversos BD→generador y `rehidratar(detalle, tipo)`.
+  La rehidratación sale de las filas YA publicadas, así que funciona aunque el
+  informe se haya cargado a mano (sin `carga_id`). **Los derivados (`estado`,
+  `p_re`, `severidad_pct`, `clasificacion`) NO se rehidratan**: los recalculan
+  `dashboard.estado_cp` y `db._severidad_dcvg` — por eso el `%` vs. fracción del
+  DCVG no puede corromperse. Cubierto por `tests/test_revision_roundtrip.py`:
+  **si ese test se rompe, el informe corregido sale con datos corridos y no lanza
+  ningún error.** Si añades una columna a una tabla hija, añádela también al mapa.
+- **`db.py`**: `_*_filas` puros (para poder probar el round-trip sin Supabase),
+  `_crear_o_reemplazar` (republicar ACTUALIZA la fila y reescribe las hijas, no
+  inserta un duplicado que el cliente TGI vería), `rechazar_inspeccion(...,
+  observaciones=[...])`, `observaciones_de`, `listar_rechazadas`,
+  `marcar_observaciones`, `marcar_carga_incompleta`.
+- **`nombres.py`**: `nombre_archivo(..., revision='A')` + `siguiente_revision`.
+- **Flujo (verificado en vivo de punta a punta)**: portal (revisor) rechaza con
+  categorías → generador, pestaña Archivos, "🔧 Rechazos por corregir" → "Abrir
+  para corregir" (rehidrata data + Datos Generales vía `pending_autofill`) o
+  "Reprocesar desde crudos" (si hay `carga_id` y la causa es procesamiento) →
+  arreglar → generar (sale `..._Rev.B.xlsx`) → publicar: actualiza la MISMA
+  inspección, vuelve a `en_revision` y cierra las observaciones.
+- **`ia_revision.py`** (`claude-opus-5`, `st.secrets['anthropic']['api_key']`):
+  `estructurar_nota` (nota informal → observaciones) y `proponer_correcciones`
+  (→ diff aprobable). **`ruta_editable` es una LISTA BLANCA**: solo `info.*` y los
+  campos de `CAMPOS_TEXTO`; cualquier propuesta sobre potenciales, severidades,
+  abscisas o coordenadas se descarta ANTES de mostrarse, y `aplicar_cambios` vuelve
+  a filtrar. Probado adversarialmente: 0 de 945 combinaciones campo-de-medición ×
+  lista × índice resultan escribibles. Un campo nuevo nace PROHIBIDO; abrirlo debe
+  ser una decisión consciente. `anthropic` es opcional y el import es perezoso:
+  sin credencial no se dibuja ningún widget de IA y todo el flujo funciona a mano
+  (verificado). Solo viajan a la API las filas de las abscisas señaladas
+  (`MAX_FILAS = 60`), nunca los ~100.000 puntos de un CIPS.
+- **PENDIENTE**: configurar `[anthropic] api_key` (local y en los Secrets de las
+  apps de procesamiento y portal en Streamlit Cloud) y probar la IA contra la API
+  real — es lo único del flujo que no se pudo verificar en vivo.
