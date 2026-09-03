@@ -986,6 +986,72 @@ with tabs[1]:
                         st.success("Carga marcada; vuelve a aparecer como pendiente.")
                         st.rerun()
 
+                _apikey = ""
+                try:
+                    _apikey = str(st.secrets.get("anthropic", {}).get("api_key", ""))
+                except Exception:
+                    _apikey = ""
+                _abierto = (st.session_state.get("corrigiendo") or {}).get("id")
+                if _apikey and _corregibles and _abierto == _r["id"]:
+                    import ia_revision
+                    _kd = f"diff_{_r['id']}"
+                    if st.button("✨ Sugerir arreglos", key=f"sug_{_r['id']}"):
+                        with st.spinner("Revisando las observaciones..."):
+                            try:
+                                _ok, _fuera = ia_revision.proponer_correcciones(
+                                    _corregibles, data, _r.get("tipo"),
+                                    api_key=_apikey)
+                                st.session_state[_kd] = {
+                                    "ok": [dict(c, aplicar=True) for c in _ok],
+                                    "fuera": _fuera}
+                            except ia_revision.IARevisionError as _e:
+                                st.warning(f"{_e} Corrige a mano.")
+                        st.rerun()
+
+                    _diff = st.session_state.get(_kd)
+                    if _diff:
+                        st.markdown("**Cambios propuestos** — marca los que "
+                                    "quieras aplicar:")
+                        _edit = st.data_editor(
+                            _diff["ok"], key=f"ed_{_r['id']}",
+                            use_container_width=True, hide_index=True,
+                            disabled=["ruta", "valor_antes", "valor_despues", "razon"],
+                            column_config={
+                                "aplicar": st.column_config.CheckboxColumn("✓"),
+                                "ruta": st.column_config.TextColumn("Dónde"),
+                                "valor_antes": st.column_config.TextColumn("Antes"),
+                                "valor_despues": st.column_config.TextColumn("Después"),
+                                "razon": st.column_config.TextColumn("Por qué",
+                                                                    width="large"),
+                            })
+                        if _diff["fuera"]:
+                            st.caption(
+                                f"🛡️ {len(_diff['fuera'])} propuesta(s) descartadas "
+                                f"por tocar datos de medición: "
+                                + ", ".join(c.get("ruta", "?")
+                                            for c in _diff["fuera"]))
+                        if st.button("Aplicar los marcados", key=f"apl_{_r['id']}",
+                                     type="primary"):
+                            _n = ia_revision.aplicar_cambios(
+                                data, [c for c in _edit if c.get("aplicar")])
+                            _info_camb = {
+                                c["ruta"].split(".", 1)[1]: c["valor_despues"]
+                                for c in _edit
+                                if c.get("aplicar") and c["ruta"].startswith("info.")}
+                            if _info_camb:
+                                st.session_state.pending_autofill = dict(
+                                    st.session_state.get("pending_autofill") or {},
+                                    **_info_camb)
+                            st.session_state.pop(_kd, None)
+                            st.session_state.flash_autocarga = (
+                                f"{_n} cambio(s) aplicados. Revisa Datos Generales, "
+                                f"vuelve a generar y publica como Rev."
+                                f"{nombres.siguiente_revision(_r.get('revision'))}.")
+                            st.rerun()
+                elif _apikey and _corregibles:
+                    st.caption("Abre el informe para corregir y aparecerá "
+                               "'✨ Sugerir arreglos'.")
+
     # ── Carga manual, organizada por tipo de informe ──────────────────────────
     tema.seccion(st, "Carga manual")
     _tipo_act = data['info'].get('tipo_inspeccion', 'PAP')
