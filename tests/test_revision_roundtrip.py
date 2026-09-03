@@ -100,3 +100,48 @@ def test_hallazgos_round_trip():
     vuelta = revision.hallazgos_desde_filas(db._hallazgos_filas("i", HALLAZGOS_ORIG))
     for k, v in HALLAZGOS_ORIG[0].items():
         assert vuelta[0][k] == v, f"se perdio o cambio '{k}'"
+
+
+DETALLE_CIPS = {
+    "inspeccion": {
+        "id": "insp-1", "tipo": "CIPS", "tramo": "Ansermanuevo",
+        "fecha": "2026-03-04", "inspector": "Juan Perez", "ot": "OT-9",
+        "contexto": {"info": {"tramo": "Ansermanuevo", "contrato": "551007370",
+                              "tipo_ducto": "Ramal", "distrito": "7"}},
+    },
+    "puntos": [], "hallazgos": [], "tramos": [],
+}
+
+
+def test_rehidratar_prefiere_el_contexto_y_completa_con_la_fila():
+    out = revision.rehidratar(DETALLE_CIPS, "CIPS")
+    # del contexto (la fila `inspecciones` no guarda estos)
+    assert out["info"]["contrato"] == "551007370"
+    assert out["info"]["tipo_ducto"] == "Ramal"
+    # de la fila (el contexto no los traía)
+    assert out["info"]["inspector"] == "Juan Perez"
+    assert out["info"]["ot"] == "OT-9"
+    assert out["info"]["tipo_inspeccion"] == "CIPS"
+
+
+def test_rehidratar_cips_devuelve_las_claves_del_tipo():
+    detalle = dict(DETALLE_CIPS, puntos=db._puntos_cips_filas("i", CIPS_ORIG))
+    out = revision.rehidratar(detalle, "CIPS")
+    assert out["cips"][0]["abscisa_val"] == 1200
+    assert "dcvg_postes" not in out and "potenciales" not in out
+
+
+def test_rehidratar_dcvg_devuelve_las_cuatro_listas():
+    sev = db._severidad_dcvg(POSTES_ORIG, DEFECTOS_ORIG)
+    detalle = {
+        "inspeccion": {"id": "i", "tipo": "DCVG", "tramo": "Salento"},
+        "postes": db._postes_dcvg_filas("i", POSTES_ORIG),
+        "defectos": db._defectos_dcvg_filas("i", DEFECTOS_ORIG, sev),
+        "resistividades": db._resist_dcvg_filas("i", RESIST_ORIG),
+        "hallazgos": db._hallazgos_filas("i", HALLAZGOS_ORIG),
+    }
+    out = revision.rehidratar(detalle, "DCVG")
+    assert out["dcvg_postes"][0]["pk_m"] == 0
+    assert out["dcvg_defectos"][0]["ol_re"] == 60.0
+    assert out["dcvg_resist"][0]["r2"] == 20.0
+    assert out["dcvg_hallazgos"][0]["descripcion"] == "cruce de vía"

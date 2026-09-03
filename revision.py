@@ -163,3 +163,38 @@ def resist_desde_filas(filas):
 def hallazgos_desde_filas(filas):
     """`hallazgos` → dicts de `data['hallazgos']` / `data['dcvg_hallazgos']`."""
     return _mapear(filas, _HALLAZGOS)
+
+
+# Campos de `info` que la fila `inspecciones` sí guarda, por si no hay contexto
+# (informes publicados antes del esquema v9).
+_INFO_DE_FILA = ("gasoducto", "tramo", "fecha", "inspector", "ciclo", "ot",
+                 "contratista", "serial_equipo", "tipo_recubrimiento", "diametro")
+
+
+def rehidratar(detalle, tipo):
+    """Detalle de `db.cargar_inspeccion_*` → dicts listos para `data`.
+
+    `info` sale del `contexto` snapshoteado al publicar (es el completo) y se
+    completa con las columnas de la fila cuando falte algo. Devuelve solo las
+    claves del tipo, para no pisar listas de otros tipos en la sesión.
+    """
+    insp = (detalle or {}).get("inspeccion") or {}
+    info = dict((insp.get("contexto") or {}).get("info") or {})
+    for col in _INFO_DE_FILA:
+        if not info.get(col) and insp.get(col):
+            info[col] = insp[col]
+    info["tipo_inspeccion"] = insp.get("tipo") or tipo
+
+    out = {"info": info}
+    if tipo == "CIPS":
+        out["cips"] = cips_desde_filas(detalle.get("puntos"))
+        out["hallazgos"] = hallazgos_desde_filas(detalle.get("hallazgos"))
+    elif tipo == "PAP":
+        out["potenciales"] = pap_desde_filas(detalle.get("puntos"))
+        out["hallazgos"] = hallazgos_desde_filas(detalle.get("hallazgos"))
+    else:
+        out["dcvg_postes"] = postes_desde_filas(detalle.get("postes"))
+        out["dcvg_defectos"] = defectos_desde_filas(detalle.get("defectos"))
+        out["dcvg_resist"] = resist_desde_filas(detalle.get("resistividades"))
+        out["dcvg_hallazgos"] = hallazgos_desde_filas(detalle.get("hallazgos"))
+    return out

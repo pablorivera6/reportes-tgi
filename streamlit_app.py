@@ -868,6 +868,104 @@ with tabs[1]:
                             for _a in _arch[:60]:
                                 st.caption(f"[{_a.get('categoria')}] {_a.get('nombre')}")
 
+        # — Rechazos por corregir ————————————————————————————————————
+        # Un informe rechazado en el portal vuelve aquí con sus observaciones.
+        # Se rehidrata de las filas ya publicadas: no hace falta el crudo salvo
+        # que el problema sea de procesamiento.
+        import revision as _rev
+
+        @st.cache_data(ttl=45, show_spinner=False)
+        def _rechazos_datos():
+            try:
+                return db.listar_rechazadas(), None
+            except Exception as e:
+                return [], str(e)
+
+        _rech, _err_rech = _rechazos_datos()
+        if _err_rech:
+            st.caption(f"⚠️ rechazos: {_err_rech}")
+        if _rech:
+            tema.seccion(st, f"🔧 Rechazos por corregir · {len(_rech)}")
+        for _r in _rech:
+            _ico = _ICONO_TIPO.get(_r.get("tipo"), "📄")
+            with st.expander(
+                    f"{_ico} **{_r.get('tramo') or '—'}** · {_r.get('tipo')} · "
+                    f"Rev.{_r.get('revision') or 'A'} · OT {_r.get('ot') or '—'}",
+                    expanded=False):
+                try:
+                    _obs = db.observaciones_de(_r["id"])
+                except Exception as _e:
+                    _obs = []
+                    st.caption(f"⚠️ no se pudieron leer las observaciones: {_e}")
+                for _o in _obs:
+                    _d = ""
+                    if _o.get("abscisa_ini") is not None:
+                        _d = f" · K {_o['abscisa_ini'] // 1000:03d}+{_o['abscisa_ini'] % 1000:03d}"
+                    st.markdown(f"- **{_rev.etiqueta(_o['categoria'])}**{_d} — "
+                                f"{_o.get('nota') or ''}")
+                if not _obs and _r.get("nota_revision"):
+                    st.markdown(f"- {_r['nota_revision']}")
+
+                _para_tecnico = [_o for _o in _obs if _rev.es_para_tecnico(_o)]
+                _corregibles = [_o for _o in _obs if not _rev.es_para_tecnico(_o)]
+
+                _c1, _c2 = st.columns(2)
+                if _corregibles or not _obs:
+                    if _c1.button("🔧 Abrir para corregir", key=f"corr_{_r['id']}",
+                                  type="primary", use_container_width=True):
+                        with st.spinner("Rehidratando la inspección..."):
+                            _tp = _r.get("tipo")
+                            if _tp == "CIPS":
+                                _det = db.cargar_inspeccion_cips(_r["id"], write=True)
+                            elif _tp == "PAP":
+                                _det = db.cargar_inspeccion_pap(_r["id"], write=True)
+                            else:
+                                _det = db.cargar_inspeccion_dcvg(_r["id"], write=True)
+                            _reh = _rev.rehidratar(_det, _tp)
+                            for _k, _v in _reh.items():
+                                if _k != "info":
+                                    data[_k] = _v
+                            data["info"].update(_reh["info"])
+                            # Los text_input con key SOLO se refrescan así.
+                            st.session_state.pending_autofill = dict(
+                                st.session_state.get("pending_autofill") or {},
+                                **_reh["info"])
+                            st.session_state.corrigiendo = {
+                                "id": _r["id"], "tipo": _tp,
+                                "revision": _r.get("revision") or "A"}
+                            st.session_state.publicado_id = None
+                            st.session_state.flash_autocarga = (
+                                f"Informe de {_r.get('tramo')} abierto para corregir "
+                                f"({len(_corregibles) or len(_obs)} observación(es)). "
+                                f"Al republicar sube a Rev."
+                                f"{nombres.siguiente_revision(_r.get('revision'))}.")
+                        _rechazos_datos.clear()
+                        st.rerun()
+                if _r.get("carga_id") and _rev.requiere_crudos(_obs):
+                    if _c2.button("📦 Reprocesar desde crudos",
+                                  key=f"crudo_{_r['id']}", use_container_width=True,
+                                  help="Vuelve a bajar los archivos del técnico y "
+                                       "los pasa por los readers desde cero."):
+                        with st.spinner("Bajando los crudos de la carga original..."):
+                            _cg = (db._client(write=True).table("cargas").select("*")
+                                   .eq("id", _r["carga_id"]).single().execute().data)
+                            _m, _a = autocargar_carga(_cg)
+                            st.session_state.corrigiendo = {
+                                "id": _r["id"], "tipo": _r.get("tipo"),
+                                "revision": _r.get("revision") or "A"}
+                            st.session_state.publicado_id = None
+                            st.session_state.flash_autocarga = (
+                                "Crudos recargados: " + " · ".join(_m))
+                        _rechazos_datos.clear()
+                        st.rerun()
+                elif _rev.requiere_crudos(_obs):
+                    _c2.caption("⚠️ Hay un problema de procesamiento pero esta "
+                                "inspección no guardó su carga de origen: sube los "
+                                "crudos a mano en la pestaña de carga manual.")
+                if _para_tecnico:
+                    st.warning("Falta información que solo el técnico puede subir "
+                               "— ver el botón de abajo.", icon=":material/person:")
+
     # ── Carga manual, organizada por tipo de informe ──────────────────────────
     tema.seccion(st, "Carga manual")
     _tipo_act = data['info'].get('tipo_inspeccion', 'PAP')
