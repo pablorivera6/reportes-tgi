@@ -120,7 +120,11 @@ def guardar_inspeccion_cips(info: dict, cips: list, hallazgos: list,
                             excel_nombre: str | None = None,
                             ppm_bytes: bytes | None = None,
                             ppm_nombre: str | None = None,
-                            creado_por: str = "PCC") -> str:
+                            creado_por: str = "PCC",
+                            carga_id: str | None = None,
+                            contexto: dict | None = None,
+                            revision: str = "A",
+                            reemplaza_id: str | None = None) -> str:
     """Publica una inspección CIPS en Supabase. Devuelve el id (uuid)."""
     cli = _client(write=True)
 
@@ -143,25 +147,12 @@ def guardar_inspeccion_cips(info: dict, cips: list, hallazgos: list,
                        and abscisa_fin is not None) else None,
     }
 
-    fila = {
-        "tipo": "CIPS",
-        "gasoducto": info.get("gasoducto"),
-        "tramo": info.get("tramo"),
-        "fecha": _fecha(info.get("fecha")),
-        "inspector": info.get("inspector"),
-        "ciclo": str(info.get("ciclo") or info.get("cycle") or "") or None,
-        "ot": info.get("ot"),
-        "contratista": info.get("contratista"),
-        "serial_equipo": info.get("serial_equipo"),
-        "tipo_recubrimiento": info.get("tipo_recubrimiento"),
-        "diametro": str(info.get("diametro") or "") or None,
-        "abscisa_ini": abscisa_ini,
-        "abscisa_fin": abscisa_fin,
-        "resumen": resumen,
-        "creado_por": creado_por,
-    }
-    res = cli.table("inspecciones").insert(fila).execute()
-    insp_id = res.data[0]["id"]
+    insp_id = _crear_o_reemplazar(
+        cli,
+        _fila_inspeccion(info, "CIPS", abscisa_ini, abscisa_fin, resumen,
+                         creado_por, carga_id, contexto, revision,
+                         reemplaza=bool(reemplaza_id)),
+        "CIPS", reemplaza_id)
 
     # Subir archivos a Storage y guardar rutas
     excel_path = ppm_path = None
@@ -325,8 +316,12 @@ def _subir_excel(cli, insp_id, excel_bytes, excel_nombre, ppm_bytes, ppm_nombre)
         ).eq("id", insp_id).execute()
 
 
-def _fila_inspeccion(info, tipo, abscisa_ini, abscisa_fin, resumen, creado_por):
-    return {
+def _fila_inspeccion(info, tipo, abscisa_ini, abscisa_fin, resumen, creado_por,
+                     carga_id=None, contexto=None, revision="A", reemplaza=False):
+    """Fila de `inspecciones`. `carga_id` y `contexto` son la trazabilidad que
+    permite reabrir el informe en el generador si lo rechazan; `reemplaza`
+    devuelve la inspección a revisión al republicar una corrección."""
+    fila = {
         "tipo": tipo,
         "gasoducto": info.get("gasoducto"), "tramo": info.get("tramo"),
         "fecha": _fecha(info.get("fecha")), "inspector": info.get("inspector"),
@@ -337,7 +332,38 @@ def _fila_inspeccion(info, tipo, abscisa_ini, abscisa_fin, resumen, creado_por):
         "diametro": str(info.get("diametro") or "") or None,
         "abscisa_ini": abscisa_ini, "abscisa_fin": abscisa_fin,
         "resumen": resumen, "creado_por": creado_por,
+        "revision": revision or "A",
     }
+    if carga_id:
+        fila["carga_id"] = carga_id
+    if contexto:
+        fila["contexto"] = contexto
+    if reemplaza:
+        # Una corrección republicada vuelve a la cola del revisor limpia.
+        fila["estado"] = "en_revision"
+        fila["nota_revision"] = None
+        fila["revisado_por"] = None
+        fila["revisado_en"] = None
+    return fila
+
+
+_HIJAS = {
+    "CIPS": ("puntos_cips", "hallazgos", "tramos_no_inspeccionados"),
+    "PAP": ("puntos_pap", "hallazgos"),
+    "DCVG": ("postes_dcvg", "defectos_dcvg", "resistividades_dcvg", "hallazgos"),
+}
+
+
+def _crear_o_reemplazar(cli, fila, tipo, reemplaza_id=None):
+    """Inserta una inspección nueva, o —si es una corrección— actualiza la fila
+    existente y borra sus filas hijas para que se reescriban. Actualizar en
+    sitio evita que el portal acumule un duplicado por cada revisión."""
+    if not reemplaza_id:
+        return cli.table("inspecciones").insert(fila).execute().data[0]["id"]
+    cli.table("inspecciones").update(fila).eq("id", reemplaza_id).execute()
+    for tabla in _HIJAS.get(tipo, ()):
+        cli.table(tabla).delete().eq("inspeccion_id", reemplaza_id).execute()
+    return reemplaza_id
 
 
 def _hallazgos_filas(insp_id, hallazgos):
@@ -388,7 +414,11 @@ def _puntos_pap_filas(insp_id, potenciales):
 
 def guardar_inspeccion_pap(info, potenciales, hallazgos,
                            excel_bytes=None, excel_nombre=None,
-                           ppm_bytes=None, ppm_nombre=None, creado_por="PCC"):
+                           ppm_bytes=None, ppm_nombre=None, creado_por="PCC",
+                           carga_id: str | None = None,
+                           contexto: dict | None = None,
+                           revision: str = "A",
+                           reemplaza_id: str | None = None):
     cli = _client(write=True)
 
     def _absc(p):
@@ -411,9 +441,12 @@ def guardar_inspeccion_pap(info, potenciales, hallazgos,
         "n_hallazgos": len(hallazgos or []),
         "longitud_m": (a_fin - a_ini) if (a_ini is not None and a_fin is not None) else None,
     }
-    insp_id = cli.table("inspecciones").insert(
-        _fila_inspeccion(info, "PAP", a_ini, a_fin, resumen, creado_por)
-    ).execute().data[0]["id"]
+    insp_id = _crear_o_reemplazar(
+        cli,
+        _fila_inspeccion(info, "PAP", a_ini, a_fin, resumen, creado_por,
+                         carga_id, contexto, revision,
+                         reemplaza=bool(reemplaza_id)),
+        "PAP", reemplaza_id)
     _subir_excel(cli, insp_id, excel_bytes, excel_nombre, ppm_bytes, ppm_nombre)
 
     _insert_lotes(cli, "puntos_pap", _puntos_pap_filas(insp_id, potenciales))
@@ -510,7 +543,11 @@ def _resist_dcvg_filas(insp_id, resistividades):
 
 
 def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
-                            excel_bytes=None, excel_nombre=None, creado_por="PCC"):
+                            excel_bytes=None, excel_nombre=None, creado_por="PCC",
+                            carga_id: str | None = None,
+                            contexto: dict | None = None,
+                            revision: str = "A",
+                            reemplaza_id: str | None = None):
     cli = _client(write=True)
     sev = _severidad_dcvg(postes or [], defectos or [])
 
@@ -528,9 +565,12 @@ def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
         "n_criticos": conteo["Mediano"] + conteo["Grande"],
         "longitud_m": (a_fin - a_ini) if (a_ini is not None and a_fin is not None) else None,
     }
-    insp_id = cli.table("inspecciones").insert(
-        _fila_inspeccion(info, "DCVG", a_ini, a_fin, resumen, creado_por)
-    ).execute().data[0]["id"]
+    insp_id = _crear_o_reemplazar(
+        cli,
+        _fila_inspeccion(info, "DCVG", a_ini, a_fin, resumen, creado_por,
+                         carga_id, contexto, revision,
+                         reemplaza=bool(reemplaza_id)),
+        "DCVG", reemplaza_id)
     _subir_excel(cli, insp_id, excel_bytes, excel_nombre, None, None)
 
     _insert_lotes(cli, "postes_dcvg", _postes_dcvg_filas(insp_id, postes))
