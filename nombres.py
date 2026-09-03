@@ -178,8 +178,9 @@ def mes_anio(fecha):
     return ('', '')
 
 
-def nombre_archivo(info, doc="REP", ext=".xlsx"):
-    """Nombre codificado del entregable. `doc` = 'REP' (informe) o 'PPM'."""
+def nombre_archivo(info, doc="REP", ext=".xlsx", revision="A"):
+    """Nombre codificado del entregable. `doc` = 'REP' (informe) o 'PPM'.
+    `revision` sube a 'B', 'C'... cuando se republica una corrección."""
     sigla, letra, _ = sigla_tramo(info.get('tramo'))
     mm, aa = mes_anio(info.get('fecha'))
     if not letra:
@@ -195,7 +196,7 @@ def nombre_archivo(info, doc="REP", ext=".xlsx"):
         _limpiar(info.get('ot') or ''),
         _limpiar(info.get('contrato') or ''),
         "PCC",
-        "Rev.A",
+        f"Rev.{(revision or 'A').strip().upper()}",
     ]
     return "_".join(p for p in partes if p) + (ext or "")
 
@@ -217,3 +218,12 @@ def faltantes(info):
     if not _limpiar(info.get('contrato') or ''):
         fuera.append('Contrato')
     return fuera
+
+
+def siguiente_revision(actual):
+    """Letra que sigue. Sin dato asume que la publicada era la A. En 'Z' se
+    queda quieta: 26 correcciones del mismo informe es otro problema."""
+    letra = (str(actual or "A").strip().upper() or "A")[:1]
+    if not letra.isalpha() or letra >= "Z":
+        return "Z" if letra == "Z" else "B"
+    return chr(ord(letra) + 1)
