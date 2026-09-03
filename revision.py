@@ -198,3 +198,20 @@ def rehidratar(detalle, tipo):
         out["dcvg_resist"] = resist_desde_filas(detalle.get("resistividades"))
         out["dcvg_hallazgos"] = hallazgos_desde_filas(detalle.get("hallazgos"))
     return out
+
+
+def mensaje_tecnico(insp, observaciones):
+    """Texto listo para copiar y mandarle al técnico lo que falta.
+
+    No hay canal automático hacia él (la web de carga es de una sola vía), así
+    que esto es deliberadamente un texto plano y no una notificación falsa.
+    """
+    faltantes = [o for o in (observaciones or []) if es_para_tecnico(o)]
+    if not faltantes:
+        return ""
+    cab = (f"Hola {insp.get('inspector') or ''}, sobre la inspección "
+           f"{insp.get('tipo') or ''} de {insp.get('tramo') or ''} "
+           f"({insp.get('fecha') or ''}, OT {insp.get('ot') or '—'}) "
+           f"falta subir:").replace("  ", " ")
+    puntos = "\n".join(f"- {o.get('nota') or ''}".rstrip() for o in faltantes)
+    return f"{cab}\n{puntos}\n\nSúbelo en el formulario de carga de campo. Gracias."

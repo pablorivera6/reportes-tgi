@@ -737,6 +737,14 @@ def marcar_carga_procesada(carga_id):
     ).eq("id", carga_id).execute()
 
 
+def marcar_carga_incompleta(carga_id, nota=""):
+    """La carga volvió al técnico: le falta algo. Vuelve a 'pendiente' para que
+    siga visible en la bandeja, con la nota de qué falta."""
+    _client(write=True).table("cargas").update(
+        {"estado": "pendiente", "nota": nota or None}
+    ).eq("id", carga_id).execute()
+
+
 # ── Cola de FastField (webhook) ──────────────────────────────────────────────
 def listar_cola_fastfield(estado="nuevo"):
     """Envíos de FastField pendientes de procesar (los mete la Edge Function)."""

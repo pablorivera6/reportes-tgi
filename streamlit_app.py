@@ -970,8 +970,21 @@ with tabs[1]:
                                 "inspección no guardó su carga de origen: sube los "
                                 "crudos a mano en la pestaña de carga manual.")
                 if _para_tecnico:
-                    st.warning("Falta información que solo el técnico puede subir "
-                               "— ver el botón de abajo.", icon=":material/person:")
+                    _msg = _rev.mensaje_tecnico(_r, _obs)
+                    st.warning("Falta información que solo el técnico puede subir. "
+                               "Esto no se arregla aquí.",
+                               icon=":material/person:")
+                    st.code(_msg, language=None)
+                    st.caption("Cópialo y mándaselo. No hay canal automático hacia "
+                               "el técnico todavía.")
+                    if _r.get("carga_id") and st.button(
+                            "Marcar la carga como incompleta",
+                            key=f"inc_{_r['id']}"):
+                        db.marcar_carga_incompleta(_r["carga_id"], _msg)
+                        _rechazos_datos.clear()
+                        _bandeja_datos.clear()
+                        st.success("Carga marcada; vuelve a aparecer como pendiente.")
+                        st.rerun()
 
     # ── Carga manual, organizada por tipo de informe ──────────────────────────
     tema.seccion(st, "Carga manual")
