@@ -31,3 +31,72 @@ def test_cips_no_devuelve_columnas_de_bd_ni_derivados():
     for prohibido in ("inspeccion_id", "item", "estado", "abscisa",
                       "lejano_on", "cercano_on"):
         assert prohibido not in vuelta[0]
+
+
+PAP_ORIG = [{
+    "abscisa": 800, "fecha": "2026-03-05", "on_mv": -1400.0, "off_mv": -880.0,
+    "potencial_natural": -550.0, "polarizacion": -330.0, "vac": 1.8,
+    "ir_on_off": 520.0, "resistencia": 12.0, "lat": 4.2, "lon": -75.3,
+    "ref_geografica": "poste K0+800", "observaciones": "tapa suelta",
+}]
+
+POSTES_ORIG = [{
+    "pk_m": 0, "tipo": "Poste", "on": -1500.0, "off": -1300.0, "vac": 2.0,
+    "resistencia": 8.0, "lat": 4.0, "lon": -75.0,
+}, {
+    "pk_m": 100, "tipo": "Poste", "on": -1600.0, "off": -1200.0, "vac": 2.1,
+    "resistencia": 9.0, "lat": 4.01, "lon": -75.01,
+}]
+
+DEFECTOS_ORIG = [{
+    "pk_m": 50, "sector": "A", "forma_n": 12.0, "forma_e": 3.0,
+    "forma_s": 6.0, "forma_o": 9.0, "caracter": "AA", "ol_re": 60.0,
+    "profundidad": 1.2, "posicion_reloj": "6", "lat": 4.005, "lon": -75.005,
+    "comentarios": "defecto en soldadura",
+}]
+
+RESIST_ORIG = [{
+    "pk_m": 300, "sector": "B", "profundidad": 1.0,
+    "r1": 10.0, "r2": 20.0, "r3": 30.0, "lat": 4.02, "lon": -75.02,
+}]
+
+HALLAZGOS_ORIG = [{
+    "abscisa_val": 1500, "abscisa_fin": 1700, "longitud": 200.0,
+    "lat": 4.03, "lon": -75.03, "lat_fin": 4.04, "lon_fin": -75.04,
+    "fecha": "2026-03-06", "tipo": "Cruce", "descripcion": "cruce de vía",
+}]
+
+
+def test_pap_round_trip():
+    vuelta = revision.pap_desde_filas(db._puntos_pap_filas("i", PAP_ORIG))
+    for k, v in PAP_ORIG[0].items():
+        assert vuelta[0][k] == v, f"se perdio o cambio '{k}'"
+
+
+def test_postes_round_trip():
+    vuelta = revision.postes_desde_filas(db._postes_dcvg_filas("i", POSTES_ORIG))
+    for k, v in POSTES_ORIG[0].items():
+        assert vuelta[0][k] == v, f"se perdio o cambio '{k}'"
+
+
+def test_defectos_round_trip_sin_derivados():
+    sev = db._severidad_dcvg(POSTES_ORIG, DEFECTOS_ORIG)
+    filas = db._defectos_dcvg_filas("i", DEFECTOS_ORIG, sev)
+    assert filas[0]["severidad_pct"] is not None       # la BD sí los guarda
+    vuelta = revision.defectos_desde_filas(filas)
+    for k, v in DEFECTOS_ORIG[0].items():
+        assert vuelta[0][k] == v, f"se perdio o cambio '{k}'"
+    for derivado in ("p_re", "severidad_pct", "clasificacion"):
+        assert derivado not in vuelta[0], f"'{derivado}' es derivado, no se rehidrata"
+
+
+def test_resistividades_round_trip():
+    vuelta = revision.resist_desde_filas(db._resist_dcvg_filas("i", RESIST_ORIG))
+    for k, v in RESIST_ORIG[0].items():
+        assert vuelta[0][k] == v, f"se perdio o cambio '{k}'"
+
+
+def test_hallazgos_round_trip():
+    vuelta = revision.hallazgos_desde_filas(db._hallazgos_filas("i", HALLAZGOS_ORIG))
+    for k, v in HALLAZGOS_ORIG[0].items():
+        assert vuelta[0][k] == v, f"se perdio o cambio '{k}'"
