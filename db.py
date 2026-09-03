@@ -267,11 +267,60 @@ def aprobar_inspeccion(insp_id: str, revisor: str = "PCC"):
     ).eq("id", insp_id).execute()
 
 
-def rechazar_inspeccion(insp_id: str, revisor: str = "PCC", nota: str = ""):
-    _client(write=True).table("inspecciones").update(
+def _obs_filas(insp_id, observaciones):
+    """Normaliza y ata a la inspección las observaciones de un rechazo.
+    Pura: `revision.normalizar` valida la categoría y lanza ValueError."""
+    import revision
+    return [dict(revision.normalizar(o), inspeccion_id=insp_id)
+            for o in (observaciones or [])]
+
+
+def rechazar_inspeccion(insp_id: str, revisor: str = "PCC", nota: str = "",
+                        observaciones: list | None = None):
+    """Rechaza una inspección. `observaciones` es la lista estructurada que el
+    generador usa para enrutar la corrección; `nota` queda como resumen legible
+    (es lo que el portal ya mostraba)."""
+    filas = _obs_filas(insp_id, observaciones)      # valida ANTES de escribir
+    cli = _client(write=True)
+    if not nota and filas:
+        import revision
+        nota = " · ".join(
+            f"{revision.etiqueta(f['categoria'])}: {f['nota'] or ''}".strip(" :")
+            for f in filas)
+    cli.table("inspecciones").update(
         {"estado": "rechazada", "revisado_por": revisor,
-         "revisado_en": _dt.datetime.utcnow().isoformat(), "nota_revision": nota or None}
+         "revisado_en": _dt.datetime.utcnow().isoformat(),
+         "nota_revision": nota or None}
     ).eq("id", insp_id).execute()
+    if filas:
+        _insert_lotes(cli, "observaciones_revision", filas)
+
+
+def observaciones_de(insp_id: str, estado: str | None = "abierta") -> list[dict]:
+    """Observaciones de un rechazo, las más viejas primero."""
+    q = (_client(write=True).table("observaciones_revision").select("*")
+         .eq("inspeccion_id", insp_id).order("creado_en"))
+    if estado:
+        q = q.eq("estado", estado)
+    return q.execute().data or []
+
+
+def listar_rechazadas(tipo: str | None = None) -> list[dict]:
+    """Inspecciones rechazadas pendientes de corregir (buzón del generador)."""
+    q = (_client(write=True).table("inspecciones")
+         .select("id, tipo, tramo, fecha, inspector, ot, revision, "
+                 "nota_revision, revisado_en, carga_id, contexto, excel_path")
+         .eq("estado", "rechazada").order("revisado_en", desc=True))
+    if tipo:
+        q = q.eq("tipo", tipo)
+    return q.execute().data or []
+
+
+def marcar_observaciones(insp_id: str, estado: str = "resuelta"):
+    """Cierra las observaciones abiertas de una inspección ya corregida."""
+    _client(write=True).table("observaciones_revision").update(
+        {"estado": estado}).eq("inspeccion_id", insp_id).eq(
+        "estado", "abierta").execute()
 
 
 def cargar_inspeccion_cips(insp_id: str, write: bool = False) -> dict:

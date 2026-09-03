@@ -32,3 +32,30 @@ def test_guardar_con_reemplaza_id_sin_config_lanza_error(monkeypatch):
     monkeypatch.setattr(db, "_secrets", lambda: {})
     with pytest.raises(RuntimeError):
         db.guardar_inspeccion_cips({}, [], [], reemplaza_id="insp-1")
+
+
+def test_obs_filas_normaliza_y_ata_a_la_inspeccion():
+    filas = db._obs_filas("insp-9", [
+        {"categoria": "texto_campo", "nota": " comentarios ilegibles ",
+         "abscisa_ini": "12000", "abscisa_fin": "15000"},
+        {"categoria": "datos_generales", "campo": "info.tramo",
+         "nota": "dice Cartago, es Ansermanuevo"},
+    ])
+    assert len(filas) == 2
+    assert all(f["inspeccion_id"] == "insp-9" for f in filas)
+    assert filas[0]["nota"] == "comentarios ilegibles"
+    assert filas[0]["abscisa_ini"] == 12000
+    assert filas[1]["campo"] == "info.tramo"
+    assert all(f["estado"] == "abierta" for f in filas)
+
+
+def test_obs_filas_propaga_el_error_de_categoria_invalida():
+    with pytest.raises(ValueError):
+        db._obs_filas("insp-9", [{"categoria": "inventada", "nota": "x"}])
+
+
+def test_rechazar_sin_config_lanza_error(monkeypatch):
+    monkeypatch.setattr(db, "_secrets", lambda: {})
+    with pytest.raises(RuntimeError):
+        db.rechazar_inspeccion("insp-1", observaciones=[
+            {"categoria": "texto_campo", "nota": "x"}])
