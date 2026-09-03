@@ -330,9 +330,41 @@ def _barra_revision(insp):
             import revision as _rev
             st.caption("Marca **qué** está mal y **dónde**. El generador usa esto "
                        "para abrir el informe en el punto exacto.")
+            _apikey = ""
+            try:
+                _apikey = str(st.secrets.get("anthropic", {}).get("api_key", ""))
+            except Exception:
+                _apikey = ""
+            _sem = f"iaobs_{insp['id']}"
+            if _apikey:
+                _nota_libre = st.text_area(
+                    "Escríbelo como lo dirías", key=f"libre_{insp['id']}",
+                    placeholder="el tramo quedó como Cartago pero es Ansermanuevo, "
+                                "y del K12 al K15 los comentarios no se entienden",
+                    height=80)
+                if st.button("✨ Analizar", key=f"ia_{insp['id']}"):
+                    import ia_revision
+                    with st.spinner("Clasificando lo que reportaste..."):
+                        try:
+                            st.session_state[_sem] = [
+                                {k: o.get(k) for k in ("categoria", "campo",
+                                                       "abscisa_ini", "abscisa_fin",
+                                                       "nota")}
+                                for o in ia_revision.estructurar_nota(
+                                    _nota_libre,
+                                    {"tramo": insp.get("tramo"),
+                                     "tipo": insp.get("tipo"),
+                                     "fecha": str(insp.get("fecha") or "")},
+                                    api_key=_apikey)]
+                        except ia_revision.IARevisionError as _e:
+                            st.warning(f"{_e} Llena la tabla a mano.")
+                    st.rerun()
+                st.caption("Revisa y corrige lo que proponga: se guarda lo que "
+                           "quede en la tabla, no lo que dijo la IA.")
             _obs = st.data_editor(
-                [{"categoria": "datos_generales", "campo": "", "abscisa_ini": None,
-                  "abscisa_fin": None, "nota": ""}],
+                st.session_state.get(_sem) or [
+                    {"categoria": "datos_generales", "campo": "",
+                     "abscisa_ini": None, "abscisa_fin": None, "nota": ""}],
                 key=f"obs_{insp['id']}", num_rows="dynamic",
                 use_container_width=True,
                 column_config={
@@ -359,6 +391,7 @@ def _barra_revision(insp):
                     except ValueError as e:
                         st.error(str(e))
                     else:
+                        st.session_state.pop(_sem, None)
                         _refrescar()
                         st.session_state.sel = None
                         st.session_state.sel_tipo = None
