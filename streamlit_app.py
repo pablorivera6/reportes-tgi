@@ -295,6 +295,20 @@ def _autollenar_tramo(tramo, inspector="", tipo=None):
     return cambios, equipos
 
 
+def _contexto_generacion(tipo):
+    """Snapshot pequeño de con qué se generó el informe. Es lo que rehidrata
+    Datos Generales al reabrirlo: la fila `inspecciones` solo guarda algunos
+    campos (tramo, OT, inspector...), no el `info` completo."""
+    return {
+        "info": dict(data.get('info') or {}),
+        "tipo": tipo,
+        "informe_nombre": st.session_state.get("informe_nombre"),
+        "cips": {k: st.session_state.get(k)
+                 for k in ("cips_emp", "cips_dist", "cips_tr", "cips_tr_oc")
+                 if st.session_state.get(k)},
+    }
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
 init_state()
@@ -400,6 +414,12 @@ def autocargar_carga(cg):
     """Baja los archivos de la carga y los mete al pipeline usando los mismos
     readers que los uploaders. Devuelve (mensajes, avisos)."""
     msgs, avisos = [], []
+    # De qué carga salió este informe: es lo que permite reprocesar los crudos
+    # si el portal lo rechaza por un error de procesamiento.
+    if cg.get("id"):
+        st.session_state.setdefault("cargas_usadas", [])
+        if cg["id"] not in st.session_state.cargas_usadas:
+            st.session_state.cargas_usadas.append(cg["id"])
     cats = _descargar_carga_a_temp(cg)
     # Datos generales desde la carga
     if cg.get("tramo"):
@@ -1570,26 +1590,30 @@ with tabs[9]:
                     _info['tramo'] = re.sub(r'\s*\(?PK.*', '',
                                             _info.get('tramo', '')).strip()
                     _ppm_nombre = _nombre_ppm()
+                    _cargas = st.session_state.get("cargas_usadas") or []
+                    _origen = {"carga_id": _cargas[0] if _cargas else None,
+                               "contexto": _contexto_generacion(_tipo_pub)}
                     if _tipo_pub == "CIPS":
                         _id = db.guardar_inspeccion_cips(
                             _info, data['cips'], cips_a_hallazgos(data['cips']),
                             excel_bytes=st.session_state.informe_bytes,
                             excel_nombre=st.session_state.informe_nombre,
                             ppm_bytes=st.session_state.ppm_bytes,
-                            ppm_nombre=_ppm_nombre, creado_por="PCC")
+                            ppm_nombre=_ppm_nombre, creado_por="PCC", **_origen)
                     elif _tipo_pub == "DCVG":
                         _id = db.guardar_inspeccion_dcvg(
                             _info, data['dcvg_postes'], data['dcvg_defectos'],
                             data['dcvg_resist'], cips_a_hallazgos(data['dcvg_hallazgos']),
                             excel_bytes=st.session_state.informe_bytes,
-                            excel_nombre=st.session_state.informe_nombre, creado_por="PCC")
+                            excel_nombre=st.session_state.informe_nombre,
+                            creado_por="PCC", **_origen)
                     else:  # PAP
                         _id = db.guardar_inspeccion_pap(
                             _info, data['potenciales'], data['hallazgos'],
                             excel_bytes=st.session_state.informe_bytes,
                             excel_nombre=st.session_state.informe_nombre,
                             ppm_bytes=st.session_state.ppm_bytes,
-                            ppm_nombre=_ppm_nombre, creado_por="PCC")
+                            ppm_nombre=_ppm_nombre, creado_por="PCC", **_origen)
                     st.session_state.publicado_id = _id
                     st.rerun()
                 except Exception as e:
