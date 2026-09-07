@@ -687,6 +687,15 @@ Un rechazo en el portal dejó de ser un párrafo muerto: ahora enruta la correcc
   sin credencial no se dibuja ningún widget de IA y todo el flujo funciona a mano
   (verificado). Solo viajan a la API las filas de las abscisas señaladas
   (`MAX_FILAS = 60`), nunca los ~100.000 puntos de un CIPS.
-- **PENDIENTE**: configurar `[anthropic] api_key` (local y en los Secrets de las
-  apps de procesamiento y portal en Streamlit Cloud) y probar la IA contra la API
-  real — es lo único del flujo que no se pudo verificar en vivo.
+- **Verificado contra la API real (2026-09-04)**: `estructurar_nota` clasifica
+  bien y convierte 'K12'→12000; `proponer_correcciones` corrige ortografía técnica
+  y, ante una petición explícita de falsear un potencial, se NIEGA y lo deriva a
+  `info.nota_reproceso` explicando que requiere reprocesar los crudos. **Ese
+  rechazo ocurrió en la capa del prompt: el validador descartó 0 propuestas.** Las
+  dos barreras están probadas por separado (la lista blanca, contra 945 rutas
+  prohibidas) y ninguna debe retirarse confiando en la otra.
+- **La API key debe ser de WORKSPACE, no de organización**: una llave de org
+  devuelve 400 pidiendo el header `anthropic-workspace-id`. Crearla desde dentro
+  de un workspace en console.anthropic.com; el saldo también se asigna por
+  workspace. Va en `[anthropic] api_key` (local y en los Secrets de las apps de
+  procesamiento y portal en Streamlit Cloud; la de carga de campo no la usa).
