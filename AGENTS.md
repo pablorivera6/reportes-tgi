@@ -642,6 +642,16 @@ esta appcita (199 líneas, solo sube archivos + crea carga) a **web estática**.
   abierta; la web deja `ACCESS_CODE` opcional (candado de comodidad, no seguridad).
 - **Despliegue**: Vercel, Root Directory = `web_carga`, framework Other (estático, sin
   build). La generadora Streamlit se QUEDA (es de oficina/PCC, el sueño no molesta).
+- **PK ejecutado (2026-09-17):** la web pide además **PK inicial / PK final
+  ejecutado** (obligatorios). `pkMetros()` en `app.js` deja solo los dígitos, así
+  que '125+000', 'K 125+000' y '125000' dan 125000; **no se exige
+  pk_final > pk_inicial** (hay inspecciones en sentido descendente). Van a las
+  columnas `pk_inicial`/`pk_final` (integer) de `cargas`. **Las rutas del bucket
+  NO cambiaron** (`tramo/fecha/tipo/categoria/stamp_archivo`) para no romper la
+  app de procesamiento; usar los PK para organizar SharePoint es un paso
+  posterior. Además el formulario pasa a **una sola columna en ≤520 px** (el
+  `input[type=date]` de Safari/iPhone se salía de su columna y pisaba 'Tu
+  nombre': `min-width:0` + `appearance:none`).
 - **PENDIENTE**: usuario corre schema_v8.sql → probar envío real e2e → desplegar en
   Vercel y reemplazar el link que usan los técnicos. Rotar contraseña FastField sigue.
 

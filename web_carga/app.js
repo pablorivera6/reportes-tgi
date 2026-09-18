@@ -35,6 +35,17 @@
   }
   function $(id) { return document.getElementById(id); }
 
+  // PK escrito en campo → metros enteros. El técnico escribe '125+000' o
+  // '129450' (y a veces 'K 125+000'); se quedan solo los dígitos.
+  // Devuelve null si no hay ningún dígito (campo vacío o basura).
+  function pkMetros(txt) {
+    var d = String(txt == null ? "" : txt).replace(/[^0-9]/g, "");
+    if (!d) return null;
+    var n = parseInt(d, 10);
+    return isNaN(n) ? null : n;
+  }
+  window.pkMetros = pkMetros;   // expuesto para pruebas
+
   // ── Puerta de acceso opcional ──────────────────────────────────────────────
   function iniciar() {
     var code = (CFG.ACCESS_CODE || "").trim();
@@ -70,7 +81,7 @@
     // fecha por defecto hoy
     $("fecha").value = new Date().toISOString().slice(0, 10);
     // listeners de validación
-    ["tramo", "tecnico", "fecha"].forEach(function (id) {
+    ["tramo", "tecnico", "fecha", "pk-inicial", "pk-final"].forEach(function (id) {
       $(id).addEventListener("input", validar);
     });
     $("enviar").onclick = enviar;
@@ -134,12 +145,20 @@
     });
   }
   function validar() {
-    var faltaMeta = !($("tramo").value.trim() && $("tecnico").value.trim() && $("fecha").value);
+    // pk_final puede ser MENOR que pk_inicial: hay inspecciones en sentido
+    // descendente. Solo se exige que ambos estén escritos.
+    var faltaMeta = !($("tramo").value.trim() && $("tecnico").value.trim() &&
+      $("fecha").value &&
+      pkMetros($("pk-inicial").value) !== null &&
+      pkMetros($("pk-final").value) !== null);
     var falta = faltantes();
     var ok = !faltaMeta && !falta.length;
     $("enviar").disabled = !ok;
     var h = $("hint");
-    if (faltaMeta) { h.className = "hint"; h.textContent = "Completa tramo y tu nombre."; }
+    if (faltaMeta) {
+      h.className = "hint";
+      h.textContent = "Completa tramo, fecha, nombre y PK inicial/final.";
+    }
     else if (falta.length) {
       h.className = "hint err";
       h.textContent = "Faltan archivos obligatorios: " +
@@ -152,6 +171,8 @@
     var tramo = $("tramo").value.trim();
     var fecha = $("fecha").value;                 // YYYY-MM-DD
     var tecnico = $("tecnico").value.trim();
+    var pkInicial = pkMetros($("pk-inicial").value);
+    var pkFinal = pkMetros($("pk-final").value);
     var nota = $("nota").value.trim();
     var base = slug(tramo) + "/" + (fecha || "sin_fecha") + "/" + slug(tipoSel);
 
@@ -191,6 +212,7 @@
       prog.textContent = "Registrando la carga…";
       sb.from("cargas").insert({
         tramo: tramo, tipo: tipoSel, fecha: fecha, tecnico: tecnico,
+        pk_inicial: pkInicial, pk_final: pkFinal,
         estado: "pendiente", archivos: indice, nota: nota || null,
         sharepoint_ok: false
       }).then(function (res) {
