@@ -78,8 +78,12 @@
     Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) {
       b.onclick = function () { setTipo(b.getAttribute("data-t")); };
     });
-    // fecha por defecto hoy
-    $("fecha").value = new Date().toISOString().slice(0, 10);
+    // fecha por defecto hoy — en hora LOCAL del celular, no UTC.
+    // Con toISOString() a secas, en Colombia (UTC-5) toda carga hecha después
+    // de las 7 p.m. quedaba fechada al día siguiente.
+    var ahora = new Date();
+    $("fecha").value = new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000)
+      .toISOString().slice(0, 10);
     // listeners de validación
     ["tramo", "tecnico", "fecha", "pk-inicial", "pk-final"].forEach(function (id) {
       $(id).addEventListener("input", validar);
