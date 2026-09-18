@@ -148,6 +148,11 @@
       return c.req && !(files[c.clave] && files[c.clave].length);
     });
   }
+  function adjuntos() {
+    return Object.keys(files).reduce(function (n, k) {
+      return n + ((files[k] || []).length);
+    }, 0);
+  }
   function validar() {
     // pk_final puede ser MENOR que pk_inicial: hay inspecciones en sentido
     // descendente. Solo se exige que ambos estén escritos.
@@ -156,7 +161,11 @@
       pkMetros($("pk-inicial").value) !== null &&
       pkMetros($("pk-final").value) !== null);
     var falta = faltantes();
-    var ok = !faltaMeta && !falta.length;
+    // PAP ya no tiene ninguna casilla `req` (sus formularios se llenan en
+    // FastField), así que sin este conteo el botón quedaba habilitado con cero
+    // archivos y el envío moría en el alert de "No hay archivos para enviar".
+    var n = adjuntos();
+    var ok = !faltaMeta && !falta.length && n > 0;
     $("enviar").disabled = !ok;
     var h = $("hint");
     if (faltaMeta) {
@@ -167,6 +176,9 @@
       h.className = "hint err";
       h.textContent = "Faltan archivos obligatorios: " +
         falta.map(function (c) { return c.etiqueta; }).join(", ");
+    } else if (!n) {
+      h.className = "hint";
+      h.textContent = "Adjunta al menos un archivo de evidencia.";
     } else { h.className = "hint"; h.textContent = "Listo para enviar."; }
   }
 
