@@ -25,18 +25,6 @@ window.CATALOGO = {
 "grupo": "crudo"
 },
 {
-"clave": "anexo_interfases",
-"etiqueta": "Inspección Visual de Interfases (FastField)",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "anexo"
-},
-{
 "clave": "foto_postes",
 "etiqueta": "Fotos — postes de medición",
 "req": false,
@@ -87,38 +75,8 @@ window.CATALOGO = {
 ],
 "PAP": [
 {
-"clave": "fastfield_pap",
-"etiqueta": "Potenciales PAP (FastField)",
-"req": true,
-"tipos": [
-"xlsx",
-"xls"
-],
-"grupo": "proc"
-},
-{
 "clave": "equipos",
 "etiqueta": "Listado de equipos (opcional)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls"
-],
-"grupo": "proc"
-},
-{
-"clave": "rectificador",
-"etiqueta": "Rectificador URPC (opcional)",
-"req": false,
-"tipos": [
-"xlsx",
-"xls"
-],
-"grupo": "proc"
-},
-{
-"clave": "aislamientos",
-"etiqueta": "Aislamientos FastField (opcional)",
 "req": false,
 "tipos": [
 "xlsx",
@@ -149,18 +107,6 @@ window.CATALOGO = {
 "heic"
 ],
 "grupo": "rf"
-},
-{
-"clave": "anexo_interfases",
-"etiqueta": "Inspección Visual de Interfases (FastField)",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "anexo"
 },
 {
 "clave": "foto_postes",
@@ -213,16 +159,6 @@ window.CATALOGO = {
 ],
 "DCVG": [
 {
-"clave": "dcvg",
-"etiqueta": "FastField DCVG",
-"req": true,
-"tipos": [
-"xlsx",
-"xls"
-],
-"grupo": "proc"
-},
-{
 "clave": "resistividades",
 "etiqueta": "Resistividades",
 "req": true,
@@ -265,18 +201,6 @@ window.CATALOGO = {
 "heic"
 ],
 "grupo": "rf"
-},
-{
-"clave": "anexo_interfases",
-"etiqueta": "Inspección Visual de Interfases (FastField)",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "anexo"
 },
 {
 "clave": "foto_postes",

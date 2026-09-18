@@ -16,6 +16,19 @@ from entrega import CATALOGO
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 _SALIDA = os.path.join(_AQUI, "web_carga", "data.js")
 
+# Casillas que NO se le piden al técnico en la web de carga: son formularios que
+# él llena DENTRO de FastField, así que no descarga nada para volverlo a subir
+# (esa data entra por el webhook, ver fastfield_ingest.py). Se filtran SOLO aquí
+# —no en `entrega.CATALOGO`— porque ese catálogo también arma el paquete de
+# entrega y lo usa el procesamiento de informes.
+_SIN_FASTFIELD = {
+    "fastfield_pap",      # Potenciales PAP (FastField)
+    "dcvg",               # FastField DCVG
+    "rectificador",       # Rectificador URPC (FastField)
+    "aislamientos",       # Aislamientos (FastField)
+    "anexo_interfases",   # Inspección visual de interfases (FastField)
+}
+
 
 def _tramos():
     try:
@@ -38,10 +51,11 @@ def _tramos():
 def main():
     tramos = _tramos()
     # CATALOGO tal cual (clave, etiqueta, req, tipos, grupo, sub) — la web no
-    # necesita 'carpeta'; se queda igual por si sirve.
+    # necesita 'carpeta'; se queda igual por si sirve. Salen las casillas de
+    # FastField (_SIN_FASTFIELD): el técnico no sube esos archivos.
     catalogo = {tipo: [{"clave": c["clave"], "etiqueta": c["etiqueta"],
                         "req": c["req"], "tipos": c["tipos"], "grupo": c["grupo"]}
-                       for c in casillas]
+                       for c in casillas if c["clave"] not in _SIN_FASTFIELD]
                 for tipo, casillas in CATALOGO.items()}
 
     os.makedirs(os.path.dirname(_SALIDA), exist_ok=True)
