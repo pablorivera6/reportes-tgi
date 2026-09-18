@@ -1,8 +1,7 @@
 /* Arnés para probar la validación de `web_carga/app.js` sin navegador.
    Monta un DOM mínimo (lo justo que toca app.js), carga el data.js REAL —para
-   que el catálogo sea el de verdad, PAP incluido, que ya no tiene ninguna
-   casilla obligatoria— y corre escenarios. Imprime un JSON que lee
-   tests/test_web_carga_validacion.py. */
+   que el catálogo y los 280 tramos sean los de verdad— y corre escenarios.
+   Imprime un JSON que lee tests/test_web_carga_validacion.py. */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +16,7 @@ function Elemento(id) {
   this.textContent = '';
   this.className = '';
   this.disabled = false;
+  this.hidden = false;
   this.style = {};
   this.files = [];
   this._hijos = [];
@@ -27,28 +27,39 @@ function Elemento(id) {
 Elemento.prototype.addEventListener = function (ev, fn) {
   (this._listeners[ev] = this._listeners[ev] || []).push(fn);
 };
-Elemento.prototype.disparar = function (ev) {
-  (this._listeners[ev] || []).forEach((fn) => fn.call(this));
+Elemento.prototype.disparar = function (ev, evento) {
+  (this._listeners[ev] || []).forEach((fn) => fn.call(this, evento || {
+    preventDefault() {}, target: this,
+  }));
   if (ev === 'click' && typeof this.onclick === 'function') this.onclick();
 };
 Elemento.prototype.getAttribute = function (k) { return this._attrs[k]; };
+Elemento.prototype.setAttribute = function (k, v) { this._attrs[k] = v; };
 Elemento.prototype.querySelectorAll = function (sel) {
   if (sel === 'button') return this._hijos.filter((h) => h.tag === 'button');
+  if (sel === '.op') return this._hijos.filter((h) => h.tag === 'op');
   if (sel.indexOf('input[type=file]') >= 0) {
     return this._hijos.filter((h) => h.tag === 'input');
   }
   return [];
 };
 
-const doc = { _els: {} };
+const doc = { _els: {}, _listeners: {} };
 function crear(id) {
   if (!doc._els[id]) doc._els[id] = new Elemento(id);
   return doc._els[id];
 }
 doc.getElementById = (id) => crear(id);
+doc.addEventListener = function (ev, fn) {
+  (doc._listeners[ev] = doc._listeners[ev] || []).push(fn);
+};
+doc.disparar = function (ev, evento) {
+  (doc._listeners[ev] || []).forEach((fn) => fn(evento));
+};
 
-// innerHTML: se "parsea" con regex lo único que app.js genera y luego consulta,
-// los botones de tipo (data-t) y los inputs de archivo (data-clave).
+// innerHTML: se "parsea" con regex lo único que app.js genera y luego consulta
+// — botones de tipo (data-t), inputs de archivo (data-clave) y opciones de
+// tramo (data-i).
 Object.defineProperty(Elemento.prototype, 'innerHTML', {
   get() { return this._innerHTML; },
   set(html) {
@@ -68,6 +79,15 @@ Object.defineProperty(Elemento.prototype, 'innerHTML', {
       i.tag = 'input';
       i._attrs['data-clave'] = m[1];
       this._hijos.push(i);
+    }
+    const op = /<div class="op( sel)?"[^>]*data-i="(\d+)">([\s\S]*?)<\/div>/g;
+    while ((m = op.exec(html))) {
+      const o = new Elemento('op-' + m[2]);
+      o.tag = 'op';
+      o._attrs['data-i'] = m[2];
+      o.className = 'op' + (m[1] || '');
+      o.textContent = m[3];
+      this._hijos.push(o);
     }
   },
 });
@@ -93,10 +113,12 @@ ctx.supabase = { createClient: () => ({ storage: { from: () => ({}) },
 vm.createContext(ctx);
 
 vm.runInContext(fs.readFileSync(path.join(WEB, 'data.js'), 'utf8'), ctx);
+doc.getElementById('tramo-lista').hidden = true;   // como el atributo del HTML
 vm.runInContext(fs.readFileSync(path.join(WEB, 'app.js'), 'utf8'), ctx);
 
 // ── Utilidades del escenario ────────────────────────────────────────────────
 const el = (id) => doc.getElementById(id);
+const panel = () => el('tramo-lista');
 function set(id, v) { el(id).value = v; el(id).disparar('input'); }
 function tipo(t) {
   el('seg-tipo').querySelectorAll('button')
@@ -110,21 +132,57 @@ function adjuntar(clave, nombre) {
   inp.files = [{ name: nombre, size: 10, type: '' }];
   inp.disparar('change');
 }
+const opciones = () => panel().querySelectorAll('.op').map((o) => o.textContent);
+const abierto = () => panel().hidden === false;
+function tocarOpcion(texto) {
+  const op = panel().querySelectorAll('.op')
+    .filter((o) => o.textContent === texto)[0];
+  if (!op) throw new Error('no está la opción ' + texto);
+  op.disparar('mousedown', { preventDefault() {}, target: op });
+}
 const estado = () => ({ disabled: el('enviar').disabled,
                         hint: el('hint').textContent });
 
-const r = {};
+const r = { total_tramos: ctx.TRAMOS.length };
 r.catalogo = {};
 Object.keys(ctx.CATALOGO).forEach((t) => {
   r.catalogo[t] = ctx.CATALOGO[t].filter((c) => c.req).map((c) => c.clave);
 });
 
-// meta completa (tramo, técnico, fecha, PK) para aislar la regla de archivos
-set('tramo', 'Ramal Salento ');
-set('tecnico', 'Juan Perez');
+// ── Selector de tramo ───────────────────────────────────────────────────────
+r.panel_inicial_cerrado = !abierto();
+el('tramo').disparar('focus');
+r.al_enfocar = { abierto: abierto(), n: opciones().length,
+                 primero: opciones()[0] };
+
+set('tramo', 'salento');                       // minúsculas
+r.filtro_texto = { abierto: abierto(), opciones: opciones() };
+set('tramo', 'chinchina');                     // sin tilde → 'Ramal Chinchiná'
+r.filtro_sin_tilde = opciones();
+set('tramo', 'zzz no existe');
+r.filtro_sin_resultados = { opciones: opciones(), estado: estado() };
+
+set('tramo', 'Ramal Salento Inventado');
+r.tramo_inventado = estado();
+
+set('tramo', 'sal');
+tocarOpcion('Ramal Salento');
+r.al_elegir = { valor: el('tramo').value, cerrado: !abierto(),
+                estado: estado() };
+
+// tocar fuera cierra el panel
+el('tramo').disparar('focus');
+const fuera = new Elemento('otra-cosa');
+doc.disparar('mousedown', { target: fuera, preventDefault() {} });
+r.click_fuera_cierra = !abierto();
+
+// ── Resto de la validación (no la puede romper el selector) ─────────────────
 set('fecha', '2026-09-18');
 set('pk-inicial', '125+000');
 set('pk-final', '129+450');
+r.sin_tecnico = estado();
+el('tecnico').value = 'JOSE LUIS PAEZ';
+el('tecnico').disparar('change');
 
 tipo('PAP');
 r.pap_sin_archivos = estado();

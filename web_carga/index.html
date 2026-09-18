@@ -49,6 +49,22 @@
   }
   .row{display:flex; gap:10px; flex-wrap:wrap}
   .row > .col{flex:1 1 45%; min-width:0}
+  /* Selector de tramo: la lista nativa (datalist) no despliega de forma fiable
+     en celular, así que el panel se dibuja a mano. */
+  .combo{position:relative}
+  .opciones{
+    position:absolute; z-index:30; left:0; right:0; top:calc(100% + 4px);
+    background:#fff; border:1.5px solid var(--linea); border-radius:10px;
+    max-height:46vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    box-shadow:0 10px 26px rgba(0,0,0,.16);
+  }
+  .opciones .op{
+    padding:13px 12px; font-size:15px; border-bottom:1px solid var(--linea);
+    cursor:pointer; line-height:1.3;
+  }
+  .opciones .op:last-child{border-bottom:none}
+  .opciones .op.sel{background:#FDECEF; color:var(--rojo); font-weight:700}
+  .opciones .vacio{padding:13px 12px; font-size:.85rem; color:var(--gris)}
   .seg{display:flex; gap:8px}
   .seg button{
     flex:1; padding:13px 6px; border:1.5px solid var(--linea); background:#fff;
@@ -125,8 +141,12 @@
       <div class="row">
         <div class="col">
           <label class="field" for="tramo">Tramo <span class="req">*</span></label>
-          <input list="tramos-list" id="tramo" placeholder="Escribe o elige…" autocomplete="off">
-          <datalist id="tramos-list"></datalist>
+          <div class="combo" id="tramo-combo">
+            <input type="text" id="tramo" placeholder="Toca y busca tu tramo…"
+                   autocomplete="off" role="combobox" aria-autocomplete="list"
+                   aria-expanded="false" aria-controls="tramo-lista">
+            <div class="opciones" id="tramo-lista" role="listbox" hidden></div>
+          </div>
         </div>
         <div class="col">
           <label class="field">Tipo de inspección <span class="req">*</span></label>
@@ -140,7 +160,12 @@
         </div>
         <div class="col">
           <label class="field" for="tecnico">Tu nombre <span class="req">*</span></label>
-          <input type="text" id="tecnico" placeholder="Nombre del técnico" autocomplete="name">
+          <select id="tecnico">
+            <option value="">Elige tu nombre…</option>
+            <option>JOSE LUIS PAEZ</option>
+            <option>EVELIO ALVAREZ</option>
+            <option>ANGEL MARIN</option>
+          </select>
         </div>
       </div>
       <div class="row" style="margin-top:12px">

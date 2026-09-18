@@ -1,13 +1,18 @@
-"""La web de carga no deja enviar una carga sin evidencia.
+"""La web de carga: selector de tramo y validación del formulario.
 
-Regresión: al sacar del catálogo los archivos que el técnico llena dentro de
-FastField, PAP se quedó SIN ninguna casilla `req`. `faltantes()` devolvía lista
-vacía, así que el botón Enviar aparecía habilitado con cero archivos y el envío
-moría en un alert. Ahora la validación exige además al menos un adjunto.
+Dos regresiones cubiertas aquí:
+
+1. Al sacar del catálogo los archivos que el técnico llena dentro de FastField,
+   PAP se quedó SIN ninguna casilla `req`: el botón Enviar aparecía habilitado
+   con cero archivos y el envío moría en un alert. Ahora se exige al menos un
+   adjunto.
+2. El `<datalist>` nativo del campo Tramo no desplegaba de forma fiable en
+   celular. Se reemplazó por un panel propio, y solo vale un tramo que exista
+   en `window.TRAMOS` (texto libre ⇒ botón bloqueado).
 
 El test corre el `web_carga/app.js` REAL sobre un DOM mínimo en Node
-(`tests/web_carga_harness.js`) con el `data.js` REAL, así que si el catálogo
-cambia el test sigue midiendo lo que de verdad ve el técnico.
+(`tests/web_carga_harness.js`) con el `data.js` REAL, así que si el catálogo o
+la lista de tramos cambian el test sigue midiendo lo que ve el técnico.
 """
 import json
 import os
@@ -20,6 +25,8 @@ SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HARNESS = os.path.join(SRC, "tests", "web_carga_harness.js")
 
 SIN_EVIDENCIA = "Adjunta al menos un archivo de evidencia."
+TRAMO_INVALIDO = "Selecciona un tramo válido de la lista."
+FALTA_META = "Completa tramo, fecha, nombre y PK inicial/final."
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +39,40 @@ def r():
     assert out.returncode == 0, f"el arnés falló:\n{out.stderr}"
     return json.loads(out.stdout)
 
+
+# ── Selector de tramo ────────────────────────────────────────────────────────
+
+def test_al_tocar_el_campo_se_abre_la_lista_completa(r):
+    # Lo que fallaba en celular: tocar el campo y no ver ningún tramo.
+    assert r["panel_inicial_cerrado"] is True
+    assert r["al_enfocar"]["abierto"] is True
+    assert r["al_enfocar"]["n"] == r["total_tramos"] == 280
+
+
+def test_filtra_al_escribir_ignorando_mayusculas_y_tildes(r):
+    assert r["filtro_texto"]["abierto"] is True
+    assert r["filtro_texto"]["opciones"] == ["Ramal Salento"]   # 'salento'
+    assert r["filtro_sin_tilde"] == ["Ramal Chinchiná"]         # 'chinchina'
+    assert r["filtro_sin_resultados"]["opciones"] == []
+
+
+def test_al_tocar_un_tramo_lo_deja_en_el_campo_y_cierra(r):
+    assert r["al_elegir"]["valor"] == "Ramal Salento"
+    assert r["al_elegir"]["cerrado"] is True
+
+
+def test_un_tramo_inventado_bloquea_el_envio(r):
+    for caso in ("tramo_inventado", "filtro_sin_resultados"):
+        est = r[caso] if "disabled" in r[caso] else r[caso]["estado"]
+        assert est["disabled"] is True
+        assert est["hint"] == TRAMO_INVALIDO
+
+
+def test_tocar_fuera_cierra_el_panel(r):
+    assert r["click_fuera_cierra"] is True
+
+
+# ── Validación del formulario ────────────────────────────────────────────────
 
 def test_pap_no_tiene_casillas_obligatorias(r):
     # Si algún día PAP vuelve a tener una casilla `req`, este test avisa: la
@@ -61,8 +102,10 @@ def test_cips_y_dcvg_conservan_sus_obligatorios(r):
     assert "Resistividades" in r["dcvg_sin_archivos"]["hint"]
 
 
-def test_los_pk_siguen_mandando(r):
-    # Con archivo adjunto pero sin PK final, el botón sigue deshabilitado.
+def test_tecnico_y_pk_siguen_mandando(r):
+    # Con tramo válido pero sin técnico elegido en el desplegable, bloqueado.
+    assert r["sin_tecnico"]["disabled"] is True
+    assert r["sin_tecnico"]["hint"] == FALTA_META
+    # Con archivo adjunto pero sin PK final, también.
     assert r["pap_con_archivo_sin_pk"]["disabled"] is True
-    assert r["pap_con_archivo_sin_pk"]["hint"] == (
-        "Completa tramo, fecha, nombre y PK inicial/final.")
+    assert r["pap_con_archivo_sin_pk"]["hint"] == FALTA_META

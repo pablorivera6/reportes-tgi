@@ -19,6 +19,7 @@
   // Estado
   var tipoSel = TIPOS[0] || "CIPS";
   var files = {};   // { clave: [File, ...] }
+  var tramoSel = null;   // tramo elegido, tal cual viene en TRAMOS (o null)
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   // slug idéntico a db._slug (Python)
@@ -34,6 +35,26 @@
     return esImg ? ("image/*," + exts) : exts;
   }
   function $(id) { return document.getElementById(id); }
+  function esc(txt) {
+    return String(txt).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  // Normaliza para comparar y filtrar: sin tildes, sin mayúsculas y con los
+  // espacios colapsados (varios tramos traen dobles espacios o un salto final).
+  function normTramo(txt) {
+    return String(txt == null ? "" : txt).normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase().replace(/\s+/g, " ").trim();
+  }
+  // Un tramo solo vale si EXISTE en TRAMOS; devuelve el valor de la lista.
+  function buscarTramo(txt) {
+    var n = normTramo(txt);
+    if (!n) return null;
+    for (var i = 0; i < TRAMOS.length; i++) {
+      if (normTramo(TRAMOS[i]) === n) return TRAMOS[i];
+    }
+    return null;
+  }
 
   // PK escrito en campo → metros enteros. El técnico escribe '125+000' o
   // '129450' (y a veces 'K 125+000'); se quedan solo los dígitos.
@@ -66,10 +87,7 @@
     $("form").style.display = "";
     $("barra").style.display = "";
     // tramos
-    var dl = $("tramos-list");
-    dl.innerHTML = TRAMOS.map(function (t) {
-      return "<option value=\"" + t.replace(/"/g, "&quot;") + "\">";
-    }).join("");
+    montarSelectorTramo();
     // tipo (segmentado)
     var seg = $("seg-tipo");
     seg.innerHTML = TIPOS.map(function (t) {
@@ -88,9 +106,73 @@
     ["tramo", "tecnico", "fecha", "pk-inicial", "pk-final"].forEach(function (id) {
       $(id).addEventListener("input", validar);
     });
+    $("tecnico").addEventListener("change", validar);
     $("enviar").onclick = enviar;
     $("done-btn").onclick = function () { location.reload(); };
     setTipo(tipoSel);
+  }
+
+  // ── Selector de tramo (autocompletado propio) ───────────────────────────────
+  // El <datalist> nativo no despliega de forma fiable en celular (sobre todo en
+  // iOS): el técnico tocaba el campo y no veía nada. Este panel se dibuja a mano.
+  function montarSelectorTramo() {
+    var inp = $("tramo"), panel = $("tramo-lista");
+
+    function pintar() {
+      var n = normTramo(inp.value);
+      // Con el tramo ya elegido se muestran todos, para poder cambiarlo.
+      var yaElegido = tramoSel && normTramo(tramoSel) === n;
+      var idx = [];
+      for (var i = 0; i < TRAMOS.length; i++) {
+        if (!n || yaElegido || normTramo(TRAMOS[i]).indexOf(n) >= 0) idx.push(i);
+      }
+      panel.innerHTML = idx.length
+        ? idx.map(function (i) {
+            return '<div class="op' + (TRAMOS[i] === tramoSel ? " sel" : "") +
+              '" role="option" data-i="' + i + '">' +
+              esc(String(TRAMOS[i]).trim()) + "</div>";
+          }).join("")
+        : '<div class="vacio">Ningún tramo coincide con esa búsqueda.</div>';
+      Array.prototype.forEach.call(panel.querySelectorAll(".op"), function (op) {
+        // 'mousedown' (no 'click'): así se elige antes de que el campo pierda
+        // el foco, que era lo que hacía fallar el toque en celular.
+        op.addEventListener("mousedown", function (ev) {
+          if (ev && ev.preventDefault) ev.preventDefault();
+          elegir(TRAMOS[parseInt(op.getAttribute("data-i"), 10)]);
+        });
+      });
+    }
+    function abrir() {
+      pintar();
+      panel.hidden = false;
+      inp.setAttribute("aria-expanded", "true");
+    }
+    function cerrar() {
+      panel.hidden = true;
+      inp.setAttribute("aria-expanded", "false");
+    }
+    function elegir(t) {
+      tramoSel = t;
+      inp.value = String(t).trim();
+      cerrar();
+      validar();
+    }
+
+    inp.addEventListener("focus", abrir);
+    inp.addEventListener("click", abrir);
+    inp.addEventListener("input", function () {
+      tramoSel = buscarTramo(inp.value);   // texto libre ⇒ null ⇒ no válido
+      abrir();
+    });
+    inp.addEventListener("keydown", function (ev) {
+      if (ev && ev.key === "Escape") cerrar();
+    });
+    document.addEventListener("mousedown", function (ev) {
+      if (panel.hidden) return;
+      var n = ev && ev.target;
+      while (n) { if (n === panel || n === inp) return; n = n.parentNode; }
+      cerrar();
+    });
   }
 
   // ── Render de casillas según tipo ───────────────────────────────────────────
@@ -156,7 +238,7 @@
   function validar() {
     // pk_final puede ser MENOR que pk_inicial: hay inspecciones en sentido
     // descendente. Solo se exige que ambos estén escritos.
-    var faltaMeta = !($("tramo").value.trim() && $("tecnico").value.trim() &&
+    var faltaMeta = !(tramoSel && $("tecnico").value.trim() &&
       $("fecha").value &&
       pkMetros($("pk-inicial").value) !== null &&
       pkMetros($("pk-final").value) !== null);
@@ -168,7 +250,11 @@
     var ok = !faltaMeta && !falta.length && n > 0;
     $("enviar").disabled = !ok;
     var h = $("hint");
-    if (faltaMeta) {
+    if (!tramoSel && $("tramo").value.trim()) {
+      h.className = "hint err";
+      h.textContent = "Selecciona un tramo válido de la lista.";
+    }
+    else if (faltaMeta) {
       h.className = "hint";
       h.textContent = "Completa tramo, fecha, nombre y PK inicial/final.";
     }
@@ -184,7 +270,7 @@
 
   // ── Envío ───────────────────────────────────────────────────────────────────
   function enviar() {
-    var tramo = $("tramo").value.trim();
+    var tramo = String(tramoSel || $("tramo").value).trim();
     var fecha = $("fecha").value;                 // YYYY-MM-DD
     var tecnico = $("tecnico").value.trim();
     var pkInicial = pkMetros($("pk-inicial").value);
