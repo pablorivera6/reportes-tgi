@@ -102,6 +102,7 @@ const ctx = {
   String,
   isNaN,
   parseInt,
+  Math,
   Intl,
   setTimeout,
 };
@@ -175,6 +176,36 @@ el('tramo').disparar('focus');
 const fuera = new Elemento('otra-cosa');
 doc.disparar('mousedown', { target: fuera, preventDefault() {} });
 r.click_fuera_cierra = !abierto();
+
+// ── Formateo del PK ─────────────────────────────────────────────────────────
+// La función pura, tal como la usa el campo.
+r.pk_formato = {};
+['125000', '126500', '9500', '850', '125+000', '', '0', '12abc34']
+  .forEach((t) => { r.pk_formato[t === '' ? '(vacio)' : t] = ctx.pkFormato(t); });
+
+// Escribiendo dígito a dígito, como en el celular (cada tecla es un 'input').
+function teclear(id, texto) {
+  const campo = el(id);
+  campo.value = '';
+  [...texto].forEach((c) => { campo.value += c; campo.disparar('input'); });
+  return campo.value;
+}
+r.tecleando = {
+  '125000': teclear('pk-inicial', '125000'),
+  '850': teclear('pk-inicial', '850'),
+  'pegado 125+000': (() => { set('pk-inicial', '125+000');
+                             return el('pk-inicial').value; })(),
+};
+// borrar deja el campo vacío y sin error
+set('pk-inicial', '');
+r.al_borrar = { valor: el('pk-inicial').value, metros: ctx.pkMetros('') };
+// lo que se guardaría: el campo muestra '125+000' y a la BD va 125000
+set('pk-inicial', '125000');
+set('pk-final', '129450');
+r.a_la_bd = { visible_inicial: el('pk-inicial').value,
+              metros_inicial: ctx.pkMetros(el('pk-inicial').value),
+              visible_final: el('pk-final').value,
+              metros_final: ctx.pkMetros(el('pk-final').value) };
 
 // ── Resto de la validación (no la puede romper el selector) ─────────────────
 set('fecha', '2026-09-18');

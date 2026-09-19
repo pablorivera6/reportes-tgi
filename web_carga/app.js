@@ -67,6 +67,18 @@
   }
   window.pkMetros = pkMetros;   // expuesto para pruebas
 
+  // Lo que SE VE en el campo: el técnico escribe solo dígitos (en iPhone el
+  // teclado numérico no trae el '+') y el campo los muestra como 'K+mmm'.
+  // 125000 → '125+000' · 850 → '0+850' · vacío → vacío.
+  function pkFormato(txt) {
+    var m = pkMetros(txt);
+    if (m === null) return "";
+    var resto = String(m % 1000);
+    while (resto.length < 3) resto = "0" + resto;
+    return Math.floor(m / 1000) + "+" + resto;
+  }
+  window.pkFormato = pkFormato;   // expuesto para pruebas
+
   // ── Puerta de acceso opcional ──────────────────────────────────────────────
   function iniciar() {
     var code = (CFG.ACCESS_CODE || "").trim();
@@ -102,6 +114,13 @@
     var ahora = new Date();
     $("fecha").value = new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000)
       .toISOString().slice(0, 10);
+    // el PK se muestra formateado a medida que escribe
+    ["pk-inicial", "pk-final"].forEach(function (id) {
+      $(id).addEventListener("input", function () {
+        var f = pkFormato($(id).value);
+        if ($(id).value !== f) $(id).value = f;
+      });
+    });
     // listeners de validación
     ["tramo", "tecnico", "fecha", "pk-inicial", "pk-final"].forEach(function (id) {
       $(id).addEventListener("input", validar);

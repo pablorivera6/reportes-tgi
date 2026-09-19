@@ -72,6 +72,39 @@ def test_tocar_fuera_cierra_el_panel(r):
     assert r["click_fuera_cierra"] is True
 
 
+# ── Formateo del PK ──────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("escrito,visible", [
+    ("125000", "125+000"),
+    ("126500", "126+500"),
+    ("9500", "9+500"),
+    ("850", "0+850"),        # menos de 1 km
+    ("125+000", "125+000"),  # ya formateado (pegado)
+    ("", ""),                # vacío se queda vacío
+])
+def test_el_campo_muestra_el_pk_formateado(r, escrito, visible):
+    # En iPhone el teclado numérico no trae el '+': el técnico escribe solo
+    # dígitos y el campo los muestra como 'K+mmm'.
+    assert r["pk_formato"][escrito or "(vacio)"] == visible
+
+
+def test_se_formatea_mientras_teclea(r):
+    assert r["tecleando"]["125000"] == "125+000"
+    assert r["tecleando"]["850"] == "0+850"
+    assert r["tecleando"]["pegado 125+000"] == "125+000"
+
+
+def test_borrar_el_campo_lo_deja_vacio(r):
+    assert r["al_borrar"]["valor"] == ""
+    assert r["al_borrar"]["metros"] is None
+
+
+def test_lo_que_se_ve_formateado_se_guarda_en_metros(r):
+    # El campo muestra '125+000' y a Supabase (pk_inicial/pk_final) va el entero.
+    assert r["a_la_bd"] == {"visible_inicial": "125+000", "metros_inicial": 125000,
+                            "visible_final": "129+450", "metros_final": 129450}
+
+
 # ── Validación del formulario ────────────────────────────────────────────────
 
 def test_pap_no_tiene_casillas_obligatorias(r):
