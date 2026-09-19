@@ -116,9 +116,19 @@
       .toISOString().slice(0, 10);
     // el PK se muestra formateado a medida que escribe
     ["pk-inicial", "pk-final"].forEach(function (id) {
+      var previo = "";
       $(id).addEventListener("input", function () {
-        var f = pkFormato($(id).value);
-        if ($(id).value !== f) $(id).value = f;
+        var crudo = $(id).value;
+        var digitos = crudo.replace(/[^0-9]/g, "");
+        // Borrando con Backspace se llega a '0+000', y reformatear eso lo
+        // devolvía a '0+000' sin fin: el campo NUNCA quedaba vacío. Si el
+        // usuario está borrando y ya no queda ningún dígito significativo,
+        // se limpia.
+        var borrando = crudo.length < previo.length;
+        var f = (!digitos || (borrando && !/[1-9]/.test(digitos)))
+          ? "" : pkFormato(crudo);
+        if (crudo !== f) $(id).value = f;
+        previo = f;
       });
     });
     // listeners de validación

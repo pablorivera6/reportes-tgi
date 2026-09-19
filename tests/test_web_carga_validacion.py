@@ -94,6 +94,18 @@ def test_se_formatea_mientras_teclea(r):
     assert r["tecleando"]["pegado 125+000"] == "125+000"
 
 
+def test_backspace_repetido_vacia_el_campo(r):
+    # Regresión: al borrar carácter por carácter se llegaba a '0+000' y el
+    # reformateo lo regeneraba, así que el campo NUNCA quedaba vacío.
+    pasos = r["backspace"]["pasos"]
+    assert pasos[:6] == ["125+000", "12+500", "1+250", "0+125", "0+012",
+                         "0+001"]
+    assert "" in pasos, f"nunca llegó a vacío: {pasos}"
+    assert r["backspace"]["final"] == ""          # sigue vacío al insistir
+    assert r["backspace"]["metros_al_final"] is None
+    assert r["backspace"]["reescribe"] == "125+000"   # se puede volver a usar
+
+
 def test_borrar_el_campo_lo_deja_vacio(r):
     assert r["al_borrar"]["valor"] == ""
     assert r["al_borrar"]["metros"] is None

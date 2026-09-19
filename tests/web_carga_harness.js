@@ -196,6 +196,25 @@ r.tecleando = {
   'pegado 125+000': (() => { set('pk-inicial', '125+000');
                              return el('pk-inicial').value; })(),
 };
+// Backspace repetido: cada tecla quita el último carácter y dispara 'input'.
+// Tiene que llegar a vacío; antes se quedaba clavado en '0+000'.
+function retroceder(id, veces) {
+  const campo = el(id);
+  const pasos = [campo.value];
+  for (let i = 0; i < veces; i++) {
+    campo.value = campo.value.slice(0, -1);
+    campo.disparar('input');
+    pasos.push(campo.value);
+  }
+  return pasos;
+}
+set('pk-inicial', '125000');
+r.backspace = { pasos: retroceder('pk-inicial', 12) };
+r.backspace.final = r.backspace.pasos[r.backspace.pasos.length - 1];
+r.backspace.metros_al_final = ctx.pkMetros(el('pk-inicial').value);
+// y se puede volver a escribir después de vaciarlo
+r.backspace.reescribe = teclear('pk-inicial', '125000');
+
 // borrar deja el campo vacío y sin error
 set('pk-inicial', '');
 r.al_borrar = { valor: el('pk-inicial').value, metros: ctx.pkMetros('') };
