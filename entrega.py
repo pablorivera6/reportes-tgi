@@ -52,7 +52,15 @@ _ANEXOS_COMUNES = [
        False, _IMG, "anexos", "anexo", "Inspeccion_Visual_Interfases"),
 ]
 
-# Registro fotográfico (mín. 5 fotos por elemento, en orden de abscisado)
+# Registro fotográfico de CIPS y PAP: UNA sola casilla. El técnico sube todas
+# las fotos juntas y quedan en una sola carpeta `06_RF` (también en SharePoint).
+_RF_UNICO = [
+    _c("foto_rf", "Fotos — registro fotográfico (todas juntas)",
+       False, _IMG, "rf", "rf"),
+]
+
+# Registro fotográfico de DCVG, separado por elemento (mín. 5 fotos por
+# elemento, en orden de abscisado)
 _RF_COMUNES = [
     _c("foto_postes", "Fotos — postes de medición", False, _IMG, "rf", "rf", "Postes"),
     _c("foto_interfases", "Fotos — interfases aéreo/enterrado", False, _IMG, "rf", "rf", "Interfases"),
@@ -64,15 +72,13 @@ _RF_COMUNES = [
 CATALOGO = {
     "CIPS": [
         _c("cips", "Archivo CIPS (iBTVM)", True, _XLS, "logger", "proc"),
-    ] + _CRUDOS + _ANEXOS_COMUNES + _RF_COMUNES,
+    ] + _CRUDOS + _ANEXOS_COMUNES + _RF_UNICO,
     "PAP": [
         _c("fastfield_pap", "Potenciales PAP (FastField)", True, _XLS, "anexos", "proc"),
         _c("equipos", "Listado de equipos (opcional)", False, _XLS, "anexos", "proc"),
         _c("rectificador", "Rectificador URPC (opcional)", False, _XLS, "anexos", "proc"),
         _c("aislamientos", "Aislamientos FastField (opcional)", False, _XLS, "anexos", "proc"),
-    ] + _CRUDOS + [
-        _c("foto_rectificadores", "Fotos — rectificadores", False, _IMG, "rf", "rf", "Rectificadores"),
-    ] + _ANEXOS_COMUNES + _RF_COMUNES,
+    ] + _CRUDOS + _ANEXOS_COMUNES + _RF_UNICO,
     "DCVG": [
         _c("dcvg", "FastField DCVG", True, _XLS, "anexos", "proc"),
         _c("resistividades", "Resistividades", True, _XLS, "anexos", "proc"),

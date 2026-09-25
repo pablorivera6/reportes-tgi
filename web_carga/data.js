@@ -25,44 +25,8 @@ window.CATALOGO = {
 "grupo": "crudo"
 },
 {
-"clave": "foto_postes",
-"etiqueta": "Fotos — postes de medición",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "rf"
-},
-{
-"clave": "foto_interfases",
-"etiqueta": "Fotos — interfases aéreo/enterrado",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "rf"
-},
-{
-"clave": "foto_hallazgos",
-"etiqueta": "Fotos — hallazgos / cruces",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "rf"
-},
-{
-"clave": "foto_general",
-"etiqueta": "Fotos — panorámicas generales",
+"clave": "foto_rf",
+"etiqueta": "Fotos — registro fotográfico (todas juntas)",
 "req": false,
 "tipos": [
 "jpg",
@@ -97,56 +61,8 @@ window.CATALOGO = {
 "grupo": "crudo"
 },
 {
-"clave": "foto_rectificadores",
-"etiqueta": "Fotos — rectificadores",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "rf"
-},
-{
-"clave": "foto_postes",
-"etiqueta": "Fotos — postes de medición",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "rf"
-},
-{
-"clave": "foto_interfases",
-"etiqueta": "Fotos — interfases aéreo/enterrado",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "rf"
-},
-{
-"clave": "foto_hallazgos",
-"etiqueta": "Fotos — hallazgos / cruces",
-"req": false,
-"tipos": [
-"jpg",
-"jpeg",
-"png",
-"heic"
-],
-"grupo": "rf"
-},
-{
-"clave": "foto_general",
-"etiqueta": "Fotos — panorámicas generales",
+"clave": "foto_rf",
+"etiqueta": "Fotos — registro fotográfico (todas juntas)",
 "req": false,
 "tipos": [
 "jpg",

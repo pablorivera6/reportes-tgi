@@ -240,7 +240,7 @@ adjuntar('equipos', 'Listado equipos.xlsx');
 r.pap_con_equipos = estado();
 
 tipo('PAP');                       // reinicia los archivos del tipo
-adjuntar('foto_postes', 'poste_1.jpg');
+adjuntar('foto_rf', 'poste_1.jpg');
 r.pap_con_foto = estado();
 
 tipo('CIPS');
