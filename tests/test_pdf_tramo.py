@@ -131,3 +131,63 @@ def test_etiquetas_no_se_repiten_cuando_hay_dos_campanas_del_mismo_ano_y_tipo():
         {"DCVG": _detalle_dcvg()},
         [dict(HIST_DCVG, periodo="Mar 2026"), dict(HIST_DCVG, periodo="Sep 2026")])
     assert len({c["etiqueta"] for c in cs}) == len(cs)
+
+
+# ── Campañas DCVG sin defectos ──────────────────────────────────────────────
+# El 40 % de los paneles salía en blanco: una campaña DCVG que no encontró
+# defectos no tenía nada que graficar, aunque hubiera medido decenas de postes
+# con ON/OFF. "Sin defectos" es un RESULTADO, no una falta de datos, y el panel
+# debe mostrar los potenciales que sí se midieron.
+DET_DCVG_SIN_DEFECTOS = {
+    "inspeccion": {"tipo": "DCVG", "tramo": "Zarzal", "fecha": "2026-07-30"},
+    "defectos": [],
+    "postes": [{"abscisa": 0, "on_mv": -1500, "off_mv": -950},
+               {"abscisa": 600, "on_mv": -1450, "off_mv": -910}]}
+
+HIST_DCVG_SIN_DEFECTOS = {
+    "tramo": "Zarzal", "tipo": "DCVG", "periodo": "Jul 2024",
+    "puntos": [{"clase": "poste", "abscisa": 100, "on": -1400, "off": -1000},
+               {"clase": "poste", "abscisa": 5000, "on": -1380, "off": -980}]}
+
+
+def test_campana_dcvg_sin_defectos_conserva_los_potenciales_de_sus_postes():
+    cs = comparativa.campanas_desde({"DCVG": DET_DCVG_SIN_DEFECTOS},
+                                    [HIST_DCVG_SIN_DEFECTOS])
+    for c in cs:
+        assert c["puntos"] == []          # no hubo defectos
+        assert len(c["potenciales"]) == 2  # pero sí postes medidos
+
+
+def test_una_campana_con_potenciales_no_cuenta_como_vacia():
+    """Es lo que decidía si el panel decía 'sin datos'."""
+    cs = comparativa.campanas_desde({"DCVG": DET_DCVG_SIN_DEFECTOS}, [])
+    assert comparativa.tiene_datos(cs[0]) is True
+    assert comparativa.tiene_datos({"puntos": [], "potenciales": []}) is False
+
+
+def test_el_rango_de_abscisas_tiene_en_cuenta_los_postes():
+    """Si el rango ignorara los potenciales, una campaña sin defectos quedaría
+    fuera del eje común y su panel se dibujaría recortado."""
+    cs = comparativa.campanas_desde({"DCVG": DET_DCVG_SIN_DEFECTOS},
+                                    [HIST_DCVG_SIN_DEFECTOS])
+    assert comparativa.rango_abscisas(cs) == (0, 5000)
+
+
+def test_el_pdf_de_un_tramo_sin_defectos_no_queda_en_blanco():
+    pypdf = pytest.importorskip("pypdf")
+    import io
+    cs = comparativa.campanas_desde({"DCVG": DET_DCVG_SIN_DEFECTOS},
+                                    [HIST_DCVG_SIN_DEFECTOS])
+    b = comparativa.pdf_tramo("Zarzal", cs)
+    txt = "\n".join(p.extract_text() or ""
+                    for p in pypdf.PdfReader(io.BytesIO(b)).pages)
+    assert "sin datos" not in txt.lower()
+    assert "Potencial" in txt          # se graficaron los postes
+
+
+def test_etiqueta_sin_fecha_no_queda_como_guion_suelto():
+    """La Dorada CIPS no tiene fecha: 'CIPS —' no le dice nada a nadie."""
+    cs = comparativa.campanas_desde(
+        {"CIPS": {"inspeccion": {"tipo": "CIPS", "tramo": "La Dorada"},
+                  "puntos": [{"abscisa": 0, "on_mv": -1500, "off_mv": -900}]}}, [])
+    assert cs[0]["etiqueta"] == "CIPS (sin fecha)"

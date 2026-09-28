@@ -816,10 +816,16 @@ def campanas_desde(detalles, historicos):
     for tipo, det in (detalles or {}).items():
         insp = (det or {}).get('inspeccion') or {}
         anio, mes = _anio_mes(insp.get('fecha'))
-        pts = (_puntos_severidad(det.get('defectos')) if tipo == 'DCVG'
-               else _puntos_potencial(det.get('puntos')))
+        if tipo == 'DCVG':
+            # una campaña DCVG mide DOS cosas: defectos (%IR) y postes (ON/OFF).
+            # Guardar solo los defectos dejaba el panel en blanco cuando no se
+            # encontró ninguno, que es un RESULTADO, no una falta de datos.
+            pts = _puntos_severidad(det.get('defectos'))
+            pot = _puntos_potencial(det.get('postes'))
+        else:
+            pts, pot = _puntos_potencial(det.get('puntos')), []
         cs.append({'tipo': tipo, 'anio': anio, 'mes': mes, 'origen': 'actual',
-                   'puntos': pts})
+                   'puntos': pts, 'potenciales': pot})
     for h in historicos or []:
         tipo = (h.get('tipo') or 'CIPS').upper()
         anio, mes = _anio_mes(h.get('periodo') or h.get('fecha'))
@@ -827,10 +833,12 @@ def campanas_desde(detalles, historicos):
         if tipo == 'DCVG':
             pts = _puntos_severidad([p for p in crudos
                                      if (p.get('clase') or 'defecto') == 'defecto'])
+            pot = _puntos_potencial([p for p in crudos
+                                     if p.get('clase') == 'poste'])
         else:
-            pts = _puntos_potencial(crudos)
+            pts, pot = _puntos_potencial(crudos), []
         cs.append({'tipo': tipo, 'anio': anio, 'mes': mes, 'origen': 'historico',
-                   'puntos': pts})
+                   'puntos': pts, 'potenciales': pot})
 
     cs.sort(key=lambda c: (c['anio'], c['mes']), reverse=True)
     # etiqueta 'DCVG 2026'; si dos campañas coinciden en tipo y año, el mes las
@@ -839,17 +847,29 @@ def campanas_desde(detalles, historicos):
     for c in cs:
         conteo[(c['tipo'], c['anio'])] = conteo.get((c['tipo'], c['anio']), 0) + 1
     for c in cs:
-        base = f"{c['tipo']} {c['anio'] or '—'}"
+        if not c['anio']:
+            c['etiqueta'] = f"{c['tipo']} (sin fecha)"
+            continue
+        base = f"{c['tipo']} {c['anio']}"
         if conteo[(c['tipo'], c['anio'])] > 1 and c['mes']:
             base = f"{c['tipo']} {MESES[c['mes']]} {c['anio']}"
         c['etiqueta'] = base
     return cs
 
 
+def tiene_datos(campana):
+    """¿La campaña aporta algo al panel? Un DCVG sin defectos pero con postes
+    medidos SÍ: se grafican sus potenciales."""
+    c = campana or {}
+    return bool(c.get('puntos')) or bool(c.get('potenciales'))
+
+
 def rango_abscisas(campanas):
     """(ini, fin) común a TODAS las campañas. Un rango por panel desalinearía
-    las columnas y el documento mentiría visualmente."""
-    xs = [p['abscisa'] for c in (campanas or []) for p in (c.get('puntos') or [])
+    las columnas y el documento mentiría visualmente. Cuenta también los postes:
+    si no, una campaña sin defectos quedaría fuera del eje."""
+    xs = [p['abscisa'] for c in (campanas or [])
+          for p in list(c.get('puntos') or []) + list(c.get('potenciales') or [])
           if isinstance(p.get('abscisa'), (int, float))]
     if not xs:
         return (0, 1)
@@ -860,6 +880,11 @@ def rango_abscisas(campanas):
 def _panel(ax, camp, xlim):
     """Dibuja una campaña. DCVG = severidad %IR; CIPS/PAP = ON/OFF."""
     pts = camp.get('puntos') or []
+    pot = camp.get('potenciales') or []
+    # DCVG sin defectos: se grafican los postes medidos, y el título lo dice
+    solo_potencial = camp['tipo'] == 'DCVG' and not pts and pot
+    if solo_potencial:
+        pts = pot
     ax.set_xlim(xlim)
     ax.tick_params(labelsize=6.5)
     # marco completo y tenue: enmarca cada campaña y hace legible el panel
@@ -868,15 +893,17 @@ def _panel(ax, camp, xlim):
         lado.set_color('#C9CDD3')
         lado.set_linewidth(0.7)
     ax.grid(axis='y', color='#E3E5E9', lw=0.5)
-    ax.set_title(camp['etiqueta'], fontsize=9.5, fontweight='bold',
-                 color='#191C20', pad=3)
+    titulo = camp['etiqueta']
+    if solo_potencial:
+        titulo += f"  ·  sin defectos ({len(pot)} postes medidos)"
+    ax.set_title(titulo, fontsize=9.5, fontweight='bold', color='#191C20', pad=3)
     if not pts:
         ax.text(0.5, 0.5, 'sin datos en esta campaña', transform=ax.transAxes,
                 ha='center', va='center', fontsize=8, color='#9AA0A6')
         ax.set_yticks([])
         return
     xs = [p['abscisa'] for p in pts]
-    if camp['tipo'] == 'DCVG':
+    if camp['tipo'] == 'DCVG' and not solo_potencial:
         ax.scatter(xs, [p['severidad_pct'] for p in pts], s=16, zorder=3,
                    c=[COLOR_CLAS.get(p.get('clasificacion'), GRIS) for p in pts],
                    edgecolors='white', linewidths=0.4)
@@ -886,7 +913,8 @@ def _panel(ax, camp, xlim):
         ax.set_ylim(0, tope)
         ax.set_ylabel('IR [%]', fontsize=7)
     else:
-        marca = dict(marker='o', ms=2.6) if camp['tipo'] == 'PAP' else dict(lw=0.9)
+        pocos = camp['tipo'] == 'PAP' or solo_potencial
+        marca = dict(marker='o', ms=2.6) if pocos else dict(lw=0.9)
         for clave, color, nombre in (('on', AZUL, 'ON'), ('off', AZUL_CLARO, 'OFF')):
             serie = [(p['abscisa'], p[clave]) for p in pts if p.get(clave) is not None]
             if serie:
