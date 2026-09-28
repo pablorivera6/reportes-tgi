@@ -191,3 +191,56 @@ def test_etiqueta_sin_fecha_no_queda_como_guion_suelto():
         {"CIPS": {"inspeccion": {"tipo": "CIPS", "tramo": "La Dorada"},
                   "puntos": [{"abscisa": 0, "on_mv": -1500, "off_mv": -900}]}}, [])
     assert cs[0]["etiqueta"] == "CIPS (sin fecha)"
+
+
+# ── La MISMA vista, en pantalla ─────────────────────────────────────────────
+# Los paneles apilados existían solo en el PDF descargable: en el portal la
+# gráfica de "Vista por tramo" se armaba únicamente con las inspecciones
+# ACTUALES y nunca dibujaba los históricos. Quien abría la página no veía la
+# comparación por ningún lado.
+def test_la_figura_de_pantalla_tiene_una_fila_por_campana():
+    pytest.importorskip("plotly")
+    cs = _campanas()
+    fig = comparativa.figura_tramo(cs)
+    assert len(fig.data) >= len(cs)          # al menos una serie por campaña
+    # los títulos de cada fila son las etiquetas de las campañas
+    titulos = [a.text for a in fig.layout.annotations]
+    for c in cs:
+        assert any(c["etiqueta"] in t for t in titulos)
+
+
+def test_la_figura_incluye_las_campanas_HISTORICAS():
+    pytest.importorskip("plotly")
+    cs = _campanas()
+    fig = comparativa.figura_tramo(cs)
+    titulos = " ".join(a.text for a in fig.layout.annotations)
+    assert "CIPS 2024" in titulos           # histórico CIPS
+    assert "DCVG 2024" in titulos           # histórico DCVG
+
+
+def test_la_figura_comparte_el_eje_x_entre_paneles():
+    pytest.importorskip("plotly")
+    fig = comparativa.figura_tramo(_campanas())
+    ini, fin = comparativa.rango_abscisas(_campanas())
+    # todos los ejes x arrancan y terminan en el mismo rango
+    rangos = [getattr(fig.layout, k).range for k in dir(fig.layout)
+              if k.startswith("xaxis") and getattr(fig.layout, k).range]
+    assert rangos and all(tuple(r) == (ini, fin) for r in rangos)
+
+
+def test_la_figura_sin_campanas_no_revienta():
+    pytest.importorskip("plotly")
+    fig = comparativa.figura_tramo([])
+    assert fig is not None
+
+
+def test_una_inspeccion_actual_sin_fecha_va_ARRIBA_de_las_historicas():
+    """La Dorada: su CIPS actual no tiene fecha en la base. Ordenar por año la
+    mandaba al fondo, debajo del histórico de 2023, invirtiendo la lectura."""
+    cs = comparativa.campanas_desde(
+        {"CIPS": {"inspeccion": {"tipo": "CIPS", "tramo": "La Dorada"},
+                  "puntos": [{"abscisa": 0, "on_mv": -1500, "off_mv": -900}]}},
+        [{"tramo": "La Dorada", "tipo": "CIPS", "periodo": "Nov 2023",
+          "puntos": [{"abscisa": 0, "on": -1400, "off": -880}]}])
+    assert cs[0]["origen"] == "actual"
+    assert cs[1]["etiqueta"] == "CIPS 2023"

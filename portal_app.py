@@ -1129,8 +1129,29 @@ def render_vista_tramo():
                               "del tramo protegido" if pct is not None else ""))
     tema.kpi_row(st, _tarjetas)
 
+    # ── Evolución del tramo: una fila por campaña, históricos incluidos ─────
+    # Antes esta página solo dibujaba las inspecciones ACTUALES y los históricos
+    # no aparecían en pantalla, únicamente en el PDF descargable.
+    import comparativa
+    try:
+        _hs = _historicos_tramo_cached(tramo, _ES_REVISOR) if db.disponible() else []
+    except Exception:
+        _hs = []
+    _camp = comparativa.campanas_desde(det, _hs)
+    tema.seccion(st, "Evolución del tramo · todas las campañas")
+    _n_hist = sum(1 for c in _camp if c["origen"] == "historico")
+    st.caption(
+        f"{len(_camp)} campaña(s) — {len(_camp) - _n_hist} actual(es) y {_n_hist} "
+        f"histórica(s): " + " · ".join(c["etiqueta"] for c in _camp) +
+        ". Comparten el eje de abscisas, así una anomalía se sigue en vertical "
+        "entre campañas y entre técnicas.")
+    if _camp:
+        st.plotly_chart(comparativa.figura_tramo(_camp), use_container_width=True)
+    else:
+        st.info("Este tramo aún no tiene campañas con datos graficables.")
+
     # gráfica alineada por abscisa (potencial arriba, severidad DCVG abajo)
-    tema.seccion(st, "Protección vs defectos — alineado por abscisa")
+    tema.seccion(st, "Protección vs defectos — alineado por abscisa (inspección actual)")
     if not ({"CIPS", "PAP"} & set(det)):
         st.info("Este tramo aún no tiene CIPS ni PAP publicados: sin ellos no hay "
                 "curva de protección con la cual cruzar los defectos.",
@@ -1149,17 +1170,7 @@ def render_vista_tramo():
     # Reemplaza bajar un PDF por inspección: el mismo tramo en un solo
     # documento liviano, donde la evolución se lee en vertical.
     tema.seccion(st, "Informe del tramo")
-    try:
-        _hs = _historicos_tramo_cached(tramo, _ES_REVISOR) if db.disponible() else []
-    except Exception:
-        _hs = []
-    import comparativa
-    _camp = comparativa.campanas_desde(det, _hs)
-    st.caption(
-        f"{len(_camp)} campaña(s): "
-        + " · ".join(c["etiqueta"] for c in _camp)
-        + ". Todas comparten el eje de abscisas, así una anomalía se sigue en "
-          "vertical entre campañas y entre técnicas.")
+    st.caption("El PDF lleva exactamente los paneles de arriba, en una página.")
     try:
         _pdf = comparativa.pdf_tramo(tramo, _camp)
         st.download_button(

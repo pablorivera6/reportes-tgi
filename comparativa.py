@@ -840,7 +840,10 @@ def campanas_desde(detalles, historicos):
         cs.append({'tipo': tipo, 'anio': anio, 'mes': mes, 'origen': 'historico',
                    'puntos': pts, 'potenciales': pot})
 
-    cs.sort(key=lambda c: (c['anio'], c['mes']), reverse=True)
+    # Una inspección ACTUAL sin fecha es, por definición, la vigente: va arriba.
+    # Ordenar solo por año la mandaba al fondo, debajo de su propio histórico.
+    cs.sort(key=lambda c: (c['anio'] or (9999 if c['origen'] == 'actual' else 0),
+                           c['mes']), reverse=True)
     # etiqueta 'DCVG 2026'; si dos campañas coinciden en tipo y año, el mes las
     # separa (si no, el lector no sabría cuál panel es cuál)
     conteo = {}
@@ -969,3 +972,72 @@ def pdf_tramo(tramo, campanas, por_pagina=5) -> bytes:
                      fontsize=7, color='#646A73')
             pdf.savefig(fig); plt.close(fig)
     return buf.getvalue()
+
+
+def figura_tramo(campanas):
+    """La MISMA vista apilada del PDF, interactiva para el portal.
+
+    La gráfica que había en "Vista por tramo" se armaba solo con las
+    inspecciones ACTUALES: los históricos no se dibujaban en ninguna parte de
+    la pantalla, solo en el PDF descargable. Aquí cada campaña es una fila y
+    todas comparten el eje X, igual que en `pdf_tramo`.
+    """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    cs = list(campanas or [])
+    if not cs:
+        return go.Figure()
+    xlim = rango_abscisas(cs)
+    fig = make_subplots(rows=len(cs), cols=1, shared_xaxes=True,
+                        vertical_spacing=min(0.08, 0.5 / len(cs)),
+                        subplot_titles=[_titulo_panel(c) for c in cs])
+    for i, c in enumerate(cs, start=1):
+        pts = c.get('puntos') or []
+        pot = c.get('potenciales') or []
+        solo_pot = c['tipo'] == 'DCVG' and not pts and pot
+        datos = pot if solo_pot else pts
+        if not datos:
+            fig.update_yaxes(title_text='sin datos', row=i, col=1)
+            continue
+        xs = [p['abscisa'] for p in datos]
+        if c['tipo'] == 'DCVG' and not solo_pot:
+            fig.add_trace(go.Scatter(
+                x=xs, y=[p['severidad_pct'] for p in datos], mode='markers',
+                name=c['etiqueta'], showlegend=False,
+                marker=dict(size=7, line=dict(color='white', width=0.8),
+                            color=[COLOR_CLAS.get(p.get('clasificacion'), GRIS)
+                                   for p in datos])), row=i, col=1)
+            for y, col in ((15, VERDE), (35, AMBAR), (60, ROJO)):
+                fig.add_hline(y=y, line=dict(color=col, width=1, dash='dash'),
+                              row=i, col=1)
+            fig.update_yaxes(title_text='%IR', row=i, col=1)
+        else:
+            modo = 'lines+markers' if (solo_pot or c['tipo'] == 'PAP') else 'lines'
+            for clave, color, nombre in (('on', AZUL, 'ON'), ('off', AZUL_CLARO, 'OFF')):
+                serie = [(p['abscisa'], p[clave]) for p in datos
+                         if p.get(clave) is not None]
+                if serie:
+                    fig.add_trace(go.Scatter(
+                        x=[s[0] for s in serie], y=[s[1] for s in serie],
+                        mode=modo, name=f"{nombre} · {c['etiqueta']}",
+                        showlegend=False, line=dict(color=color, width=1.4),
+                        marker=dict(size=4)), row=i, col=1)
+            fig.add_hline(y=CRIT, line=dict(color=VERDE, width=1, dash='dash'),
+                          row=i, col=1)
+            fig.update_yaxes(title_text='mV', autorange='reversed', row=i, col=1)
+        fig.update_xaxes(range=list(xlim), row=i, col=1)
+    fig.update_xaxes(title_text='Abscisado (progresiva) [m]', row=len(cs), col=1)
+    fig.update_layout(height=max(260, 170 * len(cs)), showlegend=False,
+                      margin=dict(t=40, b=10, l=10, r=10),
+                      plot_bgcolor='rgba(0,0,0,0)')
+    for a in fig.layout.annotations:
+        a.font.size = 12
+    return fig
+
+
+def _titulo_panel(c):
+    """'DCVG 2024 · sin defectos (5 postes medidos)'."""
+    if c['tipo'] == 'DCVG' and not c.get('puntos') and c.get('potenciales'):
+        return f"{c['etiqueta']} · sin defectos ({len(c['potenciales'])} postes medidos)"
+    return c['etiqueta']
