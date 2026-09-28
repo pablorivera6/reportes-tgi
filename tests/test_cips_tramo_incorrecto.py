@@ -26,7 +26,10 @@ def test_tramo_equivocado_lanza_error(archivos_cips, tmp_path):
 
 
 def test_sugerir_tramos_encuentra_salento():
-    if not os.path.isdir(_SHP_LOCAL):
+    # OJO: comprobar el .shp y no solo la carpeta. A /private/tmp lo limpian y
+    # deja el directorio vacío: con `isdir` el test no saltaba, corría sin datos
+    # y fallaba con sugerencias=[] como si fuera un bug del motor.
+    if not os.path.exists(os.path.join(_SHP_LOCAL, "R_SAL.shp")):
         pytest.skip("shapefiles locales no disponibles")
     infra = InfraTramos(shapefiles_dir=_SHP_LOCAL)
     # coordenada real de los archivos CIPS de Salento

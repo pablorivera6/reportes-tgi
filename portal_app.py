@@ -216,6 +216,12 @@ def _rectificadores_cached(tramo, revisor: bool):
 
 
 @st.cache_data(ttl=_TTL_HIST, show_spinner=False)
+def _historicos_tramo_cached(tramo, revisor: bool):
+    """Todos los históricos del tramo (cualquier técnica), para el PDF."""
+    return db.historicos_de_tramo(tramo, write=revisor)
+
+
+@st.cache_data(ttl=_TTL_HIST, show_spinner=False)
 def _lista_rectificadores_cached(revisor: bool):
     return db.listar_rectificadores(write=revisor)
 
@@ -1112,6 +1118,30 @@ def render_vista_tramo():
     # zonas críticas: desprotegido + defecto DCVG cercano
     tema.seccion(st, "Zonas críticas · ducto desprotegido con defecto de recubrimiento")
     _zonas_criticas(det)
+
+    # ── PDF del tramo: una fila por campaña, todas sobre el mismo abscisado ──
+    # Reemplaza bajar un PDF por inspección: el mismo tramo en un solo
+    # documento liviano, donde la evolución se lee en vertical.
+    tema.seccion(st, "Informe del tramo")
+    try:
+        _hs = _historicos_tramo_cached(tramo, _ES_REVISOR) if db.disponible() else []
+    except Exception:
+        _hs = []
+    import comparativa
+    _camp = comparativa.campanas_desde(det, _hs)
+    st.caption(
+        f"{len(_camp)} campaña(s): "
+        + " · ".join(c["etiqueta"] for c in _camp)
+        + ". Todas comparten el eje de abscisas, así una anomalía se sigue en "
+          "vertical entre campañas y entre técnicas.")
+    try:
+        _pdf = comparativa.pdf_tramo(tramo, _camp)
+        st.download_button(
+            "⬇️ Descargar PDF del tramo", data=_pdf,
+            file_name=f"Tramo_{(tramo or 'tramo').replace(' ', '_')}.pdf",
+            mime="application/pdf")
+    except Exception as e:
+        st.caption(f"(No se pudo generar el PDF: {e})")
 
 
 def _grafica_consolidada(det):

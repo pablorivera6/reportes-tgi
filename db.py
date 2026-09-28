@@ -596,9 +596,16 @@ def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
                             carga_id: str | None = None,
                             contexto: dict | None = None,
                             revision: str = "A",
-                            reemplaza_id: str | None = None):
+                            reemplaza_id: str | None = None,
+                            severidades=None):
+    """`severidades`: P/RE, %IR y clasificación ya calculados, en el orden de
+    `defectos`. Se usa al publicar un informe YA ENTREGADO: sus fórmulas
+    anclaron la interpolación de P/RE en los postes elegidos al generarlo, y
+    recalcularlas haría que el portal contradijera el documento que el cliente
+    tiene. Si no se pasa, se calculan aquí (el caso normal: inspección recién
+    procesada)."""
     cli = _client(write=True)
-    sev = _severidad_dcvg(postes or [], defectos or [])
+    sev = severidades or _severidad_dcvg(postes or [], defectos or [])
 
     todas = ([_i(x.get("pk_m")) for x in (postes or []) + (defectos or [])
               if x.get("pk_m") is not None])
@@ -853,6 +860,23 @@ def historico_de_tramo(tramo, tipo="CIPS", write: bool = False):
                 "id", h["id"]).limit(1).execute().data
             return fila[0] if fila else None
     return None
+
+
+def historicos_de_tramo(tramo, write: bool = False):
+    """TODOS los históricos de un tramo (cualquier técnica), con sus puntos.
+
+    Igual que `historico_de_tramo`, consulta en dos pasos —metadatos primero y
+    los `puntos` solo de los que casan— porque `puntos` es el 98 % del peso de
+    la tabla y el PDF por tramo solo necesita unos pocos.
+    """
+    cli = _client(write=write)
+    meta = cli.table("historicos").select("id,tramo,tipo,periodo").order(
+        "creado_en", desc=True).execute().data or []
+    ids = [h["id"] for h in meta if _mismo_tramo(h.get("tramo"), tramo)]
+    if not ids:
+        return []
+    filas = cli.table("historicos").select("*").in_("id", ids).execute().data or []
+    return filas
 
 
 def marcar_cola_fastfield(cola_id, estado, carga_id=None, error=None):

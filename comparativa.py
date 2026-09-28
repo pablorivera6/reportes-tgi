@@ -14,6 +14,7 @@ DCVG (defectos de recubrimiento):
 from __future__ import annotations
 
 import io
+import re
 
 ROJO = "#C8102E"
 GRIS = "#6B7079"
@@ -394,6 +395,129 @@ def pdf_bytes(tramo, dfp, hist) -> bytes:
                           "tramos": []}, dfp, hist)
 
 
+def pdf_historico(hist) -> bytes:
+    """PDF de un histórico DCVG que TODAVÍA no tiene inspección actual.
+
+    El PDF del tablero se arma sobre la inspección publicada; si el tramo aún
+    no se ha vuelto a inspeccionar, no hay tablero que exportar y sin embargo
+    el histórico ya cargado es útil (dónde estaban los defectos y de qué
+    tamaño). Este documento muestra SOLO la campaña anterior y lo dice en la
+    portada, para que nadie lo confunda con una comparativa.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    tramo = _titulo_tramo(hist.get("tramo"))
+    periodo = hist.get("periodo") or "sin fecha"
+    res = hist.get("resumen") or {}
+    conteo = res.get("por_clasificacion") or {}
+    defectos = sorted(_defectos_hist(hist), key=lambda d: d.get("abscisa") or 0)
+    postes = [p for p in (hist.get("puntos") or [])
+              if (p.get("clase") or "") == "poste"]
+    long_km = (res.get("long_m") or 0) / 1000
+    NP = 2 if defectos else 1
+
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        fig = plt.figure(figsize=(8.3, 11.7), dpi=150)
+        _cabecera(fig, plt, tramo,
+                  f"Inspección DCVG anterior · {periodo}", 1, NP)
+
+        # Aviso: esto NO es una comparativa
+        fig.text(0.06, 0.885,
+                 "Histórico sin inspección actual con que comparar.",
+                 fontsize=9.5, color=ROJO, fontweight="bold")
+        fig.text(0.06, 0.868,
+                 "Cuando se publique el DCVG vigente de este tramo, el portal "
+                 "genera la comparativa automáticamente.",
+                 fontsize=8.5, color="#646A73")
+
+        meta = [("Periodo", periodo), ("Contratista", hist.get("fuente")),
+                ("Longitud", f"{long_km:.2f} km" if long_km else None)]
+        y = 0.828
+        for k, v in [m for m in meta if m[1]]:
+            fig.text(0.06, y, k.upper(), fontsize=7, color="#9AA0A6")
+            fig.text(0.06, y - 0.016, str(v)[:78], fontsize=9, color="#191C20",
+                     fontweight="bold")
+            y -= 0.042
+
+        ky = y - 0.012
+        kpis = [("Defectos", res.get("n_defectos", len(defectos))),
+                ("Críticos", res.get("n_criticos", 0)),
+                ("Postes", res.get("n_postes", len(postes))),
+                ("Def./km", _fmt(res.get("densidad_km"), "{:.2f}")),
+                ("Sev. máx.", _fmt(res.get("max_severidad"), "{:.1f} %"))]
+        for i, (k, v) in enumerate(kpis):
+            x = 0.06 + i * 0.178
+            fig.text(x, ky, str(v), fontsize=17, fontweight="bold", color=ROJO)
+            fig.text(x, ky - 0.022, k, fontsize=7.2, color="#646A73")
+
+        sy = ky - 0.062
+        fig.text(0.06, sy, "DISTRIBUCIÓN POR SEVERIDAD", fontsize=9.5,
+                 fontweight="bold", color="#191C20")
+        for i, c in enumerate(_CLASES):
+            x = 0.06 + i * 0.225
+            fig.text(x, sy - 0.032, str(conteo.get(c, 0)), fontsize=15,
+                     fontweight="bold",
+                     color=COLOR_CLAS[c] if conteo.get(c) else "#9AA0A6")
+            fig.text(x, sy - 0.052, c.upper(), fontsize=6.8, color="#646A73")
+
+        # Perfil de severidad %IR contra la abscisa
+        ax = fig.add_axes([0.09, 0.30, 0.85, sy - 0.36])
+        if defectos:
+            xs = [d.get("abscisa") for d in defectos]
+            ys = [d.get("severidad_pct") for d in defectos]
+            cols = [COLOR_CLAS.get(d.get("clasificacion"), GRIS) for d in defectos]
+            ax.scatter(xs, ys, c=cols, s=34, zorder=3, edgecolors="white",
+                       linewidths=0.6)
+            for yv, col in ((15, COLOR_CLAS["Pequeño"]),
+                            (35, AMBAR), (60, ROJO)):
+                ax.axhline(yv, color=col, lw=1, ls="--", zorder=1)
+                ax.text(ax.get_xlim()[1], yv, f" {yv} %", fontsize=6.5,
+                        color=col, va="center")
+            ax.set_ylim(0, max(62, max(ys) * 1.15))
+            ax.set_ylabel("Severidad %IR", fontsize=8.5)
+        else:
+            ax.text(0.5, 0.5, "La campaña anterior no encontró defectos.",
+                    transform=ax.transAxes, ha="center", va="center",
+                    fontsize=9.5, color="#9AA0A6")
+            ax.set_yticks([])
+        ax.set_xlabel("Abscisado (progresiva)", fontsize=8.5)
+        ax.tick_params(labelsize=7)
+        for lado in ("top", "right"):
+            ax.spines[lado].set_visible(False)
+        ax.grid(axis="y", color="#E3E5E9", lw=0.6)
+
+        _tabla(fig, plt, [0.06, 0.06, 0.88, 0.20], "Postes medidos",
+               ["Abscisa", "Referencia", "ON [mV]", "OFF [mV]"],
+               [[_abscisa_txt(p.get("abscisa")), str(p.get("referencia") or "")[:30],
+                 _fmt(p.get("on"), "{:.0f}"), _fmt(p.get("off"), "{:.0f}")]
+                for p in postes[:8]])
+        pdf.savefig(fig); plt.close(fig)
+
+        if defectos:
+            fig = plt.figure(figsize=(8.3, 11.7), dpi=150)
+            _cabecera(fig, plt, tramo,
+                      f"Defectos de la inspección anterior · {periodo}", 2, NP)
+            _tabla(fig, plt, [0.05, 0.06, 0.90, 0.83], "",
+                   ["Abscisa", "Carácter", "OL/RE", "P/RE", "%IR",
+                    "Clasificación", "Prof. [m]"],
+                   [[_abscisa_txt(d.get("abscisa")), d.get("caracter") or "",
+                     _fmt(d.get("ol_re"), "{:.0f}"), _fmt(d.get("p_re"), "{:.0f}"),
+                     _fmt(d.get("severidad_pct"), "{:.1f}"),
+                     d.get("clasificacion") or "",
+                     _fmt(d.get("profundidad"), "{:.2f}")]
+                    for d in defectos[:46]], fs=7)
+            if len(defectos) > 46:
+                fig.text(0.05, 0.045,
+                         f"(se listan los primeros 46 de {len(defectos)} defectos)",
+                         fontsize=7.5, color="#9AA0A6")
+            pdf.savefig(fig); plt.close(fig)
+    return buf.getvalue()
+
+
 def pdf_dashboard_dcvg(detalle, dfd, hist=None, rects=None) -> bytes:
     """PDF multipágina del dashboard DCVG, con la comparativa histórica.
 
@@ -613,3 +737,207 @@ def pdf_dashboard_dcvg(detalle, dfd, hist=None, rects=None) -> bytes:
 
 def _fmt(v, patron="{:.1f}"):
     return patron.format(v) if isinstance(v, (int, float)) else "—"
+
+
+# ── PDF por TRAMO: todas las campañas apiladas ──────────────────────────────
+# Un PDF por inspección repetía mapa, tablas y muestras de lecturas en cada
+# documento. Lo que se lee de un tramo es su EVOLUCIÓN, y para eso basta un
+# panel por campaña, todos sobre el MISMO eje de abscisas: así una anomalía se
+# sigue en vertical entre campañas y entre técnicas.
+MESES = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep',
+         'Oct', 'Nov', 'Dic']
+AZUL = "#1F3C88"          # ON
+AZUL_CLARO = "#4A90D9"    # OFF
+VERDE = "#2E7D32"
+
+_MES_NUM = {m.lower(): i for i, m in enumerate(
+    ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct',
+     'nov', 'dic'])}
+
+
+def _anio_mes(texto):
+    """('2026-08-01' | 'Ago 2024') -> (anio, mes). (0, 0) si no se entiende."""
+    t = str(texto or '').strip()
+    m = re.search(r'(\d{4})-(\d{2})', t)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.search(r'([A-Za-zÁÉÍÓÚáéíóú]{3})\w*\s+(\d{4})', t)
+    if m:
+        pref = m.group(1)[:3].lower()
+        pref = (pref.replace('á', 'a').replace('é', 'e').replace('í', 'i')
+                .replace('ó', 'o').replace('ú', 'u'))
+        return int(m.group(2)), _MES_NUM.get(pref, 0)
+    m = re.search(r'\b(\d{4})\b', t)
+    return (int(m.group(1)), 0) if m else (0, 0)
+
+
+def _puntos_potencial(filas):
+    """[{abscisa, on, off}] desde filas de puntos_cips / puntos_pap o desde los
+    puntos de un histórico. Usa el potencial LIMPIO cuando existe: es el que el
+    portal publica como oficial."""
+    out = []
+    for p in filas or []:
+        a = p.get('abscisa')
+        if a is None:
+            continue
+        on = p.get('on_limpio') if p.get('on_limpio') is not None else p.get('on_mv')
+        off = p.get('off_limpio') if p.get('off_limpio') is not None else p.get('off_mv')
+        if on is None:
+            on = p.get('on')
+        if off is None:
+            off = p.get('off')
+        if on is None and off is None:
+            continue
+        out.append({'abscisa': a, 'on': on, 'off': off})
+    return sorted(out, key=lambda p: p['abscisa'])
+
+
+def _puntos_severidad(filas):
+    """[{abscisa, severidad_pct, clasificacion}] de los DEFECTOS. En un
+    histórico DCVG conviven postes y defectos; el panel grafica el %IR."""
+    out = []
+    for d in filas or []:
+        if d.get('abscisa') is None or d.get('severidad_pct') is None:
+            continue
+        out.append({'abscisa': d['abscisa'], 'severidad_pct': d['severidad_pct'],
+                    'clasificacion': d.get('clasificacion')})
+    return sorted(out, key=lambda p: p['abscisa'])
+
+
+def campanas_desde(detalles, historicos):
+    """Normaliza inspecciones actuales + históricos a una lista de campañas
+    ordenada de la más reciente a la más vieja.
+
+    `detalles`: {tipo: detalle} tal como los devuelve `db.cargar_inspeccion_*`.
+    `historicos`: filas de la tabla `historicos`.
+    Cada campaña: {tipo, etiqueta, anio, mes, origen, puntos}.
+    """
+    cs = []
+    for tipo, det in (detalles or {}).items():
+        insp = (det or {}).get('inspeccion') or {}
+        anio, mes = _anio_mes(insp.get('fecha'))
+        pts = (_puntos_severidad(det.get('defectos')) if tipo == 'DCVG'
+               else _puntos_potencial(det.get('puntos')))
+        cs.append({'tipo': tipo, 'anio': anio, 'mes': mes, 'origen': 'actual',
+                   'puntos': pts})
+    for h in historicos or []:
+        tipo = (h.get('tipo') or 'CIPS').upper()
+        anio, mes = _anio_mes(h.get('periodo') or h.get('fecha'))
+        crudos = h.get('puntos') or []
+        if tipo == 'DCVG':
+            pts = _puntos_severidad([p for p in crudos
+                                     if (p.get('clase') or 'defecto') == 'defecto'])
+        else:
+            pts = _puntos_potencial(crudos)
+        cs.append({'tipo': tipo, 'anio': anio, 'mes': mes, 'origen': 'historico',
+                   'puntos': pts})
+
+    cs.sort(key=lambda c: (c['anio'], c['mes']), reverse=True)
+    # etiqueta 'DCVG 2026'; si dos campañas coinciden en tipo y año, el mes las
+    # separa (si no, el lector no sabría cuál panel es cuál)
+    conteo = {}
+    for c in cs:
+        conteo[(c['tipo'], c['anio'])] = conteo.get((c['tipo'], c['anio']), 0) + 1
+    for c in cs:
+        base = f"{c['tipo']} {c['anio'] or '—'}"
+        if conteo[(c['tipo'], c['anio'])] > 1 and c['mes']:
+            base = f"{c['tipo']} {MESES[c['mes']]} {c['anio']}"
+        c['etiqueta'] = base
+    return cs
+
+
+def rango_abscisas(campanas):
+    """(ini, fin) común a TODAS las campañas. Un rango por panel desalinearía
+    las columnas y el documento mentiría visualmente."""
+    xs = [p['abscisa'] for c in (campanas or []) for p in (c.get('puntos') or [])
+          if isinstance(p.get('abscisa'), (int, float))]
+    if not xs:
+        return (0, 1)
+    ini, fin = min(xs), max(xs)
+    return (ini, fin if fin > ini else ini + 1)
+
+
+def _panel(ax, camp, xlim):
+    """Dibuja una campaña. DCVG = severidad %IR; CIPS/PAP = ON/OFF."""
+    pts = camp.get('puntos') or []
+    ax.set_xlim(xlim)
+    ax.tick_params(labelsize=6.5)
+    # marco completo y tenue: enmarca cada campaña y hace legible el panel
+    # incluso cuando está vacío
+    for lado in ax.spines.values():
+        lado.set_color('#C9CDD3')
+        lado.set_linewidth(0.7)
+    ax.grid(axis='y', color='#E3E5E9', lw=0.5)
+    ax.set_title(camp['etiqueta'], fontsize=9.5, fontweight='bold',
+                 color='#191C20', pad=3)
+    if not pts:
+        ax.text(0.5, 0.5, 'sin datos en esta campaña', transform=ax.transAxes,
+                ha='center', va='center', fontsize=8, color='#9AA0A6')
+        ax.set_yticks([])
+        return
+    xs = [p['abscisa'] for p in pts]
+    if camp['tipo'] == 'DCVG':
+        ax.scatter(xs, [p['severidad_pct'] for p in pts], s=16, zorder=3,
+                   c=[COLOR_CLAS.get(p.get('clasificacion'), GRIS) for p in pts],
+                   edgecolors='white', linewidths=0.4)
+        for y, col in ((15, VERDE), (35, AMBAR), (60, ROJO)):
+            ax.axhline(y, color=col, lw=0.9, ls='--', zorder=1)
+        tope = max(62, max(p['severidad_pct'] for p in pts) * 1.15)
+        ax.set_ylim(0, tope)
+        ax.set_ylabel('IR [%]', fontsize=7)
+    else:
+        marca = dict(marker='o', ms=2.6) if camp['tipo'] == 'PAP' else dict(lw=0.9)
+        for clave, color, nombre in (('on', AZUL, 'ON'), ('off', AZUL_CLARO, 'OFF')):
+            serie = [(p['abscisa'], p[clave]) for p in pts if p.get(clave) is not None]
+            if serie:
+                ax.plot([s[0] for s in serie], [s[1] for s in serie], color=color,
+                        label=nombre, **marca)
+        ax.axhline(CRIT, color=VERDE, lw=0.9, ls='--')
+        ax.invert_yaxis()            # más negativo = más protegido, arriba
+        ax.set_ylabel('Potencial [mV]', fontsize=7)
+        ax.legend(fontsize=6, loc='lower right', frameon=False, ncol=2)
+
+
+def pdf_tramo(tramo, campanas, por_pagina=5) -> bytes:
+    """PDF de UN tramo con una fila por campaña, todas sobre el mismo eje X."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    cs = list(campanas or [])
+    xlim = rango_abscisas(cs)
+    bloques = [cs[i:i + por_pagina] for i in range(0, len(cs), por_pagina)] or [[]]
+    titulo = _titulo_tramo(tramo)
+
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        for pag, bloque in enumerate(bloques, 1):
+            fig = plt.figure(figsize=(11.7, 8.3), dpi=150)     # horizontal
+            _cabecera(fig, plt, titulo,
+                      f'Evolución del tramo · {len(cs)} campaña(s) · '
+                      f'abscisado {_abscisa_txt(xlim[0])} a {_abscisa_txt(xlim[1])}',
+                      pag, len(bloques))
+            if not bloque:
+                fig.text(0.5, 0.5, 'Este tramo todavía no tiene campañas publicadas.',
+                         ha='center', fontsize=11, color='#9AA0A6')
+                pdf.savefig(fig); plt.close(fig)
+                continue
+            alto = 0.78 / len(bloque)
+            for i, camp in enumerate(bloque):
+                y = 0.88 - (i + 1) * alto
+                # el 0.72 deja el aire justo para el título de la campaña de
+                # abajo; más apretado y los títulos se montan sobre el panel
+                ax = fig.add_axes([0.08, y + alto * 0.16, 0.88, alto * 0.72])
+                _panel(ax, camp, xlim)
+                if i < len(bloque) - 1:
+                    ax.set_xticklabels([])
+                else:
+                    ax.set_xlabel('Abscisado (progresiva) [m]', fontsize=8)
+            fig.text(0.08, 0.045,
+                     'Todos los paneles comparten el eje de abscisas: una anomalía se '
+                     'sigue en vertical entre campañas. Líneas de corte: %IR 15/35/60 '
+                     '(DCVG) y −850 mV (CIPS/PAP).',
+                     fontsize=7, color='#646A73')
+            pdf.savefig(fig); plt.close(fig)
+    return buf.getvalue()

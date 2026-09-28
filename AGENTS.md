@@ -24,7 +24,8 @@ embebidas. Se genera además un **PPM** (archivo plano para cargar a la BD de TG
 
 ## 2. Reglas de trabajo (CRÍTICAS — evitar fallos de entorno)
 
-- **iCloud Desktop:** el proyecto vive en `~/Desktop/Reportes TGI ejecutable/`,
+- **iCloud Desktop:** el proyecto vive en `~/Desktop/PCC - Proyectos/Reportes TGI ejecutable/`
+  (se movió ahí en 2026-09; la ruta vieja `~/Desktop/Reportes TGI ejecutable/` ya no existe),
   sincronizado con iCloud. Las **lecturas masivas** (los 259 shapefiles, `git`
   en el Desktop) se **CUELGAN** (TimeoutError errno 60). NUNCA hagas `git`,
   builds ni escaneos masivos desde el Desktop.
@@ -654,6 +655,61 @@ esta appcita (199 líneas, solo sube archivos + crea carga) a **web estática**.
   nombre': `min-width:0` + `appearance:none`).
 - **PENDIENTE**: usuario corre schema_v8.sql → probar envío real e2e → desplegar en
   Vercel y reemplazar el link que usan los técnicos. Rotar contraseña FastField sigue.
+
+### 10.15 Publicar un informe YA GENERADO + PDF por tramo — 2026-09
+**`informe_dcvg.py` (NUEVO)** lee un informe DCVG ya generado (.xlsx) y lo
+devuelve en la forma del generador (`pk_m`, `on`, `ol_re`, `forma_n`…), para
+publicar al portal informes hechos antes del portal o fuera de la app. Lee por
+etiqueta de encabezado reusando `historicos._mapa_columnas_dcvg` (resuelve la
+plantilla de PCC y la de TELMACOM). Hoja `Resistividad` (A absc · B sector ·
+C/D coords · E prof · F/H/J R1/R2/R3) y hoja `Hallazgos` (encabezado en la fila
+del 'ÍTEM').
+- **`db.guardar_inspeccion_dcvg(..., severidades=)`**: un informe entregado es
+  el documento oficial y sus fórmulas anclaron el P/RE en los postes elegidos
+  al generarlo — **no siempre los más cercanos**. Recalcular haría que el portal
+  contradijera el PDF que TGI ya tiene, así que al publicar un informe terminado
+  se pasan sus propias severidades. Sin el parámetro, todo sigue igual
+  (inspección recién procesada → `_severidad_dcvg`).
+- **Caso real (Neira):** un poste con **ON=0 y OFF=0** (fila sin lectura) hacía
+  que el recálculo diera 185 % «Grande» donde el informe decía 6 % «Muy Pequeño»,
+  y las fórmulas del propio Excel a veces anclaban en ese poste y a veces lo
+  saltaban. Publicado tal cual: 0 diferencias en P/RE, %IR y clasificación.
+
+**PDF por TRAMO (`comparativa.pdf_tramo`)** — reemplaza bajar un PDF por
+inspección (3 págs con mapa, tablas y muestras) por **1 página** con un panel
+por campaña: DCVG 2026 sobre PAP 2026 sobre CIPS 2024 sobre DCVG 2022.
+- `campanas_desde(detalles, historicos)` normaliza actuales + históricos y
+  ordena de la más reciente a la más vieja; `rango_abscisas(campanas)` calcula
+  **un solo rango X para todos los paneles**: con un rango por panel las
+  columnas no se alinearían y el documento mentiría visualmente (hay test).
+- DCVG = dispersión %IR con cortes 15/35/60; CIPS/PAP = ON/OFF con −850 y eje
+  invertido; CIPS usa `off_limpio` (el oficial del portal).
+- `db.historicos_de_tramo(tramo)` trae TODOS los históricos del tramo en dos
+  pasos (metadatos → puntos de los que casan), igual criterio que
+  `historico_de_tramo`.
+- Está en portal_app → **Vista por tramo → Informe del tramo**. Esa vista se
+  arma desde las inspecciones publicadas, así que **un tramo que solo tiene
+  histórico no sale en el selector** (decisión del usuario: se quedan esperando
+  su inspección).
+
+### 10.16 Históricos cargados desde el disco externo — 2026-09
+51 históricos en el portal (48 DCVG + 3 CIPS); **20 de 21 inspecciones tienen
+comparativa**. Origen: `/Volumes/Extreme SSD/551003090-TEL` y `.../751369-TECNA`.
+- Criterio: de cada tramo se toma **la campaña anterior más reciente**.
+- **La sigla del archivo NO es garantía del tramo**: `PDR` resultó ser *Paz del
+  Río*, no Pradera. Verificar siempre el `Tramo` de la hoja `Informe` (y, si hay
+  duda, la mediana de los GPS contra el shapefile del tramo: 2-10 m si es el
+  correcto, km si no). Así se detectó que los archivos `VIR` eran **La Virginia**
+  y no La Victoria.
+- **Pradera no tiene DCVG** en el disco (solo PAP y CIPS): su inspección se
+  queda sin comparativa y no es un error del sistema.
+- **Plantilla TECNA (TICE)**: hoja `DATOS-DCVG` (no `Inspección DCVG`), cabecera
+  en `Reporte`, `%IR` **ya en porcentaje**, potenciales **en positivo** bajo
+  encabezados `ON (-)`, y **sin columna de clasificación** (se deriva del %IR).
+  Eran solo 3 tramos (Palestina, Armenia, Loop Armenia) → se extrajeron con un
+  **script puntual de scratchpad**, por decisión del usuario, sin meter un
+  segundo formato en `historicos.py`. Si algún día llegan muchos más, ahí sí
+  conviene un lector propio.
 
 ### 10.14 Devolución de informes rechazados (+ asistente Claude) — 2026-09
 Un rechazo en el portal dejó de ser un párrafo muerto: ahora enruta la corrección.
