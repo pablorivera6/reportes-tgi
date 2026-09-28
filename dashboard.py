@@ -110,3 +110,44 @@ def df_mapa(filas):
     """Filas {lat, lon, color} del mapa combinado por tramo."""
     import pandas as pd
     return pd.DataFrame(list(filas or []), columns=list(COLUMNAS_MAPA))
+
+
+def resumen_por_tramo(inspecciones, historicos, mismo=None):
+    """Qué tiene cada tramo, para saber de un vistazo cuál vale la pena abrir.
+
+    Devuelve [{tramo, tipos, n_actuales, n_historicos, periodos, comparativa}],
+    con los que YA tienen comparativa primero (es lo accionable: son los que
+    generan un PDF con evolución real).
+
+    `comparativa` es True solo si hay inspección actual **e** histórico **de la
+    misma técnica**: un histórico CIPS no se compara contra un DCVG, por más que
+    sean del mismo tramo (caso Palestina).
+
+    `mismo(a, b)` es el emparejador de nombres —el mismo tramo se escribe
+    distinto en cada fuente— y se inyecta para que este módulo siga siendo puro.
+    """
+    if mismo is None:
+        def mismo(a, b):
+            return (a or "").strip().lower() == (b or "").strip().lower()
+
+    filas = []
+    for i in inspecciones or []:
+        tramo = i.get("tramo") or "—"
+        fila = next((f for f in filas if mismo(f["tramo"], tramo)), None)
+        if fila is None:
+            fila = {"tramo": tramo, "tipos": [], "n_actuales": 0,
+                    "n_historicos": 0, "periodos": [], "comparativa": False}
+            filas.append(fila)
+        fila["n_actuales"] += 1
+        if i.get("tipo") and i["tipo"] not in fila["tipos"]:
+            fila["tipos"].append(i["tipo"])
+
+    for f in filas:
+        hs = [h for h in (historicos or []) if mismo(h.get("tramo"), f["tramo"])]
+        f["n_historicos"] = len(hs)
+        f["periodos"] = [f"{h.get('tipo')} {h.get('periodo') or ''}".strip()
+                         for h in hs]
+        f["comparativa"] = any(h.get("tipo") in f["tipos"] for h in hs)
+
+    filas.sort(key=lambda f: (not f["comparativa"], f["tramo"].lower()))
+    return filas

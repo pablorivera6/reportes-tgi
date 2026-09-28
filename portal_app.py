@@ -217,6 +217,13 @@ def _rectificadores_cached(tramo, revisor: bool):
 
 
 @st.cache_data(ttl=_TTL_HIST, show_spinner=False)
+def _historicos_meta_cached(revisor: bool):
+    """Metadatos de TODOS los históricos (sin `puntos`: son unos pocos KB), para
+    poder decir en el selector qué tiene cada tramo."""
+    return db.listar_historicos()
+
+
+@st.cache_data(ttl=_TTL_HIST, show_spinner=False)
 def _historicos_tramo_cached(tramo, revisor: bool):
     """Todos los históricos del tramo (cualquier técnica), para el PDF."""
     return db.historicos_de_tramo(tramo, write=revisor)
@@ -1047,8 +1054,35 @@ def render_vista_tramo():
     por_tramo = {}
     for i in lista:
         por_tramo.setdefault(i.get("tramo") or "—", {}).setdefault(i.get("tipo"), []).append(i)
-    tramos = sorted(por_tramo)
-    tramo = st.selectbox("Tramo", tramos, index=0)
+    try:
+        _hmeta = _historicos_meta_cached(_ES_REVISOR) if db.disponible() else []
+    except Exception:
+        _hmeta = []
+    _res = dashboard.resumen_por_tramo(lista, _hmeta, mismo=db.mismo_tramo)
+    _por_nombre = {f["tramo"]: f for f in _res}
+    _listos = [f for f in _res if f["comparativa"]]
+
+    tema.seccion(st, "Disponibilidad por tramo")
+    st.caption(f"{len(_listos)} de {len(_res)} tramos tienen inspección actual "
+               f"e histórico de la MISMA técnica: son los que generan un PDF con "
+               f"evolución. Los demás salen igual, con lo que haya.")
+    st.dataframe(_tabla_limpia(pd.DataFrame([{
+        "Tramo": f["tramo"],
+        "Comparativa": "sí" if f["comparativa"] else "—",
+        "Inspecciones actuales": " · ".join(f["tipos"]) or "—",
+        "Históricos cargados": " · ".join(f["periodos"]) or "sin histórico",
+    } for f in _res])), use_container_width=True, height=260, hide_index=True)
+
+    def _etiqueta(t):
+        f = _por_nombre.get(t)
+        if not f:
+            return t
+        hist = (f"{f['n_historicos']} histórico(s)" if f["n_historicos"]
+                else "sin histórico")
+        return f"{'✓ ' if f['comparativa'] else ''}{t} · {'·'.join(f['tipos'])} · {hist}"
+
+    tramos = [f["tramo"] for f in _res]          # los accionables primero
+    tramo = st.selectbox("Tramo", tramos, index=0, format_func=_etiqueta)
     grupos = por_tramo[tramo]
 
     # elegir una inspección por tipo (por defecto la más reciente)

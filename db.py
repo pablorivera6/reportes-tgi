@@ -862,6 +862,12 @@ def historico_de_tramo(tramo, tipo="CIPS", write: bool = False):
     return None
 
 
+def mismo_tramo(a, b):
+    """El criterio de emparejamiento de nombres del portal, público para que lo
+    use la UI (el mismo tramo se escribe distinto en cada fuente)."""
+    return _mismo_tramo(a, b)
+
+
 def historicos_de_tramo(tramo, write: bool = False):
     """TODOS los históricos de un tramo (cualquier técnica), con sus puntos.
 
