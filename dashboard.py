@@ -76,3 +76,37 @@ def resumen_cips(cips):
         "pct_protegido": pct,
         "puntos": puntos,
     }
+
+
+# ── DataFrames para mapa y gráficas ─────────────────────────────────────────
+# Las columnas se declaran EXPLÍCITAS. Un tramo puede no tener ni un punto que
+# mapear (caso real: un DCVG que no encontró defectos, sin CIPS ni PAP); ahí
+# `pd.DataFrame([])` sale sin columnas y el `dropna(subset=["lat","lon"])`
+# levantaba KeyError y tumbaba la página entera, no solo el mapa.
+COLUMNAS_PUNTO = ("abscisa", "on", "off", "vac", "lat", "lon", "estado",
+                  "color", "observaciones")
+COLUMNAS_MAPA = ("lat", "lon", "color")
+
+
+def df_puntos(puntos):
+    """Puntos CIPS/PAP listos para mapa y gráficas. Usa el potencial LIMPIO
+    cuando existe, que es el que el portal publica como oficial."""
+    import pandas as pd
+    filas = []
+    for p in puntos or []:
+        on = p.get("on_limpio") if p.get("on_limpio") is not None else p.get("on_mv")
+        off = p.get("off_limpio") if p.get("off_limpio") is not None else p.get("off_mv")
+        est = p.get("estado") or estado_cp(off)
+        filas.append({
+            "abscisa": p.get("abscisa"), "on": on, "off": off,
+            "vac": p.get("vac_mv"), "lat": p.get("lat"), "lon": p.get("lon"),
+            "estado": est, "color": COLOR_ESTADO.get(est, "#9CA3AF"),
+            "observaciones": p.get("observaciones") or "",
+        })
+    return pd.DataFrame(filas, columns=list(COLUMNAS_PUNTO))
+
+
+def df_mapa(filas):
+    """Filas {lat, lon, color} del mapa combinado por tramo."""
+    import pandas as pd
+    return pd.DataFrame(list(filas or []), columns=list(COLUMNAS_MAPA))

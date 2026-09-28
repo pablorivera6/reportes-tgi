@@ -20,6 +20,7 @@ import pandas as pd
 import streamlit as st
 
 from generator import resource_path
+import dashboard
 from dashboard import COLOR_ESTADO, estado_cp
 import portal_theme as tema
 import db
@@ -245,18 +246,9 @@ def _refrescar():
 
 # ── Normalización de puntos para mapa/gráficas ───────────────────────────────
 def _df_puntos(puntos):
-    filas = []
-    for p in puntos:
-        on = p.get("on_limpio") if p.get("on_limpio") is not None else p.get("on_mv")
-        off = p.get("off_limpio") if p.get("off_limpio") is not None else p.get("off_mv")
-        est = p.get("estado") or estado_cp(off)
-        filas.append({
-            "abscisa": p.get("abscisa"), "on": on, "off": off,
-            "vac": p.get("vac_mv"), "lat": p.get("lat"), "lon": p.get("lon"),
-            "estado": est, "color": COLOR_ESTADO.get(est, "#9CA3AF"),
-            "observaciones": p.get("observaciones") or "",
-        })
-    return pd.DataFrame(filas)
+    # en dashboard.py (módulo puro) para poder testearlo: garantiza las
+    # columnas aunque no haya ni un punto
+    return dashboard.df_puntos(puntos)
 
 
 # Los nulos NO se muestran como el texto "None" al cliente.
@@ -1215,7 +1207,7 @@ def _mapa_consolidado(det):
         for d in det["DCVG"]["defectos"]:
             filas.append({"lat": d.get("lat"), "lon": d.get("lon"),
                           "color": COLOR_CLAS.get(d.get("clasificacion"), "#111111")})
-    mp = pd.DataFrame(filas).dropna(subset=["lat", "lon"])
+    mp = dashboard.df_mapa(filas).dropna(subset=["lat", "lon"])
     if not mp.empty:
         st.map(mp.rename(columns={"lat": "latitude", "lon": "longitude"}),
                latitude="latitude", longitude="longitude", color="color", size=7)
