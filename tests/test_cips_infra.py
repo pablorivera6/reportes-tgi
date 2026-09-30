@@ -49,3 +49,11 @@ def test_resolver_shapefile_desde_zip(tmp_path):
     assert os.path.exists(shp)
     # los archivos acompañantes también se extrajeron
     assert os.path.exists(shp.replace(".shp", ".dbf"))
+
+
+def test_troncal_villavicencio_usme_tiene_shapefile():
+    # El listado decía 'T_VIL_US' pero el archivo es T_VIL_USM.shp.
+    infra = InfraTramos()
+    shp = infra.shapefile(empresa="TGI", tramo="Troncal Villavicencio - Usme",
+                          distrito="D4")
+    assert shp is not None and shp.endswith("T_VIL_USM.shp")
