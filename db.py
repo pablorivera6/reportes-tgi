@@ -78,13 +78,35 @@ def _i(v):
 
 
 def _fecha(v):
-    """Normaliza a 'YYYY-MM-DD' o None."""
-    if not v:
+    """Normaliza a 'YYYY-MM-DD' o None.
+
+    Las fechas de campo llegan en formato colombiano ('20/09/2026', día
+    primero) y Postgres las rechaza tal cual; lo que no se pueda leer como
+    fecha válida sale None en vez de tumbar la publicación entera."""
+    import datetime as _dt
+    import re
+    if v is None:
         return None
+    if isinstance(v, (_dt.date, _dt.datetime)):   # incluye pd.Timestamp
+        try:
+            return v.strftime("%Y-%m-%d")
+        except ValueError:                          # NaT
+            return None
     s = str(v).strip()
-    if s.lower() in ("nan", "none", ""):
+    if s.lower() in ("nan", "nat", "none", ""):
         return None
-    return s[:10]                       # recorta hora si viene 'YYYY-MM-DD HH:MM'
+    m = re.match(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", s)
+    if m:
+        a, mes, d = m.groups()
+    else:
+        m = re.match(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", s)
+        if not m:
+            return None
+        d, mes, a = m.groups()
+    try:
+        return _dt.date(int(a), int(mes), int(d)).isoformat()
+    except ValueError:
+        return None
 
 
 # ── Publicar (escritura, app PCC) ───────────────────────────────────────────

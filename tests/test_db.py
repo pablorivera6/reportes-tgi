@@ -17,6 +17,25 @@ def test_fecha_normaliza():
     assert db._fecha(None) is None and db._fecha("nan") is None
 
 
+@pytest.mark.parametrize("entrada", [
+    "20/09/2026", "20/09/2026 08:15:00", "20-09-2026", "2026/09/20",
+    "2026-09-20T08:15:00",
+])
+def test_fecha_dia_mes_anio_a_iso(entrada):
+    # Supabase rechaza '20/09/2026' (date/time field value out of range).
+    assert db._fecha(entrada) == "2026-09-20"
+
+
+def test_fecha_objetos_y_basura():
+    import datetime as dt
+    import pandas as pd
+    assert db._fecha(dt.date(2026, 9, 20)) == "2026-09-20"
+    assert db._fecha(dt.datetime(2026, 9, 20, 8, 15)) == "2026-09-20"
+    assert db._fecha(pd.Timestamp("2026-09-20 08:15")) == "2026-09-20"
+    assert db._fecha("sin fecha") is None      # nunca mandar texto inválido
+    assert db._fecha("31/02/2026") is None
+
+
 def test_disponible_sin_secrets(monkeypatch):
     monkeypatch.setattr(db, "_secrets", lambda: {})
     assert db.disponible() is False
