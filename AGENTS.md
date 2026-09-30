@@ -218,6 +218,11 @@ FastField de potenciales (`readers.FastFieldReader`) → `fill_potenciales_pap`
 Potenciales PAP). Abscisa desde columna 'abscisado' del FastField. Ver
 `generator.fill_graficas` / `ajustar_graficas` (solo reescribe series
 'Potenciales PAP').
+La hoja trae 63 filas de datos (12-74) y el bloque de firmas debajo: **NO usar
+`insert_rows`** (openpyxl no corre las celdas combinadas y los postes caían
+dentro de las firmas, perdiéndose). Si no caben, `_bajar_bloque` baja el bloque.
+FastField exporta la fecha como texto **mes-día-año** ('09-27-2026'):
+`readers._fecha_fastfield` la normaliza a DD/MM/AAAA en la entrada.
 
 ---
 
