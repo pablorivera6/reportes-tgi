@@ -23,6 +23,29 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 
+
+def _fecha_celda(v):
+    """Fecha para una celda con formato de fecha: datetime si se puede leer
+    (día/mes/año, o ISO), el texto original si no. Si el segundo número es
+    > 12 viene mes-día-año (formato FastField sin normalizar)."""
+    if isinstance(v, datetime) or v in (None, ''):
+        return v
+    s = str(v).strip()
+    m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})", s)
+    if m:
+        a, mes, d = (int(x) for x in m.groups())
+    else:
+        m = re.match(r"^(\d{1,2})[-/](\d{1,2})[-/](\d{4})", s)
+        if not m:
+            return v
+        d, mes, a = (int(x) for x in m.groups())
+        if mes > 12 >= d:
+            d, mes = mes, d
+    try:
+        return datetime(a, mes, d)
+    except ValueError:
+        return v
+
 class ReportGenerator:
     """Generates inspection reports by filling the EN BLANCO.xlsx template"""
 
@@ -111,6 +134,32 @@ class ReportGenerator:
                 sig = next((x for x in vals[i + 1:] if x is not None), None)
                 out.append((sig if sig is not None else 0, -1, items[i]))
         return out
+
+    @staticmethod
+    def _bajar_bloque(ws, desde: int, n: int):
+        """Baja n filas todo lo que hay desde la fila `desde` (bloque de
+        firmas): valores, estilos, celdas combinadas, altos y área de
+        impresión. Sin translate: las fórmulas del bloque apuntan a otra
+        hoja (=Informe!D100) y no deben cambiar."""
+        ultima = ws.max_row
+        combinadas = [m for m in ws.merged_cells.ranges if m.min_row >= desde]
+        for m in combinadas:
+            ws.unmerge_cells(str(m))
+        ultima_col = get_column_letter(ws.max_column)
+        ws.move_range(f"A{desde}:{ultima_col}{ultima}", rows=n)
+        for m in combinadas:
+            ws.merge_cells(start_row=m.min_row + n, start_column=m.min_col,
+                           end_row=m.max_row + n, end_column=m.max_col)
+        for r in range(ultima, desde - 1, -1):
+            ws.row_dimensions[r + n].height = ws.row_dimensions[r].height
+        for r in range(desde, desde + n):
+            ws.row_dimensions[r].height = None
+        if ws.print_area:
+            area = str(ws.print_area).split(',')[0].split('!')[-1]
+            m = re.match(r"\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)", area)
+            if m and int(m.group(4)) >= desde:
+                ws.print_area = (f"{m.group(1)}{m.group(2)}:"
+                                 f"{m.group(3)}{int(m.group(4)) + n}")
 
     def _copy_row_style(self, ws, source_row: int, target_row: int, min_col: int, max_col: int):
         """Copy cell styles from source row to target row to preserve template formatting"""
@@ -500,20 +549,29 @@ class ReportGenerator:
         """
         ws = self.ws_potenciales
         sorted_pot = sorted(potenciales, key=lambda p: p.get('abscisa', 0))
-        
-        if len(sorted_pot) > 1:
-            ws.insert_rows(13, amount=len(sorted_pot)-1)
-            # Copiar estilo (solo si no son demasiados, o hacerlo rapido)
-            if len(sorted_pot) < 1000:
-                for i in range(1, len(sorted_pot)):
-                    self._copy_row_style(ws, 12, 12 + i, 1, 27)
+
+        # La plantilla trae filas de datos pre-formateadas (12-74) y debajo
+        # el bloque de firmas con celdas combinadas. NO usar insert_rows:
+        # openpyxl no corre las celdas combinadas y los postes caían dentro
+        # del bloque de firmas (se perdían). Si no caben, se baja el bloque.
+        bloque = min((m.min_row for m in ws.merged_cells.ranges
+                      if m.min_row >= 12), default=None)
+        if bloque is not None and len(sorted_pot) > bloque - 12:
+            extra = len(sorted_pot) - (bloque - 12)
+            self._bajar_bloque(ws, bloque, extra)
+            for r in range(bloque, bloque + extra):
+                self._copy_row_style(ws, 12, r, 1, 27)
 
         for i, p in enumerate(sorted_pot):
             row = 12 + i
-                
+
             self._safe_write(ws, row, 1, i + 1)                              # A - ITEM
+            # columna angosta: con ajuste de texto '59' salía partido '5/9'
+            _al = copy(ws.cell(row, 1).alignment)
+            _al.wrap_text = False
+            ws.cell(row, 1).alignment = _al
             self._safe_write(ws, row, 2, p.get('abscisa', ''))                # B - ABSCISADO
-            self._safe_write(ws, row, 3, p.get('fecha', fecha))               # C - FECHA
+            self._safe_write(ws, row, 3, _fecha_celda(p.get('fecha') or fecha))  # C - FECHA
             self._safe_write(ws, row, 4, corregir_campo(p.get('ref_geografica', '')))  # D - REF GEOG
             self._safe_write(ws, row, 5, p.get('on_mv'))                      # E - ON NEG1
             self._safe_write(ws, row, 6, p.get('off_mv'))                     # F - OFF NEG1
@@ -1120,21 +1178,22 @@ class ReportGenerator:
 
         # Potenciales PAP
         ws = self.ws_potenciales
-        start_row = 77
-        for r in range(12, 500):
-            val = ws.cell(row=r, column=4).value
-            if val and isinstance(val, str) and 'ELABORÓ' in val.upper():
+        # 'ELABORÓ' está en la columna C. Sin fila por defecto: el bloque de
+        # firmas se corre hacia abajo cuando hay muchos postes, y escribir a
+        # ciegas en la fila 77 pisaría los datos de un poste.
+        start_row = None
+        for r in range(12, ws.max_row + 1):
+            if any(isinstance(ws.cell(row=r, column=c).value, str) and
+                   'ELABORÓ' in ws.cell(row=r, column=c).value.upper()
+                   for c in (3, 4)):
                 start_row = r + 1
                 break
-        self._safe_write(ws, start_row, 4, elaboro.get('nombre', ''))
-        self._safe_write(ws, start_row + 1, 4, elaboro.get('cargo', ''))
-        self._safe_write(ws, start_row + 2, 4, elaboro.get('empresa', ''))
-        self._safe_write(ws, start_row, 15, reviso.get('nombre', ''))
-        self._safe_write(ws, start_row + 1, 15, reviso.get('cargo', ''))
-        self._safe_write(ws, start_row + 2, 15, reviso.get('empresa', ''))
-        self._safe_write(ws, start_row, 24, aprobo.get('nombre', ''))
-        self._safe_write(ws, start_row + 1, 24, aprobo.get('cargo', ''))
-        self._safe_write(ws, start_row + 2, 24, aprobo.get('empresa', ''))
+        for col, quien in ((4, elaboro), (15, reviso), (24, aprobo)):
+            if start_row is None:
+                break
+            self._safe_write(ws, start_row, col, quien.get('nombre', ''))
+            self._safe_write(ws, start_row + 1, col, quien.get('cargo', ''))
+            self._safe_write(ws, start_row + 2, col, quien.get('empresa', ''))
 
         # Hallazgos
         if self.ws_hallazgos:

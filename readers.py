@@ -5,6 +5,23 @@ from typing import List, Dict, Optional
 import os
 import pandas as pd
 
+
+def _fecha_fastfield(v) -> str:
+    """FastField exporta la fecha como TEXTO mes-día-año ('09-27-2026').
+    El resto de la app trabaja en día/mes/año (como el caso datetime), así
+    que se normaliza aquí, en la entrada, a 'DD/MM/AAAA'."""
+    s = str(v or '').strip()
+    m = re.match(r"^(\d{1,2})-(\d{1,2})-(\d{4})$", s)
+    if not m:
+        return s
+    mes, dia, anio = (int(x) for x in m.groups())
+    if mes > 12 >= dia:            # ya venía día-mes-año
+        mes, dia = dia, mes
+    try:
+        return datetime(anio, mes, dia).strftime('%d/%m/%Y')
+    except ValueError:
+        return s
+
 class FastFieldReader:
     def __init__(self):
         pass
@@ -61,7 +78,7 @@ class FastFieldReader:
             if isinstance(fecha_val, datetime):
                 fecha = fecha_val.strftime('%d/%m/%Y')
             else:
-                fecha = str(fecha_val or '')
+                fecha = _fecha_fastfield(fecha_val)
 
         ws = wb['subform_1'] if 'subform_1' in wb.sheetnames else wb.active
         
