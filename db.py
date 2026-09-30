@@ -345,15 +345,33 @@ def marcar_observaciones(insp_id: str, estado: str = "resuelta"):
         "estado", "abierta").execute()
 
 
+def _todas(consulta, tam=1000):
+    """Todas las filas de una consulta. Supabase corta cada respuesta en
+    1000 filas (max-rows del servidor): sin paginar, un CIPS de 15 km
+    (~16.000 lecturas) se veía solo hasta el primer kilómetro. `consulta` es
+    una función que arma el query de cero (el builder no se puede reusar)."""
+    filas, desde = [], 0
+    while True:
+        lote = consulta().range(desde, desde + tam - 1).execute().data or []
+        filas.extend(lote)
+        if len(lote) < tam:
+            return filas
+        desde += tam
+
+
+def _hijas(cli, tabla, insp_id, orden):
+    """Filas hijas de una inspección, todas, en orden estable (desempate
+    por `item`/`id` para que la paginación no repita ni salte filas)."""
+    return _todas(lambda: cli.table(tabla).select("*")
+                  .eq("inspeccion_id", insp_id).order(orden).order("id"))
+
+
 def cargar_inspeccion_cips(insp_id: str, write: bool = False) -> dict:
     cli = _client(write=write)
     insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
-    puntos = (cli.table("puntos_cips").select("*")
-              .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
-    hall = (cli.table("hallazgos").select("*")
-            .eq("inspeccion_id", insp_id).order("abscisa_ini").execute().data) or []
-    tramos = (cli.table("tramos_no_inspeccionados").select("*")
-              .eq("inspeccion_id", insp_id).order("abscisa_ini").execute().data) or []
+    puntos = _hijas(cli, "puntos_cips", insp_id, "abscisa")
+    hall = _hijas(cli, "hallazgos", insp_id, "abscisa_ini")
+    tramos = _hijas(cli, "tramos_no_inspeccionados", insp_id, "abscisa_ini")
     return {"inspeccion": insp, "puntos": puntos, "hallazgos": hall, "tramos": tramos}
 
 
@@ -663,24 +681,18 @@ def guardar_inspeccion_dcvg(info, postes, defectos, resistividades, hallazgos,
 def cargar_inspeccion_pap(insp_id, write: bool = False):
     cli = _client(write=write)
     insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
-    pts = (cli.table("puntos_pap").select("*")
-           .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
-    hall = (cli.table("hallazgos").select("*")
-            .eq("inspeccion_id", insp_id).order("abscisa_ini").execute().data) or []
+    pts = _hijas(cli, "puntos_pap", insp_id, "abscisa")
+    hall = _hijas(cli, "hallazgos", insp_id, "abscisa_ini")
     return {"inspeccion": insp, "puntos": pts, "hallazgos": hall}
 
 
 def cargar_inspeccion_dcvg(insp_id, write: bool = False):
     cli = _client(write=write)
     insp = cli.table("inspecciones").select("*").eq("id", insp_id).single().execute().data
-    postes = (cli.table("postes_dcvg").select("*")
-              .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
-    defectos = (cli.table("defectos_dcvg").select("*")
-                .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
-    resist = (cli.table("resistividades_dcvg").select("*")
-              .eq("inspeccion_id", insp_id).order("abscisa").execute().data) or []
-    hall = (cli.table("hallazgos").select("*")
-            .eq("inspeccion_id", insp_id).order("abscisa_ini").execute().data) or []
+    postes = _hijas(cli, "postes_dcvg", insp_id, "abscisa")
+    defectos = _hijas(cli, "defectos_dcvg", insp_id, "abscisa")
+    resist = _hijas(cli, "resistividades_dcvg", insp_id, "abscisa")
+    hall = _hijas(cli, "hallazgos", insp_id, "abscisa_ini")
     return {"inspeccion": insp, "postes": postes, "defectos": defectos,
             "resistividades": resist, "hallazgos": hall}
 

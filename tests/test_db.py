@@ -69,3 +69,55 @@ def test_severidad_dcvg_interpola_pre_y_clasifica():
 def test_severidad_dcvg_sin_postes_no_rompe():
     sev = db._severidad_dcvg([], [{"pk_m": 10, "ol_re": 50, "caracter": "AA"}])
     assert sev[0]["p_re"] is None and sev[0]["severidad_pct"] is None
+
+
+class _Resp:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Q:
+    """Imita al query builder de supabase: devuelve como máximo 1000 filas
+    por consulta, como el servidor real."""
+    TOPE = 1000
+
+    def __init__(self, filas):
+        self.filas, self.desde, self.hasta = filas, 0, None
+
+    def select(self, *a, **k): return self
+    def eq(self, *a, **k): return self
+    def order(self, *a, **k): return self
+
+    def range(self, desde, hasta):
+        self.desde, self.hasta = desde, hasta
+        return self
+
+    def execute(self):
+        hasta = self.hasta if self.hasta is not None else len(self.filas) - 1
+        hasta = min(hasta, self.desde + self.TOPE - 1)
+        return _Resp(self.filas[self.desde:hasta + 1])
+
+
+class _Cli:
+    def __init__(self, n):
+        self.n = n
+
+    def table(self, nombre):
+        if nombre == "inspecciones":
+            q = _Q([{"id": "x"}])
+            q.single = lambda: type("S", (), {
+                "execute": lambda self: _Resp({"id": "x"})})()
+            return q
+        return _Q([{"item": i, "abscisa": i} for i in range(self.n)])
+
+
+@pytest.mark.parametrize("n", [0, 999, 1000, 1001, 16773])
+def test_cargar_cips_trae_todas_las_filas(monkeypatch, n):
+    # Supabase corta cada consulta en 1000 filas: un CIPS de 15 km
+    # (~16.000 lecturas) se veía solo hasta el primer kilómetro.
+    monkeypatch.setattr(db, "_client", lambda write=False: _Cli(n))
+    det = db.cargar_inspeccion_cips("x")
+    assert len(det["puntos"]) == n
+    assert [p["item"] for p in det["puntos"]] == list(range(n))
+    assert len(db.cargar_inspeccion_pap("x")["puntos"]) == n
+    assert len(db.cargar_inspeccion_dcvg("x")["postes"]) == n
