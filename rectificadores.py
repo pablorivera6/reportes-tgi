@@ -241,6 +241,13 @@ def resumen_rectificador(rect):
             "n_eventos": sum(1 for r in data if r.get("_event"))}
 
 
+def lineas_obs(rect):
+    """Observaciones del rectificador, una por línea: hallazgos de la
+    inspección y mediciones de campo que no van en la tabla de operación
+    (potenciales, horómetros, ubicación…)."""
+    return [l.strip() for l in str(rect.get("obs") or "").splitlines() if l.strip()]
+
+
 # ── Utilidades de tabla de operación ─────────────────────────────────────────
 _OP_COLS = ["Fecha", "V Shunt (mV)", "TAP", "VAC", "IAC", "VDC", "IDC", "R Circ (Ω)"]
 
@@ -309,6 +316,12 @@ def render_card(rect, st, key, permitir_pdf=True):
             if eventos:
                 for fecha, ev in eventos:
                     st.caption(f"📌 {fecha} · {ev[:200]}")
+
+            obs = lineas_obs(rect)
+            if obs:
+                st.markdown("**Observaciones y hallazgos de la inspección**")
+                for linea in obs:
+                    st.markdown(f"- {linea}")
 
             diag = analizar_mantenimiento(rect, est, util)
             if diag["needs"]:
@@ -486,6 +499,34 @@ def pdf_rectificador(rect) -> bytes:
             fig.text(x, yy, k.upper(), fontsize=6.8, color="#9AA0A6")
             fig.text(x, yy - 0.016, str(v), fontsize=9, color="#191C20", fontweight="bold")
 
+        # Observaciones y hallazgos, a todo el ancho entre los nominales y
+        # la tabla de operación. Las líneas largas se parten, no se recortan.
+        obs = lineas_obs(rect)
+        if obs:
+            import textwrap
+            oy = yy - 0.07
+            fig.text(0.06, oy + 0.015, "OBSERVACIONES Y HALLAZGOS DE LA INSPECCIÓN",
+                     fontsize=9, fontweight="bold", color="#191C20")
+            oy -= 0.008
+            # Si no caben a tamaño normal se reduce la letra (más caracteres
+            # por renglón y menos interlineado) hasta un mínimo legible, en
+            # vez de dejar renglones por fuera.
+            alto = oy - 0.385                      # hasta la tabla de operación
+            for fs in (7.4, 7.0, 6.6, 6.2, 5.8, 5.4):
+                paso = 0.0165 * fs / 7.4
+                trozos = [(j == 0, t) for linea in obs for j, t in
+                          enumerate(textwrap.wrap(linea, int(118 * 7.4 / fs)) or [""])]
+                caben = int(alto / paso) + 1
+                if len(trozos) <= caben:
+                    break
+            else:
+                trozos = trozos[:caben - 1] + [(False, "(… ver el detalle completo en el portal)")]
+            for primero, trozo in trozos:
+                fig.text(0.07 if primero else 0.082, oy,
+                         ("• " if primero else "") + trozo,
+                         fontsize=fs, color="#191C20")
+                oy -= paso
+
         # Operación
         filas, eventos = _op_filas(rect)
         filas_fmt = [[str(c)[:10] for c in f] for f in filas[:18]]
@@ -500,7 +541,11 @@ def pdf_rectificador(rect) -> bytes:
         ty -= 0.02
         líneas = [("Mant. " + m[1], AMBAR) for m in diag["needs"]] + \
                  [("Mejora: " + m[1], VERDE) for m in diag["mejoras"][:4]]
-        if not líneas:
+        if not líneas and obs:
+            # el motor no alerta, pero la inspección sí dejó observaciones
+            líneas = [("Sin alertas del análisis automático. Ver observaciones y "
+                       "hallazgos de la inspección.", GRIS)]
+        elif not líneas:
             líneas = [("Sin necesidades críticas detectadas. Aplicar plan preventivo estándar.", VERDE)]
         for txt, col in líneas[:9]:
             fig.text(0.07, ty, "• " + txt[:95], fontsize=7.6, color=col)
