@@ -45,9 +45,10 @@ _COLUMNAS = {
 _TEXTO = {'fecha', 'referencia', 'observaciones'}
 
 
-def _mapa(ws, enc):
+def _mapa(ws, enc, columnas=None):
     """{índice de columna (0-based): clave} leyendo la fila `enc` y la de
     abajo. Una etiqueta combinada (ON/OFF) manda hasta la siguiente."""
+    columnas = columnas or _COLUMNAS
     mapa, arriba = {}, ''
     for c in range(1, ws.max_column + 1):
         v = _txt(ws.cell(row=enc, column=c).value)
@@ -57,7 +58,7 @@ def _mapa(ws, enc):
         sub = 'on' if sub.startswith('on') else 'off' if sub.startswith('off') else None
         if not v and sub is None:
             continue       # columna sin etiqueta propia ni ON/OFF: no arrastrar
-        for (etq, s), clave in _COLUMNAS.items():
+        for (etq, s), clave in columnas.items():
             # 'corregido' tiene su propia columna vacía: no confundirla
             if (arriba.startswith(etq) and 'corregido' not in arriba
                     and s == sub and clave not in mapa.values()):
