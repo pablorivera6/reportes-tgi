@@ -12,6 +12,20 @@ import pandas as pd
 # Extensiones que necesita pyshp para leer una traza (el .gpkg no se usa).
 _SHP_EXTS = (".shp", ".shx", ".dbf", ".prj", ".cpg")
 
+# ID del listado -> nombre del archivo, cuando no coinciden. Estas trazas
+# vienen guardadas con la sigla corta (su campo interno 'Name' sí trae el ID
+# del listado). Sin esto el tramo salía como "no tiene shapefile".
+_ARCHIVO = {
+    "T_LET_MARS": "T_LEMA",    # Troncal Letras - Marsella
+    "T_MAR_LET": "T_MALE",     # Troncal Mariquita - Letras
+    "T_OBA_TUL": "T_OBTU",     # Troncal Obando - Tuluá
+    "T_TUL_CAL": "T_TUCA",     # Troncal Tuluá - Cali
+}
+
+
+def _archivo(id_tramo):
+    return _ARCHIVO.get(id_tramo, id_tramo)
+
 
 def _resource_path(rel):
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -56,7 +70,7 @@ class InfraTramos:
             fila = self.df[cond]
         if fila.empty:
             return None
-        id_tramo = str(fila["ID TRAMO"].values[0])
+        id_tramo = _archivo(str(fila["ID TRAMO"].values[0]))
 
         # 1. Carpeta suelta (desarrollo / código fuente).
         ruta = os.path.join(self.shapefiles_dir, id_tramo + ".shp")
@@ -102,12 +116,13 @@ class InfraTramos:
                 id_tramo = str(fila["ID TRAMO"])
                 try:
                     if usa_dir:
-                        ruta = os.path.join(self.shapefiles_dir, id_tramo + ".shp")
+                        ruta = os.path.join(self.shapefiles_dir,
+                                            _archivo(id_tramo) + ".shp")
                         if not os.path.exists(ruta):
                             continue
                         minx, miny, maxx, maxy = _bbox_archivo(ruta)
                     elif z is not None:
-                        minx, miny, maxx, maxy = _bbox_zip(z, id_tramo + ".shp")
+                        minx, miny, maxx, maxy = _bbox_zip(z, _archivo(id_tramo) + ".shp")
                     else:
                         break
                 except Exception:

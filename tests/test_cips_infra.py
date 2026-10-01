@@ -57,3 +57,42 @@ def test_troncal_villavicencio_usme_tiene_shapefile():
     shp = infra.shapefile(empresa="TGI", tramo="Troncal Villavicencio - Usme",
                           distrito="D4")
     assert shp is not None and shp.endswith("T_VIL_USM.shp")
+
+
+import pytest
+
+
+@pytest.mark.parametrize("tramo,distrito,archivo", [
+    # ID equivocado en el listado (decía 'R_MNT')
+    ("Troncal Montañuelo-Gualanday", "D2", "T_MON_GUA.shp"),
+    # El archivo se llama con la sigla corta, no con el ID del listado
+    ("Troncal Letras - Marsella", "D7", "T_LEMA.shp"),
+    ("Troncal Mariquita - Letras", "D7", "T_MALE.shp"),
+    ("Troncal Obando - Tuluá", "D8", "T_OBTU.shp"),
+    ("Troncal Tulúa - Cali", "D8", "T_TUCA.shp"),
+])
+def test_tramos_con_id_distinto_al_archivo(tramo, distrito, archivo):
+    infra = InfraTramos()
+    shp = infra.shapefile(empresa="TGI", tramo=tramo, distrito=distrito)
+    assert shp is not None and shp.endswith(archivo) and os.path.exists(shp)
+
+
+def test_alias_tambien_desde_el_zip(tmp_path):
+    # La app empaquetada lee de shapefiles.zip: el alias debe valer ahí.
+    z = os.path.join(tmp_path, "s.zip")
+    with zipfile.ZipFile(z, "w") as zf:
+        for ext in (".shp", ".shx", ".dbf", ".prj"):
+            zf.write(os.path.join(SRC, "shapefiles", "T_TUCA" + ext),
+                     "T_TUCA" + ext)
+    infra = InfraTramos(shapefiles_dir=os.path.join(tmp_path, "no_existe"),
+                        shapefiles_zip=z)
+    shp = infra.shapefile(empresa="TGI", tramo="Troncal Tulúa - Cali",
+                          distrito="D8")
+    assert shp is not None and shp.endswith("T_TUCA.shp")
+
+
+def test_sugerir_incluye_tramo_con_alias():
+    # Punto sobre la Troncal Tuluá - Cali (cerca de Buga)
+    infra = InfraTramos()
+    ids = [i for _, _, i in infra.sugerir_tramos(3.9, -76.3, max_seg=120)]
+    assert "T_TUL_CAL" in ids
