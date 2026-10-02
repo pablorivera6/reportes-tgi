@@ -183,12 +183,37 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         df["Lat"] = df["Lat"].apply(_clean)
         df["Long"] = df["Long"].apply(_clean)
 
+        # Una fila sin lectura (ni ON ni OFF) y sin posición (ni GPS ni
+        # odómetro) no es una medición: son restos del export. Se descarta.
+        pk_num = pd.to_numeric(df["PK_equipo"], errors="coerce")
+        sin_lectura = (pd.to_numeric(df["On_V"], errors="coerce").isna()
+                       & pd.to_numeric(df["Off_V"], errors="coerce").isna())
+        sin_posicion = df["Lat"].isna() & df["Long"].isna() & pk_num.isna()
+        df = df[~(sin_lectura & sin_posicion)].reset_index(drop=True)
+        pk_num = pd.to_numeric(df["PK_equipo"], errors="coerce")
+
+        if not (df["Lat"].notna() & df["Long"].notna()).any():
+            raise ValueError(
+                "Los archivos no traen coordenadas GPS (Latitude/Longitude) en "
+                "ninguna lectura: sin GPS no se puede ubicar el recorrido "
+                "sobre la traza del tramo.")
+
+        # Lecturas sin GPS: se estiman con el odómetro (regresión, como la app
+        # original). El ajuste usa solo filas con GPS Y odómetro: un odómetro
+        # vacío hacía reventar a sklearn ('Input X contains NaN') y no se
+        # procesaba nada. Lo que quede sin ubicar (sin GPS ni odómetro) se
+        # coloca entre sus lecturas vecinas, en el orden en que se midieron.
         for coord in ("Lat", "Long"):
             mask = df[coord].isna()
-            if mask.any() and (~mask).sum() >= 2:
+            con_pk = pk_num.notna()
+            ajuste, estimar = ~mask & con_pk, mask & con_pk
+            if estimar.any() and ajuste.sum() >= 2:
                 m = LinearRegression()
-                m.fit(df.loc[~mask, ["PK_equipo"]], df.loc[~mask, coord])
-                df.loc[mask, coord] = m.predict(df.loc[mask, ["PK_equipo"]])
+                m.fit(pk_num[ajuste].to_frame("PK_equipo"), df.loc[ajuste, coord])
+                df.loc[estimar, coord] = m.predict(
+                    pk_num[estimar].to_frame("PK_equipo"))
+            if df[coord].isna().any():
+                df[coord] = df[coord].interpolate(limit_direction="both")
 
         t_fwd = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
         df["X"], df["Y"] = t_fwd.transform(df["Long"].values, df["Lat"].values)
