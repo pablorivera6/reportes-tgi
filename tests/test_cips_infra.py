@@ -96,3 +96,28 @@ def test_sugerir_incluye_tramo_con_alias():
     infra = InfraTramos()
     ids = [i for _, _, i in infra.sugerir_tramos(3.9, -76.3, max_seg=120)]
     assert "T_TUL_CAL" in ids
+
+
+def test_la_victoria_d2_usa_la_traza_r_vict():
+    # R_VICT.shp es la traza de La Victoria de Centro-Oriente (D2, sale de
+    # Puerto Salgar - Mariquita): el CIPS 2023 del D2 cae a 0 m de ella.
+    # El listado la tenía amarrada a la La Victoria del Valle (D8).
+    infra = InfraTramos()
+    shp = infra.shapefile(empresa="TGI", tramo="Ramal La Victoria", distrito="D2")
+    assert shp is not None and shp.endswith("R_VICT.shp")
+
+
+def test_la_victoria_d8_no_hereda_la_traza_del_d2():
+    # La del Valle (Mariquita-Cali) queda a ~154 km de R_VICT: sin traza
+    # propia es mejor "no tiene shapefile" que calcular abscisas sobre otra.
+    infra = InfraTramos()
+    d8 = [t for t in infra.tramos(empresa="TGI", distrito="D8") if "Victoria" in t]
+    assert d8
+    assert infra.shapefile(empresa="TGI", tramo=d8[0], distrito="D8") is None
+
+
+def test_sugerencia_en_la_victoria_d2():
+    infra = InfraTramos()
+    sug = infra.sugerir_tramos(5.3145, -74.8544)
+    victorias = [(t, d) for t, d, _ in sug if "Victoria" in t]
+    assert victorias == [("Ramal La Victoria", "D2")]

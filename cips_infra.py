@@ -20,10 +20,20 @@ _ARCHIVO = {
     "T_MAR_LET": "T_MALE",     # Troncal Mariquita - Letras
     "T_OBA_TUL": "T_OBTU",     # Troncal Obando - Tuluá
     "T_TUL_CAL": "T_TUCA",     # Troncal Tuluá - Cali
+    # R_VICT.shp es La Victoria de Centro-Oriente (D2): el CIPS 2023 de ese
+    # ramal cae a 0 m de la traza.
+    "R_LVIC": "R_VICT",        # Ramal La Victoria (D2)
 }
+
+# IDs del listado cuyo archivo homónimo es la traza de OTRO tramo. 'R_VICT'
+# en el listado es La Victoria del Valle (D8), a ~154 km de R_VICT.shp: sin
+# traza propia, mejor "no tiene shapefile" que abscisar sobre otra línea.
+_SIN_TRAZA = {"R_VICT"}
 
 
 def _archivo(id_tramo):
+    if id_tramo in _SIN_TRAZA:
+        return None
     return _ARCHIVO.get(id_tramo, id_tramo)
 
 
@@ -71,6 +81,8 @@ class InfraTramos:
         if fila.empty:
             return None
         id_tramo = _archivo(str(fila["ID TRAMO"].values[0]))
+        if id_tramo is None:
+            return None
 
         # 1. Carpeta suelta (desarrollo / código fuente).
         ruta = os.path.join(self.shapefiles_dir, id_tramo + ".shp")
@@ -114,6 +126,8 @@ class InfraTramos:
                 if time.time() - inicio > max_seg:
                     break
                 id_tramo = str(fila["ID TRAMO"])
+                if _archivo(id_tramo) is None:
+                    continue
                 try:
                     if usa_dir:
                         ruta = os.path.join(self.shapefiles_dir,
