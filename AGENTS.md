@@ -70,7 +70,7 @@ embebidas. Se genera además un **PPM** (archivo plano para cargar a la BD de TG
 | Archivo | Rol |
 |---|---|
 | `app.py` | App de escritorio PyQt6. Clases de UI + worker de generación. |
-| `streamlit_app.py` | App web Streamlit (mismo motor). 12 tabs. Design system PCC. |
+| `streamlit_app.py` | App web Streamlit (mismo motor). 8 tabs (Datos generales · Archivos · Potenciales PAP · CIPS · Hallazgos · Rectificadores · Conclusiones · Generar). Design system PCC. |
 | `generator.py` | **Motor de llenado de Excel.** `ReportGenerator(plantilla)` + `fill_*`. |
 | `readers.py` | Lectores FastField PAP (potenciales), EQUIPOS, rectificadores, aislamientos. |
 | `cips_lrs.py` | Motor CIPS: unifica archivos + LRS (GPS→abscisa sobre shapefile). |
@@ -209,7 +209,22 @@ ceros sobre las fórmulas de longitud. Hoy:
 - `fill_monitoreo(info, potenciales, cips=)`: respeta los defaults de la
   plantilla y deja 'Datos/km' como fórmula sobre las filas escritas.
 - `fill_graficas_dcvg` fija el eje X de GRAFICA DCVG y Gráfica Resistividad al
-  recorrido real (redondeado a 1 km).
+  recorrido real (redondeado a 1 km). **Gráfica Resistividad**: sus 4 líneas de
+  criterio (500/1000/2000/10000) leen celdas de SU PROPIA hoja (T10:T11 =
+  extremos de abscisa, que la plantilla trae 0..4000); como 'Resistividad' está
+  contenido en 'Gráfica Resistividad', el recorte de series debe casar la hoja
+  EXACTA (`^'?Resistividad'?!`), si no las líneas de criterio se recortan como
+  datos. Los extremos T10/T11 se llevan al recorrido real y el eje Y (log10)
+  se abre a las ρ reales (aparentes 2π·a·R y de capa Barnes) — la plantilla
+  fijaba 100..1e7 y un suelo muy corrosivo quedaba fuera. `fill_resistividad`
+  acepta `r1/r2/r3` (lector Excel) o `r_1m/r_2m/r_3m` (adaptador de la API).
+
+**ANTECEDENTES y HUELLA OSCILOSCÓPICA se OCULTAN** (pedido del ingeniero,
+2026-10): `generator.ocultar_secciones()` (lo llama `fill_general_info`) pone
+`hidden` a las filas desde el título hasta la fila anterior al siguiente título
+(banda combinada a lo ancho, 'PUNTO INICIAL' o 'PARÁMETROS OPERATIVOS' en B;
+la huella llega hasta su COMENTARIOS). Excel no imprime filas ocultas y nada
+más de la hoja se mueve. `OCULTAR_SECCIONES = ()` en la instancia las muestra.
 
 **⚠️ La hoja `Informe` de DCVG NO tiene la distribución de PAP/CIPS.** Nunca
 quemar filas/columnas: `generator` las ubica por etiqueta (`_fila_seccion`,
@@ -277,6 +292,15 @@ FastField exporta la fecha como texto **mes-día-año** ('09-27-2026'):
   van en `ot_por_tipo.csv` (tipo,tramo,ot,distrito,plan) y mandan sobre el
   consolidado cuando el tipo coincide. Para tramos nuevos, agregar la fila ahí.
   La app de escritorio usa la misma función (antes tenía su propio `contains`).
+- **Recubrimiento: 'En validación' NO es un recubrimiento.** `Infraestrutura
+  TGI.xlsx` trae 'En validación' en los 39 ramales de Mariquita-Cali (justo los
+  que inspecciona PCC) y el informe salía con eso. `datos_tramo.recubrimiento_de`
+  descarta esos marcadores (`_SIN_RECUBRIMIENTO`) y mira primero
+  `recubrimiento_por_tramo.csv` (tramo,recubrimiento,fuente): ahí va el
+  recubrimiento REAL de cada tramo a medida que se confirme (una fila con valor
+  vacío es solo un pendiente). Sin dato, el campo queda vacío, la web avisa en
+  Datos Generales y lo que el ingeniero escriba a mano se conserva. La app de
+  escritorio usa la misma función (`autofill_from_infrastructure`).
 - **El contrato NO viene del FastField.** La columna `Cliente` del FastField PAP
   dice 'TGI' y antes se escribía como `contrato` (el informe y el nombre del
   archivo/ZIP salían con `_TGI_`). El número de contrato PCC↔TGI es
@@ -425,7 +449,13 @@ app y procesar"** (auto-carga: baja de Supabase y enruta por los readers;
 ### 10.4 Cumplimiento contrato TGI (numeral 6.3.5) — `entrega.py`
 - `CATALOGO` (por tipo) = casillas del intake mapeadas a las carpetas del entregable
   (01 Huellas Osc · 02 GPS · 03 Data Logger · 04 Anexos[informe+KMZ] · 05 PPM · 06 RF).
-- `construir_kmz` (traza + puntos por estado + defectos por severidad + hallazgos)
+- `construir_kmz` (traza + postes + defectos por severidad + hallazgos). **El KMZ
+  de CIPS es como el de PAP**: postes (los del FastField PAP de la misma campaña
+  o, si no, los puntos del survey marcados como poste: `cips_adapter.
+  es_poste_cips` = marcador 'pk N+000' o comentario con 'poste') + hallazgos +
+  **traza simplificada** (`entrega.traza_simplificada`, un vértice cada 25 m y
+  máx. 3000). NUNCA un placemark por lectura: con ~100.000 puntos el archivo era
+  inmanejable.
   y `construir_paquete` (ZIP con la estructura, fotos por elemento en orden).
 - El intake organiza el paquete SOLO por cómo el técnico sube cada cosa.
 
@@ -518,6 +548,12 @@ viejo (`VTG_REP_*.xlsx`, hoja única con 77 imágenes). Va al ZIP en
   en Manage app → logs (build). Status oficial: streamlitstatus.com / githubstatus.com.
 
 ### 10.8 Bandeja de entrada + autollenado (streamlit_app.py, esta sesión)
+**RETIRADO (2026-10, a pedido del ingeniero):** la bandeja de cargas pendientes
+de la pestaña Archivos (la data se carga a mano en "Carga manual"), y las
+pestañas "Insp. especiales" y "Aislamientos" (con su uploader). Queda en
+Archivos solo "🔧 Rechazos por corregir". `autocargar_carga` sigue existiendo
+porque lo usa "Reprocesar desde crudos" de los rechazos. `active_inspections`
+queda todo en False (las conclusiones PAP dicen que no se evidenciaron).
 - **Bandeja unificada** en "Cargar Archivos": una sola sección "📬 Bandeja de entrada"
   con envíos FastField + cargas, **agrupadas por tramo** (`_tramo_norm` normaliza el
   nombre; botón "⚙️ Traer TODO el tramo" une CIPS+PAP+aislamientos+DCVG del mismo tramo).

@@ -403,6 +403,57 @@ class ReportGenerator:
 
         self._fill_objetivo_dcvg(ws, data)
         self._fill_descripcion_linea(ws, data)
+        self.ocultar_secciones()
+
+    #: Secciones de la hoja Informe que se OCULTAN (filas hidden; Excel no las
+    #: imprime). Pedido del ingeniero: van vacías en los informes de PCC. Para
+    #: volver a mostrarlas basta vaciar esta tupla en la instancia.
+    OCULTAR_SECCIONES = ('ANTECEDENTES', 'HUELLA OSCILOSC')
+
+    def _es_fila_titulo(self, ws, r):
+        """¿La fila es una banda de título (celda A combinada a lo ancho con
+        texto)? Así se detecta el fin de una sección sin quemar filas."""
+        v = ws.cell(row=r, column=1).value
+        if v in (None, ''):
+            return False
+        return any(m.min_row == r and m.min_col == 1 and m.max_col >= 25
+                   for m in ws.merged_cells.ranges)
+
+    def _fin_seccion_oculta(self, ws, ini, hasta=140):
+        """Última fila a ocultar de la sección que empieza en `ini`."""
+        titulo = self._txt(ws.cell(row=ini, column=1).value)
+        if titulo.startswith('HUELLA'):
+            # hasta el COMENTARIOS de la huella; la tabla de URPC (PARÁMETROS
+            # OPERATIVOS, col B) se queda con su fila de respiro
+            for r in range(ini + 1, min(ws.max_row, hasta) + 1):
+                if self._etiqueta(ws.cell(row=r, column=2).value).startswith('parametros operativos'):
+                    return max(ini, r - 2)
+        for r in range(ini + 1, min(ws.max_row, hasta) + 1):
+            a = self._txt(ws.cell(row=r, column=1).value)
+            if self._es_fila_titulo(ws, r) or a.startswith('PUNTO INICIAL') \
+                    or self._etiqueta(ws.cell(row=r, column=2).value).startswith('parametros operativos'):
+                return r - 1
+        return ini
+
+    def ocultar_secciones(self, etiquetas=None):
+        """Oculta las filas de las secciones indicadas (por defecto
+        `OCULTAR_SECCIONES`) en la hoja Informe. Cada sección va del título a
+        la fila anterior al siguiente título."""
+        ws = self.ws_informe
+        if ws is None:
+            return []
+        ocultas = []
+        for et in (etiquetas if etiquetas is not None else self.OCULTAR_SECCIONES):
+            objetivo = self._txt(et)
+            ini = next((r for r in range(1, min(ws.max_row, 140) + 1)
+                        if self._txt(ws.cell(row=r, column=1).value).startswith(objetivo)), None)
+            if ini is None:
+                continue
+            fin = self._fin_seccion_oculta(ws, ini)
+            for r in range(ini, fin + 1):
+                ws.row_dimensions[r].hidden = True
+                ocultas.append(r)
+        return ocultas
 
     def fill_equipos_utilizados(self, equipos_list: list):
         """Fill the EQUIPOS UTILIZADOS section (rows 24-28)
@@ -1801,9 +1852,10 @@ class ReportGenerator:
             self._safe_write(ws, row, 3, d.get('lat'))             # C
             self._safe_write(ws, row, 4, d.get('lon'))             # D
             self._safe_write(ws, row, 5, d.get('profundidad'))     # E
-            self._safe_write(ws, row, 6, d.get('r1'))              # F R1
-            self._safe_write(ws, row, 8, d.get('r2'))              # H R2
-            self._safe_write(ws, row, 10, d.get('r3'))             # J R3
+            # r1/r2/r3 (lector Excel) o r_1m/r_2m/r_3m (adaptador de la API)
+            self._safe_write(ws, row, 6, d.get('r1', d.get('r_1m')))     # F R1
+            self._safe_write(ws, row, 8, d.get('r2', d.get('r_2m')))     # H R2
+            self._safe_write(ws, row, 10, d.get('r3', d.get('r_3m')))    # J R3
 
     # Números en letras para el texto de las observaciones ("tres (3)").
     _LETRAS = ['cero', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete',
@@ -2011,10 +2063,19 @@ class ReportGenerator:
             if not getattr(ws, '_charts', None):
                 continue
             last = inicio + n - 1
+            # Solo las series que leen la hoja de DATOS. OJO: 'Resistividad'
+            # está contenido en 'Gráfica Resistividad' (las líneas de criterio
+            # leen su propia hoja): con un `in` se recortaban también y quedaban
+            # apuntando a una fila vacía.
+            es_dato = re.compile(r"^'?" + re.escape(hoja_dato) + r"'?!")
+            criterio_x = []     # rangos X de las líneas de criterio (hoja propia)
             for s in ws._charts[0].series:
+                fx = s.xVal.numRef.f if (s.xVal and s.xVal.numRef) else None
+                if fx and not es_dato.match(fx) and hoja_g in fx:
+                    criterio_x.append(fx)
                 for ref in (s.xVal, s.yVal):
                     f = ref.numRef.f if (ref and ref.numRef) else None
-                    if not f or hoja_dato not in f:
+                    if not f or not es_dato.match(f):
                         continue
                     ref.numRef.f = re.sub(r'(\$?[A-Z]+\$?)\d+:(\$?[A-Z]+\$?)\d+',
                                           lambda m: f"{m.group(1)}{inicio}:{m.group(2)}{last}", f)
@@ -2058,6 +2119,41 @@ class ReportGenerator:
                 for ch in ws._charts:
                     ch.x_axis.scaling.min = x_min
                     ch.x_axis.scaling.max = x_max
+                # extremos de abscisa de las líneas de criterio (celdas de la
+                # propia hoja de la gráfica; la plantilla traía 0..4000)
+                for fx in set(criterio_x):
+                    m = re.search(r"\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$", fx)
+                    if m:
+                        c1 = openpyxl.utils.column_index_from_string(m.group(1))
+                        self._safe_write(ws, int(m.group(2)), c1, x_min)
+                        self._safe_write(ws, int(m.group(4)), c1, x_max)
+
+            if hoja_g == 'Gráfica Resistividad':
+                # Eje Y (log10) que contenga las resistividades reales: la
+                # plantilla fija 100..1e7 y un suelo muy corrosivo (ρ < 100
+                # Ohm·cm) quedaba por debajo del eje.
+                import math
+                ws_dato = self.wb[hoja_dato]
+                rhos = []
+                for r in range(inicio, last + 1):
+                    rr = [ws_dato.cell(row=r, column=c).value for c in (6, 8, 10)]   # F/H/J
+                    try:
+                        rr = [float(v) if v not in (None, '') else None for v in rr]
+                    except (TypeError, ValueError):
+                        continue
+                    f1, f2, f3 = rr
+                    for v, a in ((f1, 100), (f2, 200), (f3, 300)):      # ρ aparente
+                        if v and v > 0:
+                            rhos.append(2 * math.pi * v * a)
+                    for a_, b_ in ((f1, f2), (f2, f3)):                   # ρ de capa (Barnes)
+                        if a_ and b_ and a_ > 0 and b_ > 0 and abs(b_ - a_) > 1e-9:
+                            rhos.append((a_ * b_) / abs(b_ - a_) * 2 * math.pi * 100)
+                if rhos:
+                    y_min = 10 ** math.floor(math.log10(min(rhos)))
+                    y_max = 10 ** math.ceil(math.log10(max(rhos)))
+                    for ch in ws._charts:
+                        ch.y_axis.scaling.min = min(y_min, 100)
+                        ch.y_axis.scaling.max = max(y_max, 10000)
 
     # Criterios de la plantilla que no coinciden con lo que escribe el informe.
     _CRITERIOS_RESUMEN = (('"A-A"', '"AA"'),        # el carácter se escribe 'AA'
