@@ -44,6 +44,17 @@ def _tipo_hallazgo(texto):
     return 'Observación de campo'
 
 
+def es_poste_cips(texto):
+    """¿El comentario del survey marca un poste / estación de prueba? Son los
+    marcadores de abscisado ('pk 5+000', 'PK 002+000 No existe') y cualquier
+    comentario que mencione 'poste'. Sirven para dibujar los postes en el KMZ
+    del CIPS (como en el PAP) en vez de los ~100.000 puntos del perfil."""
+    t = str(texto or '').strip()
+    if not t or t.lower() == 'nan':
+        return False
+    return bool(_RE_MARCADOR.match(t)) or 'poste' in t.lower()
+
+
 def cips_a_hallazgos(cips_dicts):
     """Convierte los comentarios de campo del survey CIPS en hallazgos para
     generator.fill_hallazgos (abscisa, coordenadas, tipo y descripción).
