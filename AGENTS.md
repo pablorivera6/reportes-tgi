@@ -165,7 +165,14 @@ abscisa** (secuencia del recorrido). Mapeo de columnas:
   P pulso `=ABS(N-O)` (postes) · R profundidad.
 - **Q (P/RE)** de cada defecto = **pulso interpolado** entre el poste **anterior
   y el posterior QUE TENGAN PULSO** (ON/OFF): `=((Pps-Ppa)/(Dps-Dpa)*(Dr-Dpa))+Ppa`.
-  Saltar postes sin ON/OFF (p.ej. "poste abscisado").
+  Saltar postes sin ON/OFF (p.ej. "poste abscisado") **y los de pulso 0**
+  (`_pulso_real`: ON=0 y OFF=0 = fila sin lectura, o ON = OFF). Si entraban,
+  el P/RE daba 0 y el %IR #DIV/0!: la gráfica mostraba 1 defecto y las
+  observaciones contaban 4 (observación del revisor, Ansermanuevo).
+  `db._severidad_dcvg` aplica el mismo filtro. Lo que aun así queda sin %IR
+  (sin PK, sin OL/RE, sin carácter AA/CA/CC, sin postes con pulso) lo lista
+  `dcvg_reader.defectos_sin_severidad` y la web lo avisa en la pestaña DCVG y
+  en Generar (`_aviso_sin_severidad`) para que el ingeniero complete el dato.
 - **Severidad %IR** = **OL/RE ÷ P/RE** = `=M{r}/Q{r}` (NO ×100, NO /100). Va en
   **S(AA)/T(CA)/U(CC)** según carácter. Las celdas tienen formato `0%`, así que
   la fracción se muestra como porcentaje.
@@ -219,6 +226,18 @@ ceros sobre las fórmulas de longitud. Hoy:
   fijaba 100..1e7 y un suelo muy corrosivo quedaba fuera. `fill_resistividad`
   acepta `r1/r2/r3` (lector Excel) o `r_1m/r_2m/r_3m` (adaptador de la API).
 
+**DOCUMENTOS DE REFERENCIA: la TM0497 se unifica a la referencia controlada
+disponible** (observación del revisor, 2026-10): el informe citaba
+"NACE-TM0497-2018-SG" y la plantilla DCVG la repetía dos veces.
+`generator.fill_documentos_referencia` (lo llama `fill_general_info`) conserva
+las normas que trae cada plantilla, reemplaza cualquier TM0497 por
+`generator.TM0497_VIGENTE` ("AMPP TM0497-2022 …"), quita repetidas y pone el
+PR-I-06 del tipo en la última fila usada. Solo esa norma se corrige (decisión
+del ingeniero); si TGI pide otra edición, se cambia en esa constante. Ediciones
+vigentes verificadas 2026-10 por si hace falta: SP0169-2024, SP0207-2007,
+TM0497-2022, SP0177-2026, ISO 15589-1:2026 (las conclusiones aún citan
+SP0177-19 e ISO 15589-1:2018 como los informes históricos).
+
 **ANTECEDENTES y HUELLA OSCILOSCÓPICA se OCULTAN** (pedido del ingeniero,
 2026-10): `generator.ocultar_secciones()` (lo llama `fill_general_info`) pone
 `hidden` a las filas desde el título hasta la fila anterior al siguiente título
@@ -243,6 +262,14 @@ quemar filas/columnas: `generator` las ubica por etiqueta (`_fila_seccion`,
 Además: en DCVG el párrafo de DESCRIPCIÓN DE LA LÍNEA viene vacío (lo redacta
 `_fill_descripcion_linea`), y el flujo DCVG debe llamar a `fill_rectificadores`
 (antes no lo hacía y las URPC salían vacías).
+
+**Inspección visual (solo DCVG, solo AVISO):** cada interfase tierra-aire,
+derivación o citygate del recorrido debe llevar su descripción de inspección
+visual en las OBSERVACIONES del informe; la escribe el ingeniero, el generador
+NO toca el informe. `dcvg_reader.puntos_inspeccion_visual(hallazgos, defectos)`
+detecta los textos (interfase, tierra-aire, aéreo, derivación, city gate, ERM)
+y `streamlit_app._aviso_inspeccion_visual` los lista en la pestaña DCVG y en
+Generar.
 
 **Hallazgos** (hoja Hallazgos): `cips_a_hallazgos(data['dcvg_hallazgos'])`
 (clasifica tipo + ortografía), ordenados por abscisa.

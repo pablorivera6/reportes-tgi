@@ -548,11 +548,15 @@ def _severidad_dcvg(postes, defectos):
     """Calcula P/RE (interpolado entre postes con pulso), %IR y clasificación
     para cada defecto — misma lógica que generator.fill_dcvg.
     Devuelve lista paralela a `defectos` de dicts {p_re, severidad_pct, clasificacion}."""
+    # Solo postes con pulso REAL: un poste con ON=0 y OFF=0 (fila sin lectura)
+    # o con ON = OFF daba P/RE = 0 y dejaba al defecto sin %IR (ni en la
+    # gráfica ni en el texto).
     pulsos = sorted(
         [(_f(p.get("pk_m")), abs(_f(p.get("on")) - _f(p.get("off"))))
          for p in postes
          if p.get("pk_m") is not None and _f(p.get("on")) is not None
-         and _f(p.get("off")) is not None],
+         and _f(p.get("off")) is not None
+         and abs(_f(p.get("on")) - _f(p.get("off"))) > 0],
         key=lambda t: t[0])
 
     def _pre(a):
