@@ -983,6 +983,14 @@ class ReportGenerator:
 
         self.ajustar_graficas(potenciales)
 
+    def _fila_datos_hallazgos(self, ws):
+        """Fila siguiente al encabezado de la tabla de hallazgos (celda 'ÍTEM'
+        en la columna A). Respaldo: 12."""
+        for r in range(1, min(ws.max_row, 40) + 1):
+            if self._etiqueta(ws.cell(row=r, column=1).value).startswith('item'):
+                return r + 1
+        return 12
+
     def fill_hallazgos(self, hallazgos: list, info: dict):
         """Fill Hallazgos sheet
         
@@ -1001,9 +1009,6 @@ class ReportGenerator:
         self._safe_write(ws, 9, 3, info.get('inspector', ''))
         self._safe_write(ws, 9, 12, info.get('ot', ''))
 
-        if not hallazgos:
-            return
-
         # Ordenar de menor a mayor abscisa (los sin abscisa quedan al final).
         def _absc(h):
             v = h.get('abscisa_val', h.get('abscisa_inicio', h.get('abscisa')))
@@ -1011,9 +1016,12 @@ class ReportGenerator:
                 return (v is None, float(v))
             except (TypeError, ValueError):
                 return (True, 0.0)
-        hallazgos = sorted(hallazgos, key=_absc)
+        hallazgos = sorted(hallazgos or [], key=_absc)
 
-        start_row = 18
+        # Primera fila de datos = la siguiente al encabezado ('ÍTEM' en A, fila
+        # 11 en las tres plantillas). Antes estaba quemada en 18 y todo informe
+        # salía con seis filas vacías antes del primer hallazgo.
+        start_row = self._fila_datos_hallazgos(ws)
 
         # La plantilla ya trae 500 filas de datos formateadas antes del bloque
         # de firmas, así que aquí solo se escribe (no se insertan filas). La

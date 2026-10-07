@@ -28,7 +28,7 @@ def test_muchos_hallazgos_no_rompen_formato(tmp_path):
     gen.save(out)
 
     ws = openpyxl.load_workbook(out)['Hallazgos']
-    start = 18
+    start = 12
     for i in range(n):
         r = start + i
         assert ws.cell(row=r, column=1).value == i + 1, f"item fila {r}"
@@ -49,7 +49,7 @@ def test_pocos_hallazgos_limpia_sobrantes(tmp_path):
     out = os.path.join(tmp_path, "p.xlsx")
     gen.save(out)
     ws = openpyxl.load_workbook(out)['Hallazgos']
-    assert ws.cell(row=18, column=1).value == 1
-    # fila 19 en adelante debe quedar vacía (no residuos)
-    assert ws.cell(row=19, column=1).value in (None, '')
-    assert ws.cell(row=19, column=2).value in (None, '')
+    assert ws.cell(row=12, column=1).value == 1
+    # fila 13 en adelante debe quedar vacía (no residuos)
+    assert ws.cell(row=13, column=1).value in (None, '')
+    assert ws.cell(row=13, column=2).value in (None, '')

@@ -44,7 +44,7 @@ def test_hallazgos_cips_en_hoja_del_formato(tmp_path):
     gen.save(out)
 
     ws = openpyxl.load_workbook(out)['Hallazgos']
-    fila = 18
+    fila = 12
     assert ws.cell(row=fila, column=1).value == 1                 # ITEM
     assert ws.cell(row=fila, column=2).value == 19                # abscisa inicio
     assert ws.cell(row=fila, column=5).value == 'Mariquita-Cali'  # gasoducto

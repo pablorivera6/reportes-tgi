@@ -396,6 +396,11 @@ FastField exporta la fecha como texto **mes-día-año** ('09-27-2026'):
 - **Hoja Hallazgos:** la plantilla tiene 500 filas de datos pre-formateadas
   antes del bloque de firmas (se movió con `expandir_hallazgos`). `fill_hallazgos`
   solo escribe (no inserta filas), ordena por abscisa, y limpia sobrantes.
+  **La primera fila de datos se ubica por la etiqueta** (`_fila_datos_hallazgos`:
+  la siguiente a la celda 'ÍTEM' de la columna A, fila 11 → datos desde la 12 en
+  las tres plantillas). Estaba quemada en 18 y todo informe salía con seis filas
+  vacías antes del primer hallazgo (observación del ingeniero, 2026-10). Con lista
+  vacía también limpia (la plantilla PAP traía un '1' de ejemplo en A18).
 - **Nombre de los archivos (`nombres.py`):** todo entregable se llama
   `tipo_REP|PPM_R|T|L|A_sigla_mes_año_OT_contrato_PCC_Rev.A.xlsx`
   (p.ej. `DCVG_REP_R_ARM_03_25_1300013506_551007370_PCC_Rev.A.xlsx`). La letra

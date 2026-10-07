@@ -29,7 +29,7 @@ def test_hallazgos_corrige_descripcion(tmp_path):
     out = os.path.join(tmp_path, "h.xlsx")
     gen.save(out)
     ws = openpyxl.load_workbook(out)['Hallazgos']
-    assert ws.cell(row=18, column=13).value == 'Cruce línea de alta tensión'
+    assert ws.cell(row=12, column=13).value == 'Cruce línea de alta tensión'
 
 
 def test_ppm_corrige_comentario(tmp_path):
