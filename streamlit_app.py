@@ -1430,18 +1430,56 @@ with tabs[7]:
         st.info("Aún no hay aislamientos.")
 
 # ── Tab 9: Conclusiones ───────────────────────────────────────────────────────
-with tabs[8]:
-    if st.button("Auto-generar conclusiones y recomendaciones"):
-        if 'longitud_km' not in data['info'] and data['potenciales']:
-            ps = sorted(data['potenciales'], key=lambda x: x.get('abscisa', 0))
-            data['info']['longitud_km'] = (ps[-1].get('abscisa', 0) - ps[0].get('abscisa', 0)) / 1000.0
+def _conclusiones_base():
+    """Conclusiones y recomendaciones BASE del tipo de inspección actual, con
+    SOLO la data de esa técnica (un DCVG no mira los potenciales PAP que hayan
+    quedado en la sesión). Devuelve (texto_conclusiones, texto_recomendaciones)."""
+    if 'longitud_km' not in data['info'] and data['potenciales'] \
+            and (data['info'].get('tipo_inspeccion') or 'PAP') == 'PAP':
+        ps = sorted(data['potenciales'], key=lambda x: x.get('abscisa', 0))
+        data['info']['longitud_km'] = (ps[-1].get('abscisa', 0) - ps[0].get('abscisa', 0)) / 1000.0
+    tipo = (data['info'].get('tipo_inspeccion') or 'PAP').upper()
+    from cips_adapter import cips_a_hallazgos
+    if tipo == 'DCVG':
+        hall = cips_a_hallazgos(data.get('dcvg_hallazgos') or [])
+        cg = ConclusionGenerator([], hall, data['rectificadores'], [], {}, data['info'],
+                                 dcvg={'postes': data.get('dcvg_postes') or [],
+                                       'defectos': data.get('dcvg_defectos') or [],
+                                       'resist': data.get('dcvg_resist') or [],
+                                       'hallazgos': hall})
+    elif tipo == 'CIPS':
+        # los postes (si se cargó el FastField PAP de la misma campaña) aportan
+        # VAC, estaciones de prueba y mantenimiento, como en los históricos
+        cg = ConclusionGenerator(data['potenciales'], cips_a_hallazgos(data['cips']),
+                                 data['rectificadores'], data['aislamientos'],
+                                 st.session_state.active_inspections, data['info'],
+                                 cips=data['cips'])
+    else:
         cg = ConclusionGenerator(data['potenciales'], data['hallazgos'],
                                  data['rectificadores'], data['aislamientos'],
                                  st.session_state.active_inspections, data['info'])
-        # El botón está ANTES de los text_area en el run, así que podemos
-        # escribir sus claves de estado directamente.
-        st.session_state["ta_conc"] = "\n\n".join(cg.generar_conclusiones())
-        st.session_state["ta_reco"] = "\n\n".join(cg.generar_recomendaciones())
+    return ("\n\n".join(cg.generar_conclusiones()),
+            "\n\n".join(cg.generar_recomendaciones()))
+
+
+with tabs[8]:
+    tema.seccion(st, f"Conclusiones base · {data['info'].get('tipo_inspeccion') or 'PAP'}")
+    st.caption("La base la escribe el generador con la data del tipo de inspección "
+               "actual y se actualiza sola mientras no la edites. Lo que corrijas a mano "
+               "se conserva; «Regenerar» vuelve a la base.")
+    _regenerar = st.button("Regenerar conclusiones y recomendaciones base")
+    # La base se refresca sola mientras el texto siga siendo el automático
+    # (cambió el tipo, se cargó data...). Si el usuario lo editó, se respeta.
+    _base_conc, _base_reco = _conclusiones_base()
+    _auto_prev = st.session_state.get("conclusiones_auto") or {}
+    _sin_editar = (st.session_state.get("ta_conc", "") in ("", _auto_prev.get("conc"))
+                   and st.session_state.get("ta_reco", "") in ("", _auto_prev.get("reco")))
+    if _regenerar or _sin_editar:
+        # El botón y este bloque van ANTES de los text_area en el run, así que
+        # se pueden escribir sus claves de estado directamente.
+        st.session_state["ta_conc"] = _base_conc
+        st.session_state["ta_reco"] = _base_reco
+        st.session_state["conclusiones_auto"] = {"conc": _base_conc, "reco": _base_reco}
     conc = st.text_area("Conclusiones", height=260, key="ta_conc")
     reco = st.text_area("Recomendaciones", height=180, key="ta_reco")
     data['conclusiones'] = [p.strip() for p in conc.split('\n\n') if p.strip()]

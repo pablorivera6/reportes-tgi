@@ -101,3 +101,30 @@ def test_avisa_lo_que_no_cabe(tmp_path, plantilla):
     _informe(tmp_path, plantilla, reco=muchas, gen_out=gens)
     assert gens[0].recomendaciones_omitidas == 3
     assert gens[0].conclusiones_omitidas == 0
+
+
+# ── La plantilla CIPS trae conclusiones de EJEMPLO (Ramal Pradera) ──────────
+# Si el bloque no se limpia, lo que no se sobreescribe queda en el informe y
+# se "mezcla" con las conclusiones reales (o sale completo si no se escribió
+# ninguna).
+
+def _textos_bloque(ws, ini, fin):
+    return [str(ws.cell(r, 1).value) for r in range(ini, fin + 1)
+            if ws.cell(r, 1).value not in (None, '')]
+
+
+def test_las_conclusiones_de_ejemplo_de_la_plantilla_cips_no_quedan(tmp_path):
+    ws = _informe(tmp_path, "CIPS EN BLANCO.xlsx", conc=["Única conclusión"],
+                  reco=["Única recomendación"])
+    conc, reco, _ = LAYOUT["CIPS EN BLANCO.xlsx"]
+    textos = _textos_bloque(ws, conc + 1, reco - 1)
+    assert textos == ["• Única conclusión"], textos
+    todo = " ".join(str(ws.cell(r, 1).value) for r in range(conc, 95))
+    assert "Pradera" not in todo and "Trampa" not in todo
+
+
+def test_sin_conclusiones_el_bloque_queda_vacio(tmp_path):
+    ws = _informe(tmp_path, "CIPS EN BLANCO.xlsx", conc=[], reco=[])
+    conc, reco, _ = LAYOUT["CIPS EN BLANCO.xlsx"]
+    assert _textos_bloque(ws, conc + 1, reco - 1) == []
+    assert _textos_bloque(ws, reco + 1, reco + 2) == []

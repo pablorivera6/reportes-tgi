@@ -1134,14 +1134,19 @@ class ReportGenerator:
 
     def _escribir_bloque_texto(self, etiqueta, textos):
         """Escribe una lista de párrafos bajo el título de su sección, sin
-        pasarse del espacio disponible. Devuelve cuántos no cupieron."""
-        if not textos:
-            return 0
+        pasarse del espacio disponible. Devuelve cuántos no cupieron.
+
+        El bloque se LIMPIA completo antes de escribir (también con la lista
+        vacía): la plantilla CIPS trae conclusiones de ejemplo de otro informe
+        y lo que no se sobreescribía quedaba mezclado con las reales."""
+        textos = list(textos or [])
         ws = self.ws_informe
         bloque = self._bloque_texto(ws, etiqueta)
         if not bloque:
             return len(textos)
         ini, fin = bloque
+        for r in range(ini, fin + 1):
+            self._safe_write(ws, r, 1, None)
         cupo = fin - ini + 1
         for i, txt in enumerate(textos[:cupo]):
             self._safe_write(ws, ini + i, 1, f"• {txt}")

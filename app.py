@@ -1966,17 +1966,34 @@ class AppWindow(QMainWindow):
         }
 
     def auto_generate_conclusions(self):
+        """Conclusiones base SEGÚN EL TIPO de inspección, con solo la data de
+        esa técnica (misma lógica que la app web)."""
         self.collect_info()
         filtered_data = self.get_filtered_data()
-        cg = ConclusionGenerator(
-            filtered_data['potenciales'], filtered_data['hallazgos'],
-            filtered_data['rectificadores'], filtered_data['aislamientos'],
-            self.active_inspections, filtered_data['info']
-        )
-        
+        info = filtered_data['info']
+        tipo = (info.get('tipo_inspeccion') or 'PAP').upper()
+        from cips_adapter import cips_a_hallazgos
+        if tipo == 'DCVG':
+            hall = cips_a_hallazgos(self.data.get('dcvg_hallazgos') or [])
+            cg = ConclusionGenerator([], hall, filtered_data['rectificadores'], [], {}, info,
+                                     dcvg={'postes': self.data.get('dcvg_postes') or [],
+                                           'defectos': self.data.get('dcvg_defectos') or [],
+                                           'resist': self.data.get('dcvg_resist') or [],
+                                           'hallazgos': hall})
+        elif tipo == 'CIPS':
+            cips = self.data.get('cips') or []
+            cg = ConclusionGenerator(filtered_data['potenciales'], cips_a_hallazgos(cips),
+                                     filtered_data['rectificadores'], filtered_data['aislamientos'],
+                                     self.active_inspections, info, cips=cips)
+        else:
+            cg = ConclusionGenerator(
+                filtered_data['potenciales'], filtered_data['hallazgos'],
+                filtered_data['rectificadores'], filtered_data['aislamientos'],
+                self.active_inspections, info
+            )
         conclusiones = cg.generar_conclusiones()
         recomendaciones = cg.generar_recomendaciones()
-        
+
         self.txt_conclusiones.setText("\n\n".join(conclusiones))
         self.txt_recomendaciones.setText("\n\n".join(recomendaciones))
 
@@ -2291,23 +2308,44 @@ class AppWindow(QMainWindow):
         }
 
     def auto_generate_conclusions(self):
+        """Conclusiones base SEGÚN EL TIPO de inspección, con solo la data de
+        esa técnica (misma lógica que la app web)."""
         self.collect_info()
         filtered_data = self.get_filtered_data()
-        cg = ConclusionGenerator(
-            filtered_data['potenciales'], filtered_data['hallazgos'],
-            filtered_data['rectificadores'], filtered_data['aislamientos'],
-            self.active_inspections, filtered_data['info']
-        )
-        
+        info = filtered_data['info']
+        tipo = (info.get('tipo_inspeccion') or 'PAP').upper()
+        from cips_adapter import cips_a_hallazgos
+        if tipo == 'DCVG':
+            hall = cips_a_hallazgos(self.data.get('dcvg_hallazgos') or [])
+            cg = ConclusionGenerator([], hall, filtered_data['rectificadores'], [], {}, info,
+                                     dcvg={'postes': self.data.get('dcvg_postes') or [],
+                                           'defectos': self.data.get('dcvg_defectos') or [],
+                                           'resist': self.data.get('dcvg_resist') or [],
+                                           'hallazgos': hall})
+        elif tipo == 'CIPS':
+            cips = self.data.get('cips') or []
+            cg = ConclusionGenerator(filtered_data['potenciales'], cips_a_hallazgos(cips),
+                                     filtered_data['rectificadores'], filtered_data['aislamientos'],
+                                     self.active_inspections, info, cips=cips)
+        else:
+            cg = ConclusionGenerator(
+                filtered_data['potenciales'], filtered_data['hallazgos'],
+                filtered_data['rectificadores'], filtered_data['aislamientos'],
+                self.active_inspections, info
+            )
         conclusiones = cg.generar_conclusiones()
         recomendaciones = cg.generar_recomendaciones()
-        
+
         self.txt_conclusiones.setText("\n\n".join(conclusiones))
         self.txt_recomendaciones.setText("\n\n".join(recomendaciones))
 
 
     def generar_informe(self):
         self.collect_info()
+        # La base viene del generador: si el ingeniero no escribió nada, se
+        # generan las del tipo de inspección (luego las corrige en el Excel).
+        if not self.txt_conclusiones.toPlainText().strip():
+            self.auto_generate_conclusions()
         self.data['conclusiones'] = [p.strip() for p in self.txt_conclusiones.toPlainText().split('\n\n') if p.strip()]
         self.data['recomendaciones'] = [p.strip() for p in self.txt_recomendaciones.toPlainText().split('\n\n') if p.strip()]
         

@@ -275,6 +275,29 @@ FastField exporta la fecha como texto **mes-día-año** ('09-27-2026'):
   cargar se llevan a Datos Generales y se dispara `_autollenar_tramo`. Sin eso
   el informe sale sin tramo (encabezado, columna TRAMO de Hallazgos, objetivo y
   sigla del nombre del archivo).
+- **Conclusiones y recomendaciones BASE por tipo (`conclusions.py`).**
+  `ConclusionGenerator(..., info, cips=, dcvg=)` despacha por
+  `info['tipo_inspeccion']`: PAP (potenciales por poste, VAC, estaciones,
+  pintura, mantenimiento), CIPS (perfil con `off_limpio`, % protegido /
+  sobreprotegido, zonas desprotegidas por abscisa; si en la misma campaña se
+  cargaron los postes añade VAC/estaciones/pintura/mantenimiento, como traen los
+  informes históricos CIPS; sectores más positivos que -850 con causa
+  `[POR VERIFICAR]`, picos puntuales = lecturas que el filtro corrigió) y DCVG (indicaciones por
+  severidad %IR —reusa `db._severidad_dcvg`— y carácter, potenciales de postes,
+  resistividad Wenner a 1, 2 y 3 m con las clases de la plantilla, densidad
+  indicaciones/km, profundidad, hallazgos). Redacción y orden siguen los
+  informes históricos TELMACOM (resumen del usuario, sesión 2026-10-07): citan
+  NACE SP0169 (AMPP) 6.2.1.3, ISO 15589-1:2018 para -1200 mV y NACE SP0177
+  5.2.1.1 para VAC; el ingeniero completa lo marcado entre corchetes. Cada
+  rama usa SOLO la data de su técnica: antes un DCVG salía con "técnica de
+  Inspección PAP" y se mezclaba con potenciales viejos de la sesión. En la web
+  la pestaña Conclusiones se **pre-llena sola** con la base del tipo actual
+  (`_conclusiones_base`) y se refresca mientras el texto siga siendo el
+  automático (`st.session_state.conclusiones_auto`); lo editado a mano se
+  conserva y «Regenerar» vuelve a la base. El escritorio hace lo mismo en
+  `auto_generate_conclusions`. **La plantilla CIPS trae conclusiones de
+  ejemplo (Ramal Pradera)**: `generator._escribir_bloque_texto` limpia el
+  bloque completo antes de escribir, también con lista vacía.
 - **Ortografía:** todo texto libre pasa por `ortografia.corregir_campo` antes de
   escribirse (cruce, aéreo, tensión, válvula, línea, río, abscisado, rocería,
   "sin paso", PK, mayúscula inicial…). Diccionario cerrado; ampliar si el
