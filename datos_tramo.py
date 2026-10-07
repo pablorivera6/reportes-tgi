@@ -27,6 +27,22 @@ ARCHIVO_INFRA = 'Infraestrutura TGI.xlsx'
 ARCHIVO_OT = 'consolidado OT.xlsx'
 ARCHIVO_OT_TIPO = 'ot_por_tipo.csv'
 
+#: Número del contrato PCC Integrity ↔ TGI. Va en la carátula del informe y en
+#: el nombre del archivo/ZIP. El FastField trae 'Cliente' (= 'TGI'), que NO es
+#: el contrato: por eso se autollena desde aquí para todo tramo de TGI.
+CONTRATO_TGI = '551007370'
+
+#: Qué fila del consolidado corresponde a cada tipo de inspección. La columna
+#: 'Texto breve operación' (o la 'Descripción posición de mantenimiento') dice
+#: de qué plan es la OT; el consolidado trae hasta tres por tramo.
+_PLAN_POR_TIPO = {
+    'PAP': ('URPC-PAP', 'INT-CE PAP'),
+    'CIPS': ('CIPS',),
+    'DCVG': ('DCVG', 'INT-CE REV'),
+}
+#: Filas del consolidado que no son inspecciones de potenciales/recubrimiento.
+_PLANES_AJENOS = ('CUPON', 'ANODOS', 'ÁNODOS', 'CALIBRACION', 'CALIBRACIÓN', 'CAJAS')
+
 _cache = {}
 
 
@@ -98,15 +114,42 @@ def _ot_por_tipo():
     return _cache['ot_tipo']
 
 
+def _plan_de(fila):
+    """Texto que identifica el plan de una fila del consolidado."""
+    return (_texto(fila.get('Texto breve operación')) + ' '
+            + _texto(fila.get('Descripción posición de mantenimiento'))).upper()
+
+
+def _rango_fila(fila, tipo):
+    """Qué tan apropiada es una fila del consolidado para el tipo de inspección
+    (menor = mejor). 0: es la fila del plan del tipo · 1: fila sin descripción
+    de plan (el bloque de inspecciones sin texto) · 2: otro plan de inspección
+    · 3: cupones/ánodos/calibración (nunca una inspección)."""
+    plan = _plan_de(fila)
+    if any(p in plan for p in _PLANES_AJENOS):
+        return 3
+    if not plan.strip():
+        return 1
+    if tipo and any(p in plan for p in _PLAN_POR_TIPO.get(tipo, ())):
+        return 0
+    return 2
+
+
 def info_de_ot(tramo, tipo=None):
-    """{ot, distrito, longitud_km} del tramo, según el TIPO de inspección."""
+    """{ot, distrito, longitud_km} del tramo, según el TIPO de inspección.
+
+    El consolidado trae hasta tres filas por tramo (plan PAP, plan CIPS, plan
+    DCVG) más cupones/ánodos/calibración: se toma la fila del plan del tipo
+    pedido; sin ella, la fila sin descripción; nunca la de cupones si hay otra.
+    """
     out = {}
+    t = (tipo or '').strip().upper()
     df = _tabla(ARCHIVO_OT)
     if df is not None and 'SUBSISTEMA' in getattr(df, 'columns', []):
         filas = [r for _i, r in df.dropna(subset=['SUBSISTEMA']).iterrows()
                  if mismo_tramo(tramo, r['SUBSISTEMA'])]
         if filas:
-            fila = filas[0]
+            fila = min(filas, key=lambda r: _rango_fila(r, t))
             if 'Orden' in fila and _texto(fila['Orden']):
                 try:
                     out['ot'] = str(int(float(fila['Orden'])))
@@ -121,7 +164,6 @@ def info_de_ot(tramo, tipo=None):
                     pass
 
     # la OT del plan propio del tipo de inspección manda sobre la del consolidado
-    t = (tipo or '').strip().upper()
     candidatas = [f for f in _ot_por_tipo() if mismo_tramo(tramo, f['tramo'])]
     propia = next((f for f in candidatas if f.get('tipo', '').upper() == t and t), None)
     if propia is None and not out.get('ot'):
@@ -139,4 +181,23 @@ def autollenar(tramo, tipo=None):
     """Todo lo derivable del tramo, en un solo dict."""
     d = info_de_infraestructura(tramo)
     d.update(info_de_ot(tramo, tipo))
+    if d:
+        # el tramo está en las tablas de TGI → el contrato es el de TGI
+        d['contrato'] = CONTRATO_TGI
     return d
+
+
+def filtrar_autollenado(cambios, manuales, forzar=False):
+    """Qué parte de un autollenado se puede aplicar sin pisar lo que el usuario
+    escribió a mano en Datos Generales (p. ej. una OT corregida).
+
+    `manuales` es el conjunto de campos editados a mano. Devuelve
+    (cambios_aplicables, manuales_actualizados). Con `forzar` (el botón
+    "Autollenar desde el tramo", reabrir un rechazo) los campos del autollenado
+    vuelven a ser automáticos y se aplican todos.
+    """
+    manuales = set(manuales or ())
+    cambios = dict(cambios or {})
+    if forzar:
+        manuales -= set(cambios)
+    return {k: v for k, v in cambios.items() if k not in manuales}, manuales

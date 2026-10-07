@@ -85,6 +85,7 @@ class FastFieldReader:
         data = {
             'route_id': '',
             'contrato': '',
+            'cliente': '',
             'tramo': '',
             'tipo_tramo': '',
             'distrito': '',
@@ -134,7 +135,10 @@ class FastFieldReader:
             row_route_id = str(get_val(row, 'engrouteid', 'route_id') or row_tramo)
             
             if i == 0:
-                data['contrato'] = str(get_val(row, 'cliente', 'contrato') or '')
+                # 'Cliente' (= 'TGI') NO es el número de contrato: ese sale
+                # del autollenado por tramo (datos_tramo.CONTRATO_TGI).
+                data['cliente'] = str(get_val(row, 'cliente') or '')
+                data['contrato'] = str(get_val(row, 'contrato') or '')
                 data['tramo'] = row_tramo
                 data['route_id'] = row_route_id
                 data['tipo_tramo'] = str(get_val(row, 'tipo de tramo', 'tipo_tramo') or '')

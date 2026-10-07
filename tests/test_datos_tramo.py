@@ -127,3 +127,76 @@ def test_no_confunde_un_ramal_con_su_loop():
     """'La Belleza - Vasconia' está como Troncal (VRMB) y como LOOP (BEVV)."""
     d = datos_tramo.info_de_infraestructura("La Belleza - Vasconia")
     assert d.get("tipo_ducto", "").lower() != "loop"
+
+
+# ── La OT del consolidado depende del PLAN (fila), no de la primera fila ─────
+# `consolidado OT.xlsx` trae hasta tres filas por tramo: la del plan PAP
+# ('INSP Y MTTO MENOR PREVENTIVO A URPC-PAP'), la del CIPS ('LEV PERFIL
+# POTENCIALES PASO/PASO-CIPS') y la del DCVG ('INSP DE RECUBRIMIENTO
+# DCVG/ACVG/PCM'), además de cupones, ánodos y calibración de cajas que no
+# son inspecciones. Tomar siempre la primera ponía la OT equivocada.
+
+@pytest.mark.parametrize("tramo,tipo,ot", [
+    ("Ginebra", "CIPS", "1300011002"),
+    ("Ginebra", "PAP", "1300012983"),
+    ("Obando - Tuluá", "CIPS", "1300010882"),
+    ("Obando - Tuluá", "PAP", "1300012655"),
+    ("Termocentro", "DCVG", "1300012989"),
+    ("Termocentro", "PAP", "1300011875"),
+    ("Mariquita - Letras", "DCVG", "1300012991"),   # no la de calibración de cajas
+    ("Jamundí", "CIPS", "1300011006"),
+    ("Pradera", "CIPS", "1300010884"),
+])
+def test_ot_del_consolidado_segun_el_plan(tramo, tipo, ot):
+    assert datos_tramo.info_de_ot(tramo, tipo).get("ot") == ot
+
+
+def test_ot_nunca_es_la_de_cupones_ni_anodos():
+    """Albania tiene una fila de cupones y una de inspección sin descripción:
+    la de cupones no es una inspección de potenciales."""
+    d = datos_tramo.info_de_ot("Albania", "PAP")
+    assert d.get("ot") == "1300013515"
+    assert d.get("ot") != "1300012814"
+
+
+def test_sin_fila_del_plan_usa_la_del_tramo_sin_descripcion():
+    """Villavicencio - Usme solo está en el bloque sin descripción del plan."""
+    assert datos_tramo.info_de_ot("Villavicencio - Usme", "PAP").get("ot") == "1300013543"
+
+
+# ── Contrato ─────────────────────────────────────────────────────────────────
+# El FastField trae 'Cliente' = 'TGI' y eso se estaba escribiendo como número
+# de contrato (y salía '_TGI_' en el nombre del archivo y del ZIP).
+
+def test_autollenar_pone_el_contrato_de_tgi():
+    d = datos_tramo.autollenar("Ramal Salento", "PAP")
+    assert d.get("contrato") == datos_tramo.CONTRATO_TGI == "551007370"
+
+
+def test_tramo_desconocido_no_inventa_contrato():
+    assert "contrato" not in datos_tramo.autollenar("Ramal Que No Existe", "PAP")
+
+
+# ── La casilla de OT (y cualquier otra) escrita a mano manda ─────────────────
+# El autollenado se dispara al cargar archivos; si el usuario ya corrigió la OT
+# en el generador, ese valor no se puede pisar.
+
+def test_lo_escrito_a_mano_no_se_pisa():
+    aplicar, manuales = datos_tramo.filtrar_autollenado(
+        {"ot": "1300012786", "contrato": "551007370", "gasoducto": "Mariquita-Cali"},
+        manuales={"ot"})
+    assert "ot" not in aplicar
+    assert aplicar == {"contrato": "551007370", "gasoducto": "Mariquita-Cali"}
+    assert manuales == {"ot"}
+
+
+def test_forzar_vuelve_a_automatico():
+    aplicar, manuales = datos_tramo.filtrar_autollenado(
+        {"ot": "1300012786"}, manuales={"ot", "fecha"}, forzar=True)
+    assert aplicar == {"ot": "1300012786"}
+    assert manuales == {"fecha"}          # lo que no se autollenó sigue manual
+
+
+def test_sin_manuales_se_aplica_todo():
+    aplicar, manuales = datos_tramo.filtrar_autollenado({"ot": "1"}, manuales=None)
+    assert aplicar == {"ot": "1"} and manuales == set()

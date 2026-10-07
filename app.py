@@ -1283,41 +1283,24 @@ class AppWindow(QMainWindow):
             return None, None, []
 
     def autofill_ot_km(self, tramo_name):
-        import pandas as pd
-        import os
+        """OT, distrito, longitud y contrato del tramo. Misma lógica que la app
+        web (`datos_tramo`): la OT depende del TIPO de inspección (el
+        consolidado trae una fila por plan) y el contrato es el de TGI."""
         try:
-            from generator import resource_path
-            filepath = resource_path("consolidado OT.xlsx")
-            if not os.path.exists(filepath): return
-            df = pd.read_excel(filepath)
-            
-            if 'SUBSISTEMA' not in df.columns: return
-            
-            matches = df[df['SUBSISTEMA'].astype(str).str.contains(tramo_name, case=False, na=False)]
-            if not matches.empty:
-                row = matches.iloc[0]
-                
-                # OT
-                if 'Orden' in df.columns and pd.notna(row['Orden']):
-                    try:
-                        ot_val = int(float(row['Orden']))
-                        self.fields['ot'].setText(str(ot_val))
-                    except:
-                        self.fields['ot'].setText(str(row['Orden']).strip())
-                        
-                # Distrito
-                if 'Distrito' in df.columns and pd.notna(row['Distrito']):
-                    self.data['info']['distrito'] = str(row['Distrito'])
-                        
-                # KM (Unidad [Km])
-                if 'Unidad [Km]' in df.columns and pd.notna(row['Unidad [Km]']):
-                    try:
-                        self.data['info']['longitud_km'] = float(row['Unidad [Km]'])
-                    except:
-                        pass
+            import datos_tramo
+            tipo = self.cmb_tipo_inspeccion.currentText() \
+                if hasattr(self, 'cmb_tipo_inspeccion') else None
+            d = datos_tramo.info_de_ot(tramo_name, tipo)
+            if d.get('ot'):
+                self.fields['ot'].setText(str(d['ot']))
+            if d.get('distrito'):
+                self.data['info']['distrito'] = d['distrito']
+            if d.get('longitud_km') is not None:
+                self.data['info']['longitud_km'] = d['longitud_km']
+            if d or datos_tramo.info_de_infraestructura(tramo_name):
+                self.fields['contrato'].setText(datos_tramo.CONTRATO_TGI)
         except Exception as e:
             print("Error cargando consolidado OT:", e)
-            return None, None, []
 
     def autofill_equipos(self, inspector_name):
         datalogger, fecha_cal, eq_list = self.get_equipos_for_inspector(inspector_name)

@@ -167,76 +167,6 @@ def _tmp_files(uploaded_files):
 
 # ── Autollenado (port de app.py de escritorio) ────────────────────────────────
 
-def autofill_from_infrastructure(tramo_name):
-    out = {}
-    ruta = resource_path('Infraestrutura TGI.xlsx')
-    if not os.path.exists(ruta):
-        return out
-    try:
-        df = pd.read_excel(ruta, header=1)
-        if 'GASODUCTO.1' in df.columns:
-            df['GASODUCTO.1'] = df['GASODUCTO.1'].ffill()
-        if 'TRAMOS' not in df.columns:
-            return out
-        df = df.dropna(subset=['TRAMOS'])
-        matches = df[df['TRAMOS'].astype(str).str.contains(tramo_name, case=False, na=False)]
-        if matches.empty:
-            return out
-        row = matches.iloc[0]
-        exact = df[df['TRAMOS'].astype(str).str.lower() == tramo_name.lower()]
-        if not exact.empty:
-            row = exact.iloc[0]
-        gas = None
-        if 'GASODUCTO.1' in row and pd.notna(row['GASODUCTO.1']):
-            gas = row['GASODUCTO.1']
-        elif 'GASODUCTO' in row and pd.notna(row['GASODUCTO']):
-            gas = row['GASODUCTO']
-        if gas:
-            out['gasoducto'] = str(gas)
-        diam_cols = [c for c in df.columns if 'Di' in str(c) and 'metro' in str(c)]
-        if not diam_cols:
-            diam_cols = [c for c in df.columns if 'pulg' in str(c).lower()]
-        if diam_cols and pd.notna(row[diam_cols[0]]):
-            out['diametro'] = str(row[diam_cols[0]])
-        if 'Recubrimiento' in row and pd.notna(row['Recubrimiento']):
-            out['tipo_recubrimiento'] = str(row['Recubrimiento'])
-        if 'Tipo' in row and pd.notna(row['Tipo']):
-            out['tipo_ducto'] = str(row['Tipo'])
-    except Exception as e:
-        st.warning(f"Autollenado de infraestructura falló: {e}")
-    return out
-
-
-def autofill_ot_km(tramo_name):
-    out = {}
-    ruta = resource_path("consolidado OT.xlsx")
-    if not os.path.exists(ruta):
-        return out
-    try:
-        df = pd.read_excel(ruta)
-        if 'SUBSISTEMA' not in df.columns:
-            return out
-        matches = df[df['SUBSISTEMA'].astype(str).str.contains(tramo_name, case=False, na=False)]
-        if matches.empty:
-            return out
-        row = matches.iloc[0]
-        if 'Orden' in df.columns and pd.notna(row['Orden']):
-            try:
-                out['ot'] = str(int(float(row['Orden'])))
-            except Exception:
-                out['ot'] = str(row['Orden']).strip()
-        if 'Distrito' in df.columns and pd.notna(row['Distrito']):
-            out['distrito'] = str(row['Distrito'])
-        if 'Unidad [Km]' in df.columns and pd.notna(row['Unidad [Km]']):
-            try:
-                out['longitud_km'] = float(row['Unidad [Km]'])
-            except Exception:
-                pass
-    except Exception as e:
-        st.warning(f"Autollenado de OT falló: {e}")
-    return out
-
-
 def get_equipos_for_inspector(inspector_name):
     ruta = resource_path("Listado equipos TGI.xlsx")
     if not os.path.exists(ruta):
@@ -293,6 +223,28 @@ def _autollenar_tramo(tramo, inspector="", tipo=None):
         equipos = eqs or []
         cambios.setdefault('contratista', 'PCC')
     return cambios, equipos
+
+
+def _marcar_manual(key):
+    """on_change de los text_input de Datos Generales: lo que el usuario escribe
+    a mano (p. ej. la OT corregida) no lo pisa ningún autollenado posterior."""
+    st.session_state.setdefault('info_manual', set()).add(key)
+
+
+def _aplicar_autofill(cambios, forzar=False):
+    """Lleva un autollenado a Datos Generales: data['info'] + los widgets (que
+    con `key` SOLO se refrescan vía pending_autofill), respetando los campos
+    escritos a mano salvo `forzar` (botón "Autollenar desde el tramo", reabrir
+    un rechazo). Devuelve lo que sí se aplicó."""
+    import datos_tramo
+    aplicar, manuales = datos_tramo.filtrar_autollenado(
+        cambios, st.session_state.get('info_manual'), forzar)
+    st.session_state.info_manual = manuales
+    if aplicar:
+        data['info'].update(aplicar)
+        st.session_state.pending_autofill = dict(
+            st.session_state.get('pending_autofill') or {}, **aplicar)
+    return aplicar
 
 
 def _revision_actual():
@@ -446,10 +398,11 @@ def autocargar_carga(cg):
             import json as _json
             with open(cats["fastfield_datos"][0], "r", encoding="utf-8") as _f:
                 dj = _json.load(_f)
-            for k_src, k_dst in [('tramo', 'tramo'), ('fecha', 'fecha'),
-                                 ('inspector', 'inspector'), ('cliente', 'contrato')]:
-                if dj.get('info', {}).get(k_src):
-                    data['info'][k_dst] = dj['info'][k_src]
+            # 'cliente' (= 'TGI') no es el contrato: ese lo pone el autollenado.
+            _aplicar_autofill({k_dst: dj['info'][k_src]
+                               for k_src, k_dst in [('tramo', 'tramo'), ('fecha', 'fecha'),
+                                                    ('inspector', 'inspector')]
+                               if dj.get('info', {}).get(k_src)})
             if dj.get('tipo'):
                 data['info']['tipo_inspeccion'] = dj['tipo']
             partes = []
@@ -471,10 +424,10 @@ def autocargar_carga(cg):
                 d = reader.read(ruta)
                 data['potenciales'].extend(d['potenciales'])
                 n += len(d['potenciales'])
-                for k_src, k_dst in [('tramo', 'tramo'), ('contrato', 'contrato'),
-                                     ('tecnico', 'inspector'), ('fecha', 'fecha')]:
-                    if d.get(k_src):
-                        data['info'][k_dst] = d[k_src]
+                _aplicar_autofill({k_dst: d[k_src]
+                                   for k_src, k_dst in [('tramo', 'tramo'), ('contrato', 'contrato'),
+                                                        ('tecnico', 'inspector'), ('fecha', 'fecha')]
+                                   if d.get(k_src)})
                 if d['potenciales']:
                     st.session_state.current_route_id = d['potenciales'][0].get('route_id', '')
             msgs.append(f"{n} potenciales (huellas/FASTFIELD)")
@@ -529,10 +482,7 @@ def autocargar_carga(cg):
                 _auto_dcvg.update(_adic)
                 if _eqs:
                     st.session_state.equipos_inspector = _eqs
-            if _auto_dcvg:
-                data['info'].update(_auto_dcvg)
-                st.session_state.pending_autofill = dict(
-                    st.session_state.get('pending_autofill') or {}, **_auto_dcvg)
+            _aplicar_autofill(_auto_dcvg)
             if cats.get("resistividades"):
                 data['dcvg_resist'] = leer_resistividades_fastfield_varios(cats["resistividades"])
             if cats.get("logger"):
@@ -696,8 +646,9 @@ with tabs[0]:
             with cols[i % 3]:
                 data['info'][key] = st.text_input(
                     _ETIQUETA.get(key, key), value=data['info'].get(key, ''),
-                    key=f"info_{key}",
-                    help="Se autollena desde el tramo." if key in _AUTOLLENADOS else None)
+                    key=f"info_{key}", on_change=_marcar_manual, args=(key,),
+                    help="Se autollena desde el tramo; lo que escribas a mano manda."
+                         if key in _AUTOLLENADOS else None)
         if 'tramo' in _claves:
             # El camino rápido: con el tramo escrito se llena casi todo lo demás.
             _ba, _bb = st.columns([1.25, 3])
@@ -709,16 +660,10 @@ with tabs[0]:
         tramo = data['info'].get('tramo', '')
         if tramo.strip():
             cambios, eqs = _autollenar_tramo(tramo, data['info'].get('inspector', ''))
-            if 'distrito' in cambios:
-                data['info']['distrito'] = cambios['distrito']
-            if 'longitud_km' in cambios:
-                data['info']['longitud_km'] = cambios['longitud_km']
             if eqs:
                 st.session_state.equipos_inspector = eqs
-            data['info'].update(cambios)
-            # Los text_input con key conservan su estado: los actualizamos vía
-            # pending_autofill al inicio del próximo run.
-            st.session_state.pending_autofill = cambios
+            # El botón es una orden explícita: pisa también lo escrito a mano.
+            _aplicar_autofill(cambios, forzar=True)
             st.rerun()
         else:
             st.warning("Escribe primero el Tramo.")
@@ -932,11 +877,8 @@ with tabs[1]:
                             for _k, _v in _reh.items():
                                 if _k != "info":
                                     data[_k] = _v
-                            data["info"].update(_reh["info"])
-                            # Los text_input con key SOLO se refrescan así.
-                            st.session_state.pending_autofill = dict(
-                                st.session_state.get("pending_autofill") or {},
-                                **_reh["info"])
+                            # Reabrir un rechazo restaura TODO lo publicado.
+                            _aplicar_autofill(_reh["info"], forzar=True)
                             st.session_state.corrigiendo = {
                                 "id": _r["id"], "tipo": _tp,
                                 "revision": _r.get("revision") or "A"}
@@ -1039,9 +981,7 @@ with tabs[1]:
                                 for c in _edit
                                 if c.get("aplicar") and c["ruta"].startswith("info.")}
                             if _info_camb:
-                                st.session_state.pending_autofill = dict(
-                                    st.session_state.get("pending_autofill") or {},
-                                    **_info_camb)
+                                _aplicar_autofill(_info_camb, forzar=True)
                             st.session_state.pop(_kd, None)
                             st.session_state.flash_autocarga = (
                                 f"{_n} cambio(s) aplicados. Revisa Datos Generales, "
@@ -1086,7 +1026,6 @@ with tabs[1]:
                                          ('tecnico', 'inspector'), ('fecha', 'fecha'),
                                          ('tipo_tramo', 'tipo_ducto')]:
                         if d.get(k_src):
-                            data['info'][k_dst] = d[k_src]
                             _ff_cambios[k_dst] = d[k_src]
                     if pots:
                         st.session_state.current_route_id = pots[0].get('route_id', '')
@@ -1127,13 +1066,10 @@ with tabs[1]:
                 _insp_det = _ff_cambios.get('inspector') or data['info'].get('inspector', '')
                 if _tramo_det:
                     _auto, _eqs = _autollenar_tramo(_tramo_det, _insp_det)
-                    data['info'].update(_auto)
                     _ff_cambios.update(_auto)
                     if _eqs:
                         st.session_state.equipos_inspector = _eqs
-                if _ff_cambios:
-                    # Los widgets con key solo se refrescan vía pending_autofill.
-                    st.session_state.pending_autofill = _ff_cambios
+                _aplicar_autofill(_ff_cambios)
                 st.session_state.flash_ff = (
                     f"{nuevos} potenciales cargados."
                     + (f" · Datos Generales autollenados desde el tramo "
@@ -1162,8 +1098,7 @@ with tabs[1]:
                     _camb.update(_auto)
                     if _eqs:
                         st.session_state.equipos_inspector = _eqs
-                data['info'].update(_camb)
-                st.session_state.pending_autofill = _camb
+                _aplicar_autofill(_camb)
                 st.session_state.ff_pendiente.pop(0)
                 st.rerun()
 
@@ -1244,26 +1179,38 @@ with tabs[1]:
                             dicts = lrs_df_a_cips_dicts(df)
                             data['cips'] = dicts
 
-                        # Identificar el técnico del archivo y autollenar
-                        # inspector + seriales de sus equipos en Datos Generales.
+                        # Autollenar Datos Generales: el tramo elegido en el
+                        # selector (OT del plan CIPS, contrato, infraestructura)
+                        # y el técnico del archivo (inspector + sus equipos).
                         tecnico = tecnico_de_archivos(rutas_cips)
-                        msg_tec = ""
+                        auto = {}
                         if tecnico:
-                            data['info']['inspector'] = tecnico
-                            auto = {'inspector': tecnico}
+                            auto['inspector'] = tecnico
+                        if emp == "TGI" and tramo_cips:
+                            if not (data['info'].get('tramo') or '').strip():
+                                auto['tramo'] = tramo_cips
+                            _adic, _eqs = _autollenar_tramo(tramo_cips, tecnico or '', 'CIPS')
+                            auto.update(_adic)
+                            if _eqs:
+                                st.session_state.equipos_inspector = _eqs
+                        elif tecnico:
                             serial, fc, eqs = get_equipos_for_inspector(tecnico)
                             if serial:
-                                data['info']['serial_equipo'] = serial
                                 auto['serial_equipo'] = serial
                             if fc:
-                                data['info']['fecha_calibracion'] = fc
                                 auto['fecha_calibracion'] = fc
                             if eqs:
                                 st.session_state.equipos_inspector = eqs
-                            st.session_state.pending_autofill = auto
+                        msg_tec = ""
+                        auto = _aplicar_autofill(auto)
+                        if tecnico:
+                            serial = auto.get('serial_equipo')
                             msg_tec = (f" · Técnico: {tecnico}"
                                        + (f" · Serial {serial}" if serial else
                                           " (sin equipos en el listado)"))
+                        if auto.get('ot') or auto.get('contrato'):
+                            msg_tec += (f" · Datos Generales autollenados desde "
+                                        f"'{tramo_cips}'")
 
                         st.session_state.flash_cips = (
                             f"{len(dicts)} registros CIPS procesados "
@@ -1372,10 +1319,7 @@ with tabs[1]:
                         auto.update(_adic)
                         if _eqs:
                             st.session_state.equipos_inspector = _eqs
-                    if auto:
-                        data['info'].update(auto)
-                        # los text_input con key solo se refrescan así
-                        st.session_state.pending_autofill = auto
+                    _aplicar_autofill(auto)
                     st.session_state.flash_dcvg = (
                         f"DCVG: {len(d['postes'])} postes, {len(d['defectos'])} "
                         f"defectos, {len(data['dcvg_resist'])} resistividades, "

@@ -242,11 +242,34 @@ FastField exporta la fecha como texto **mes-día-año** ('09-27-2026'):
   'Ramal/Troncal' al frente, sin 'PK …'/distrito al final) y exige coincidencia
   EXACTA — nada de `contains`, que confundía *Buga* con *Bugalagrande* y un
   ramal con su LOOP.
-- **La OT depende del TIPO de inspección.** `consolidado OT.xlsx` solo trae la
-  del plan de potenciales (INT-CE M.POT): usarla en un DCVG mete la OT
-  equivocada. Las OT de los otros planes van en `ot_por_tipo.csv`
-  (tipo,tramo,ot,distrito,plan) y mandan sobre el consolidado cuando el tipo
-  coincide. Para tramos nuevos, agregar la fila ahí.
+- **La OT depende del TIPO de inspección.** `consolidado OT.xlsx` trae **hasta
+  tres filas por tramo**, una por plan: PAP ('INSP Y MTTO MENOR PREVENTIVO A
+  URPC-PAP'), CIPS ('LEV PERFIL POTENCIALES PASO/PASO-CIPS') y DCVG ('INSP DE
+  RECUBRIMIENTO DCVG/ACVG/PCM'), más cupones/ánodos/calibración de cajas (no son
+  inspecciones) y un bloque de ~50 filas sin descripción del plan.
+  `datos_tramo.info_de_ot(tramo, tipo)` elige la fila por el plan del tipo
+  (`_rango_fila`); sin ella, la fila sin descripción; la de cupones nunca si hay
+  otra. **Tomar la primera fila (lo que hacía antes) ponía la OT del PAP en un
+  CIPS y la de calibración en un DCVG.** Las OT que no están en el consolidado
+  van en `ot_por_tipo.csv` (tipo,tramo,ot,distrito,plan) y mandan sobre el
+  consolidado cuando el tipo coincide. Para tramos nuevos, agregar la fila ahí.
+  La app de escritorio usa la misma función (antes tenía su propio `contains`).
+- **El contrato NO viene del FastField.** La columna `Cliente` del FastField PAP
+  dice 'TGI' y antes se escribía como `contrato` (el informe y el nombre del
+  archivo/ZIP salían con `_TGI_`). El número de contrato PCC↔TGI es
+  `datos_tramo.CONTRATO_TGI` ('551007370') y lo pone `autollenar` para todo
+  tramo que esté en las tablas de TGI (PAP, CIPS y DCVG; el CIPS autollena desde
+  el tramo del selector). El lector guarda `Cliente` en `data['cliente']`. Si el
+  contrato cambia (nuevo contrato con TGI), se cambia esa constante.
+- **Lo escrito a mano en Datos Generales manda (web).** Cada `text_input` marca
+  su campo en `st.session_state.info_manual` (`on_change=_marcar_manual`) y TODO
+  autollenado pasa por `_aplicar_autofill(cambios, forzar=False)`, que filtra
+  esos campos con `datos_tramo.filtrar_autollenado` antes de tocar `data['info']`
+  y `pending_autofill`. Así una OT corregida en la casilla no la pisa el
+  autollenado que dispara cargar un archivo después. Solo `forzar=True` (botón
+  "Autollenar desde el tramo", reabrir un rechazo, aplicar cambios de la IA)
+  vuelve esos campos automáticos. **Nunca escribas `pending_autofill` ni
+  `data['info'].update(...)` directo desde un flujo de carga: usa el helper.**
 - **Autollenado tramo→informe (DCVG):** la cabecera del FastField DCVG trae
   `Troncal o ramal`, fecha y contratista (`dcvg_reader.info_desde_meta`); al
   cargar se llevan a Datos Generales y se dispara `_autollenar_tramo`. Sin eso
