@@ -382,24 +382,7 @@ class ReportGenerator:
                 for col, clave in zip(self._cols_valor(ws, fila), respaldo[fila]):
                     self._safe_write(ws, fila, col, data.get(clave, ''))
 
-        # Procedimiento, dentro del bloque de DOCUMENTOS DE REFERENCIA (en la
-        # plantilla DCVG ese bloque está 6 filas más arriba que en PAP/CIPS,
-        # donde la fila 20 caía encima de la lista de equipos).
-        tipo_inspeccion = data.get('tipo_inspeccion', 'CIPS')
-        texto_pr = (f"PR-I-06 PROCEDIMIENTO PARA ENCENDIDO, CALIBRACIÓN E "
-                    f"INSPECCIÓN {tipo_inspeccion} DE SPC")
-        bloque = self._bloque_seccion(ws, 'DOCUMENTOS DE REFERENCIA')
-        fila_pr = 20
-        if bloque:
-            ini, fin = bloque
-            fila_pr = next((r for r in range(ini, fin + 1)
-                            if str(ws.cell(row=r, column=1).value or '')
-                            .strip().upper().startswith('PR-I-06')), None)
-            if fila_pr is None:
-                fila_pr = next((r for r in range(ini, fin + 1)
-                                if ws.cell(row=r, column=1).value in (None, '')),
-                               fin)
-        self._safe_write(ws, fila_pr, 1, texto_pr)
+        self.fill_documentos_referencia(data.get('tipo_inspeccion', 'CIPS'))
 
         self._fill_objetivo_dcvg(ws, data)
         self._fill_descripcion_linea(ws, data)
@@ -454,6 +437,44 @@ class ReportGenerator:
                 ws.row_dimensions[r].hidden = True
                 ocultas.append(r)
         return ocultas
+
+    #: Referencia controlada disponible de la TM0497 (observación del revisor,
+    #: 2026-10): el informe citaba "NACE-TM0497-2018-SG" y la DCVG la repetía.
+    #: Se unifica a esta edición en las tres plantillas; lo demás de la lista
+    #: queda como viene en cada plantilla. Si cambia la edición, se cambia AQUÍ.
+    TM0497_VIGENTE = ("AMPP TM0497-2022 Measurement Techniques Related to Criteria for "
+                      "Cathodic Protection on Underground or Submerged Metallic Piping Systems")
+
+    def fill_documentos_referencia(self, tipo_inspeccion):
+        """Bloque DOCUMENTOS DE REFERENCIA (por etiqueta): conserva las normas
+        de la plantilla, unifica la TM0497 a `TM0497_VIGENTE`, quita repetidas
+        y pone el PR-I-06 con el tipo de inspección en la última fila usada."""
+        ws = self.ws_informe
+        if ws is None:
+            return
+        tipo = str(tipo_inspeccion or 'CIPS').strip().upper() or 'CIPS'
+        bloque = self._bloque_seccion(ws, 'DOCUMENTOS DE REFERENCIA')
+        if not bloque:
+            return
+        ini, fin = bloque
+        textos = []
+        for r in range(ini, fin + 1):
+            t = str(ws.cell(row=r, column=1).value or '').strip()
+            if not t or t.upper().startswith('PR-I-06'):
+                continue
+            if 'TM0497' in t.upper().replace(' ', '').replace('-', ''):
+                t = self.TM0497_VIGENTE
+            if t not in textos:
+                textos.append(t)
+        textos.append(f"PR-I-06 PROCEDIMIENTO PARA ENCENDIDO, CALIBRACIÓN E INSPECCIÓN {tipo} DE SPC")
+        for r in range(ini, fin + 1):
+            self._safe_write(ws, r, 1, None)
+        cupo = fin - ini + 1
+        if len(textos) > cupo:
+            resto, textos = textos[cupo - 1:], textos[:cupo - 1]
+            textos.append("  ·  ".join(resto))
+        for i, t in enumerate(textos):
+            self._safe_write(ws, ini + i, 1, t)
 
     def fill_equipos_utilizados(self, equipos_list: list):
         """Fill the EQUIPOS UTILIZADOS section (rows 24-28)
@@ -1570,6 +1591,15 @@ class ReportGenerator:
 
     # ── DCVG ──────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _pulso_real(poste):
+        """¿El poste tiene lectura ON/OFF con pulso > 0?"""
+        try:
+            on, off = float(poste.get('on')), float(poste.get('off'))
+        except (TypeError, ValueError):
+            return False
+        return abs(on - off) > 0
+
     def fill_dcvg(self, postes: list, defectos: list, resistividades: list = None,
                   hallazgos: list = None):
         """Llena la hoja 'Inspección DCVG' con postes + defectos + hallazgos
@@ -1627,9 +1657,11 @@ class ReportGenerator:
         # filas (1-based en Excel) de los postes que TIENEN pulso (ON y OFF):
         # el P/RE de cada defecto se interpola entre el pulso anterior y el
         # posterior, así que solo cuentan los postes con pulso real.
+        # Un poste con ON=0 y OFF=0 (sin lectura) o con ON = OFF no tiene pulso:
+        # si entraba, el P/RE daba 0 y el %IR #DIV/0! (defecto fuera de la
+        # gráfica mientras las observaciones sí lo contaban).
         fila_poste = [start + i for i, f in enumerate(filas)
-                      if f[0] == 'poste' and f[1].get('on') is not None
-                      and f[1].get('off') is not None]
+                      if f[0] == 'poste' and self._pulso_real(f[1])]
 
         _COLSEV = {'AA': 19, 'CA': 20, 'CC': 21}   # S/T/U
         from openpyxl.utils import get_column_letter as _gcl
