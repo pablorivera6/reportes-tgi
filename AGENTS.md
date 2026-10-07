@@ -263,6 +263,23 @@ Además: en DCVG el párrafo de DESCRIPCIÓN DE LA LÍNEA viene vacío (lo redac
 `_fill_descripcion_linea`), y el flujo DCVG debe llamar a `fill_rectificadores`
 (antes no lo hacía y las URPC salían vacías).
 
+**Lo que de verdad trae el FastField DCVG de campo (caso Marsella, 2026-07):**
+- El técnico escribe el PK de los postes como **kilómetros con punto** ('3.000',
+  '6.000.', '5.00') y no como '3+000'. `dcvg_reader.parse_pk` acepta ambos
+  ('3.000'/'3,000' → 3000; '5.00'/'5.5' → 5000/5500) y sigue devolviendo None
+  para '2+' o un entero suelto ('150' es ambiguo). Antes 8 de 9 postes quedaban
+  sin abscisa y el informe salía vacío.
+- FastField exporta **una fila EN BLANCO** en `subform_9`/`subform_7`/`subform_5`
+  por cada envío que no registró ese elemento. `_fila_vacia` las descarta; una
+  fila **incompleta** (p.ej. defecto con PK '2+' y nada más) se CONSERVA y la
+  lista `defectos_sin_severidad` para que el ingeniero la complete o la borre.
+- La columna `Técnico a cargo` del `Root` puede traer **el archivo de la foto**
+  del técnico (`258143_<uuid>….jpg`), no su nombre. `_es_archivo` lo vacía, así
+  el inspector NO sale como un .jpg; la pestaña DCVG avisa que falta y pide la
+  data cruda del logger (`tecnico_del_logger`) o escribirlo en Datos Generales.
+- La fecha del `Root` ('07-05-2026', mes-día-año) **se deja como viene**
+  (decisión del ingeniero).
+
 **Inspección visual (solo DCVG, solo AVISO):** cada interfase tierra-aire,
 derivación o citygate del recorrido debe llevar su descripción de inspección
 visual en las OBSERVACIONES del informe; la escribe el ingeniero, el generador

@@ -18,14 +18,43 @@ import openpyxl
 _RE_PK = re.compile(r'(\d+)\s*\+\s*(\d+)')
 
 
+_RE_PK_MILES = re.compile(r'^\d{1,3}(?:[.,]\d{3})+$')     # '3.000', '12.500', '3,000'
+_RE_PK_KM = re.compile(r'^\d{1,3}[.,]\d{1,2}$')              # '5.00', '5.5', '2.75'
+
+
 def parse_pk(texto):
-    """'5+760' -> 5760 (metros). None si no hay patрón K+M."""
+    """'5+760' -> 5760 (metros). También acepta el PK escrito en kilómetros con
+    punto, como lo teclean en campo: '3.000' / '6.000.' / '3,000' -> 3000 y
+    '5.00' / '5.5' -> 5000 / 5500. None si no hay nada reconocible ('2+',
+    '150': un entero suelto es ambiguo y se deja para que el ingeniero lo
+    complete)."""
     if texto is None:
         return None
-    m = _RE_PK.search(str(texto))
-    if not m:
-        return None
-    return int(m.group(1)) * 1000 + int(m.group(2))
+    t = str(texto).strip()
+    m = _RE_PK.search(t)
+    if m:
+        return int(m.group(1)) * 1000 + int(m.group(2))
+    t = t.strip(' .,')
+    if _RE_PK_MILES.match(t):
+        return int(re.sub(r'[.,]', '', t))
+    if _RE_PK_KM.match(t):
+        return int(round(float(t.replace(',', '.')) * 1000))
+    return None
+
+
+def _es_archivo(texto):
+    """¿El texto es un nombre de archivo (foto) y no un dato? En el export de
+    FastField la columna 'Técnico a cargo' puede traer la foto del técnico."""
+    t = str(texto or '').strip()
+    return bool(re.search(r'\.(jpe?g|png|heic|pdf)$', t, re.IGNORECASE)
+                or re.match(r'^\d+_[0-9a-f]{8}-[0-9a-f-]{27}', t, re.IGNORECASE))
+
+
+def _fila_vacia(valores):
+    """¿La fila del subformulario viene en blanco? FastField exporta una fila
+    vacía cuando el envío no registró ningún elemento (defecto/resistividad):
+    no es un dato."""
+    return all(v is None or str(v).strip() == '' for v in valores)
 
 
 def parse_coords(texto):
@@ -132,6 +161,8 @@ def leer_dcvg_fastfield(ruta):
             meta.update(contratista=g("Contratista"), fecha=g("Fecha"),
                         cliente=g("Cliente"), tramo=g("Troncal o ramal"),
                         tecnico=g("Técnico a cargo", "Tecnico a cargo"))
+            if _es_archivo(meta["tecnico"]):
+                meta["tecnico"] = ""      # es la foto del técnico, no su nombre
 
     postes = []
     if "subform_5" in wb.sheetnames:
@@ -146,6 +177,8 @@ def leer_dcvg_fastfield(ruta):
                 def v(k):
                     i = ci[k]
                     return fila[i] if i is not None and i < len(fila) else None
+                if _fila_vacia([v("pk"), v("on"), v("off"), v("coord"), v("tipo")]):
+                    continue
                 lat, lon = parse_coords(v("coord"))
                 postes.append({
                     "tipo": str(v("tipo") or "").strip(), "pk_m": parse_pk(v("pk")),
@@ -168,6 +201,9 @@ def leer_dcvg_fastfield(ruta):
                 def v(k):
                     i = ci[k]
                     return fila[i] if i is not None and i < len(fila) else None
+                if _fila_vacia([v("pk"), v("ubic"), v("olre"), v("fn"), v("fs"), v("fe"),
+                                v("fo"), v("car"), v("com"), v("sector")]):
+                    continue
                 lat, lon = parse_coords(v("ubic"))
                 defectos.append({
                     "sector": str(v("sector") or "").strip(), "lat": lat, "lon": lon,
@@ -342,6 +378,8 @@ def leer_resistividades_fastfield(ruta):
                 def v(k):
                     i = ci[k]
                     return fila[i] if i is not None and i < len(fila) else None
+                if _fila_vacia([v("pk"), v("ubic"), v("r1"), v("r2"), v("r3")]):
+                    continue
                 lat, lon = parse_coords(v("ubic"))
                 out.append({
                     "pk_m": parse_pk(v("pk")), "sector": str(v("sector") or "").strip(),

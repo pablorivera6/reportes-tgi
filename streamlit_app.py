@@ -1215,7 +1215,10 @@ with tabs[1]:
                         f"{len(data['dcvg_hallazgos'])} hallazgos (logger)."
                         + (f" · Inspector: {tecnico}"
                            f"{' (data cruda)' if _rutas_logger else ' (FastField)'}"
-                           if tecnico else "")
+                           if tecnico else
+                           " · ⚠️ Sin inspector: el FastField no trae el nombre del técnico "
+                           "(a veces viene su foto en vez del nombre). Sube la data cruda del "
+                           "logger o escríbelo en Datos Generales.")
                         + (f" · Datos Generales autollenados desde el tramo "
                            f"'{_tramo_dcvg}'." if _tramo_dcvg else
                            " ⚠️ El FastField no trae el tramo: escríbelo en "
