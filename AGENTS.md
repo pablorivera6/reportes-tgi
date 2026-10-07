@@ -188,6 +188,29 @@ del chart) con el eje X limitado al segmento. NO usan el voltaje del logger
 (son zoom del %IR). Correr DESPUÉS de `fill_graficas_dcvg` para heredar los
 criterios en fracción.
 
+**SISTEMA INSPECCIONADO / MONITOREO (hoja Informe) — por etiqueta, nunca por
+fila.** Las plantillas traen QUEMADOS los valores del informe de ejemplo: DCVG
+punto inicial 0, punto final 4000, longitud 4 km y la gráfica DCVG con eje X
+0..4000 (por eso "todo DCVG decía 4 km"); CIPS longitud total 37,5 km, alturas
+"1002/1058 msnm" y `G44` apuntando a 'Potenciales PAP'. Además PAP y CIPS
+tienen la sección corrida UNA fila (PUNTO INICIAL en A38 vs A37), así que con
+filas quemadas de PAP un CIPS salía con el tipo de inspección sobre AMENAZA y
+ceros sobre las fórmulas de longitud. Hoy:
+- `fill_sistema_inspeccionado(info, potenciales, cips=)` (PAP/CIPS) y
+  `fill_sistema_inspeccionado_dcvg(info, postes, defectos)` (lo llama
+  `fill_dcvg`) ubican cada celda por su etiqueta (`_fila_etiqueta_a`,
+  `_col_tras_etiqueta`, `_valor_de_etiqueta`: la etiqueta puede ocupar dos
+  filas combinadas y el valor está en la celda ANCLA). Longitud TOTAL =
+  `info['longitud_km']` (la del tramo, del consolidado) o lo recorrido;
+  INSPECCIONADA = lo recorrido. CIPS conserva sus fórmulas (MIN/MAX,
+  protegida...) pero los % se dividen por la INSPECCIONADA, no por la total, y
+  la sobreprotegida se recalcula sobre 'Potenciales CIPS' hasta la fila real.
+  La altura del ejemplo se borra (el FastField no la captura).
+- `fill_monitoreo(info, potenciales, cips=)`: respeta los defaults de la
+  plantilla y deja 'Datos/km' como fórmula sobre las filas escritas.
+- `fill_graficas_dcvg` fija el eje X de GRAFICA DCVG y Gráfica Resistividad al
+  recorrido real (redondeado a 1 km).
+
 **⚠️ La hoja `Informe` de DCVG NO tiene la distribución de PAP/CIPS.** Nunca
 quemar filas/columnas: `generator` las ubica por etiqueta (`_fila_seccion`,
 `_bloque_seccion`, `_campo_de_etiqueta`, `_mapa_rectificadores`).

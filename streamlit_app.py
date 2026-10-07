@@ -1600,8 +1600,8 @@ with tabs[9]:
             gen.fill_general_info(info)
             if st.session_state.equipos_inspector:
                 gen.fill_equipos_utilizados(st.session_state.equipos_inspector)
-            gen.fill_sistema_inspeccionado(info, data['potenciales'])
-            gen.fill_monitoreo(info)
+            gen.fill_sistema_inspeccionado(info, data['potenciales'], cips=data['cips'])
+            gen.fill_monitoreo(info, data['potenciales'], cips=data['cips'])
             prog.progress(40, text="Potenciales...")
             gen.fill_potenciales_pap(data['potenciales'], info.get('fecha', ''))
             if data['cips']:

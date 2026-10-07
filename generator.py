@@ -358,6 +358,7 @@ class ReportGenerator:
                    contrato, ot, contratista, ciclo
         """
         ws = self.ws_informe
+        self._info_general = dict(data or {})
         # Filas 6-9: pares etiqueta/valor en celdas combinadas. Cada valor se
         # escribe en la celda que sigue a SU etiqueta (ver CAMPOS_ENCABEZADO):
         # así funciona con cualquiera de las tres plantillas.
@@ -424,119 +425,211 @@ class ReportGenerator:
             elif i < cupo * 2:
                 self._safe_write(ws, ini + (i - cupo), 19, eq)
 
-    def fill_sistema_inspeccionado(self, data: dict, potenciales: list):
-        """Fill system inspection section (rows 38-46)
-        
-        data keys: tipo_inspeccion, detalle, justificacion, uso_tierra,
-                   amenaza, tipo_ducto, tipo_spc, topografia,
-                   altura_inicio, altura_fin, resumen_justificacion
+    # ── SISTEMA INSPECCIONADO / MONITOREO (hoja Informe), por ETIQUETA ─────
+    # Las plantillas PAP y CIPS tienen la misma sección pero corrida una fila
+    # (PUNTO INICIAL en A38 vs A37...). Con las filas quemadas de PAP, un CIPS
+    # salía con el tipo de inspección sobre AMENAZA, ceros sobre las fórmulas de
+    # longitud y el 37,5 km del ejemplo como longitud total.
+
+    @staticmethod
+    def _es_ancla(ws, r, c):
+        return type(ws.cell(row=r, column=c)).__name__ != 'MergedCell'
+
+    def _fila_etiqueta_a(self, ws, texto, desde=20, hasta=80):
+        """Fila cuya columna A contiene `texto` (sin tildes ni mayúsculas)."""
+        t = self._etiqueta(texto)
+        for r in range(desde, hasta + 1):
+            v = ws.cell(row=r, column=1).value
+            if isinstance(v, str) and t in self._etiqueta(v):
+                return r
+        return None
+
+    def _col_tras_etiqueta(self, ws, r, texto, desde_col=2):
+        """Columna del VALOR que sigue a la etiqueta `texto` en la fila r (la
+        primera celda ancla después de la celda de la etiqueta)."""
+        t = self._etiqueta(texto)
+        for c in range(desde_col, ws.max_column + 1):
+            v = ws.cell(row=r, column=c).value
+            if isinstance(v, str) and self._etiqueta(v).startswith(t):
+                return next((cc for cc in range(c + 1, c + 8) if self._es_ancla(ws, r, cc)), None)
+        return None
+
+    def _escribir_tras(self, ws, r, etiqueta, valor, solo_si=True):
+        """Escribe `valor` en la celda que sigue a `etiqueta` en la fila r."""
+        if r is None or not solo_si:
+            return None
+        c = self._col_tras_etiqueta(ws, r, etiqueta)
+        if c is not None:
+            self._safe_write(ws, r, c, valor)
+        return c
+
+    def fill_sistema_inspeccionado(self, data: dict, potenciales: list, cips: list = None):
+        """SISTEMA INSPECCIONADO de PAP y CIPS (DCVG lo hace fill_dcvg).
+
+        PAP: punto inicial/final (abscisa, lat, lon), longitudes y porcentajes
+        calculados de los postes. CIPS: la plantilla trae fórmulas (MIN/MAX de
+        'Potenciales CIPS', longitud inspeccionada, protegida...) que se
+        conservan; se escribe la longitud TOTAL (la del tramo o lo recorrido) y
+        se corrigen las fórmulas que apuntaban a 'Potenciales PAP' o dividían
+        por la longitud total en vez de la inspeccionada.
         """
         ws = self.ws_informe
-        
-        # Calculate start/end points from potenciales
-        if potenciales:
-            sorted_pot = sorted(potenciales, key=lambda p: p.get('abscisa', 0))
-            first = sorted_pot[0]
-            last = sorted_pot[-1]
-            
-            # Row 39 - Punto Inicial
-            self._safe_write(ws, 39, 7, first.get('abscisa', 0))           # G39
-            self._safe_write(ws, 39, 15, first.get('lat'))                  # O39
-            self._safe_write(ws, 39, 23, first.get('lon'))                  # W39
-            self._safe_write(ws, 39, 29, data.get('altura_inicio', ''))     # AC39
-            
-            # Row 40 - Punto Final
-            self._safe_write(ws, 40, 7, last.get('abscisa', 0))            # G40
-            self._safe_write(ws, 40, 15, last.get('lat'))                   # O40
-            self._safe_write(ws, 40, 23, last.get('lon'))                   # W40
-            self._safe_write(ws, 40, 29, data.get('altura_fin', ''))        # AC40
+        if ws is None:
+            return
+        tipo = self._etiqueta(data.get('tipo_inspeccion')) or 'pap'
+        if tipo == 'dcvg':
+            return
+        es_cips = tipo == 'cips'
+        pots = sorted([p for p in (potenciales or []) if p.get('abscisa') is not None],
+                      key=lambda p: float(p['abscisa']))
+        absc_cips = sorted(float(c['abscisa_val']) for c in (cips or [])
+                           if c.get('abscisa_val') is not None)
 
-        # Row 41
-        self._safe_write(ws, 41, 7, data.get('tipo_inspeccion', 'Inspección PAP'))
-        self._safe_write(ws, 41, 15, data.get('detalle', 'Normal'))
-        self._safe_write(ws, 41, 23, data.get('justificacion', 'Monitoreo'))
-        self._safe_write(ws, 41, 29, data.get('uso_tierra', ''))
-        
-        # Row 42
-        self._safe_write(ws, 42, 7, data.get('amenaza', 'CORROSIÓN EXTERNA'))
-        self._safe_write(ws, 42, 15, data.get('tipo_ducto', ''))
-        self._safe_write(ws, 42, 23, data.get('tipo_spc', ''))
-        self._safe_write(ws, 42, 29, data.get('topografia', ''))
+        # extensión recorrida: CIPS con sus propias abscisas; PAP con los postes
+        if es_cips and absc_cips:
+            recorrido_km = (absc_cips[-1] - absc_cips[0]) / 1000.0
+        elif pots:
+            recorrido_km = (float(pots[-1]['abscisa']) - float(pots[0]['abscisa'])) / 1000.0
+        else:
+            recorrido_km = 0.0
+        try:
+            total_km = float(data.get('longitud_km') or 0) or recorrido_km
+        except (TypeError, ValueError):
+            total_km = recorrido_km
 
-        # Calculate lengths (rows 43-45)
-        if potenciales:
-            sorted_pot = sorted(potenciales, key=lambda p: p.get('abscisa', 0))
-            total_length_km = (sorted_pot[-1].get('abscisa', 0) - sorted_pot[0].get('abscisa', 0)) / 1000.0
-            
-            # Count protected/unprotected/overprotected
-            offs = [p['off_mv'] for p in potenciales if p.get('off_mv') is not None]
-            n_total = len(offs) if offs else 1
-            n_protected = sum(1 for v in offs if v <= -850)
-            n_unprotected = sum(1 for v in offs if v > -850)
-            n_overprotected = sum(1 for v in offs if v <= -1200)
-            
-            pct_protected = n_protected / n_total if n_total > 0 else 0
-            pct_unprotected = n_unprotected / n_total if n_total > 0 else 0
-            pct_overprotected = n_overprotected / n_total if n_total > 0 else 0
-            
-            len_protected = total_length_km * pct_protected
-            len_unprotected = total_length_km * pct_unprotected
-            len_overprotected = total_length_km * pct_overprotected
-            
-            # Row 43 - Aerial (default 0 for PAP)
-            self._safe_write(ws, 43, 7, 0)     # G43 - Long total aérea
-            self._safe_write(ws, 43, 15, 0)    # O43 - Long aérea inspeccionada
-            self._safe_write(ws, 43, 23, 0)    # W43 - Aérea no insp
-            self._safe_write(ws, 43, 29, 0)    # AC43 - Enterrada no insp
-            
-            # Row 44 - Buried
-            self._safe_write(ws, 44, 7, total_length_km)     # G44
-            self._safe_write(ws, 44, 15, total_length_km)    # O44
-            self._safe_write(ws, 44, 23, len_protected)      # W44
-            self._safe_write(ws, 44, 29, len_unprotected)    # AC44
-            
-            # Row 45 - Percentages
-            self._safe_write(ws, 45, 7, len_overprotected)   # G45
-            self._safe_write(ws, 45, 15, pct_protected)      # O45
-            self._safe_write(ws, 45, 23, pct_unprotected)    # W45
-            self._safe_write(ws, 45, 29, pct_overprotected)  # AC45
-            
-            # Row 31 - Descripción de la Línea
-            tipo_tramo = data.get('tipo_tramo', 'Tramo')
-            tramo = data.get('tramo', '')
-            gasoducto = data.get('gasoducto', '')
-            recubrimiento = data.get('tipo_recubrimiento', '')
-            diametro = data.get('diametro', '')
-            rectificadores_tgi = data.get('rectificadores_tgi', '[ESCRIBIR RECTIFICADORES TGI]')
-            
-            descripcion = (f"El {tipo_tramo} {tramo} perteneciente al Gasoducto {gasoducto}, "
-                           f"cuenta con una longitud de {total_length_km:.1f} Km aproximadamente. "
-                           f"La Tubería cuenta con un recubrimiento {recubrimiento} y un Diámetro de {diametro} in, "
-                           f"tiene como mecanismo contra la corrosión externa un sistema de corriente impresa "
-                           f"por las URPC de {rectificadores_tgi} propiedad de TGI. Adicional, las URPC's "
-                           f"[ESCRIBIR RECTIFICADORES CENIT] propiedad de CENIT, tienen influencia sobre el Ramal.")
-            self._safe_write(ws, 30, 1, descripcion)
-        
-        # Row 46 - Resumen justificación
-        self._safe_write(ws, 46, 7, data.get('resumen_justificacion', ''))
+        # ── punto inicial / final ──
+        for etiqueta, pto, clave_alt in (('PUNTO INICIAL', pots[0] if pots else None, 'altura_inicio'),
+                                         ('PUNTO FINAL', pots[-1] if pots else None, 'altura_fin')):
+            r = self._valor_de_etiqueta(ws, etiqueta, 7)
+            if r is None:
+                continue
+            if not es_cips and pto is not None:
+                self._safe_write(ws, r, 7, pto.get('abscisa', 0))
+                self._escribir_tras(ws, r, 'LATITUD', pto.get('lat'))
+                self._escribir_tras(ws, r, 'LONGITUD', pto.get('lon'))
+            # la altura no la captura el FastField: fuera la del ejemplo
+            self._escribir_tras(ws, r, 'ALTURA', data.get(clave_alt) or None)
 
-    def fill_monitoreo(self, data: dict):
-        """Fill monitoring section (rows 48-51)
-        
-        data keys: criterio, descripcion_criterio, ciclo_on, ciclo_off,
-                   datos_por_km, pct_rechazados, clima
-        """
+        # ── tipo de inspección / amenaza (defaults de la plantilla si no vienen) ──
+        r = self._fila_etiqueta_a(ws, 'TIPO DE INSPECCIÓN')
+        if r is not None:
+            ti = str(data.get('tipo_inspeccion') or '').strip()
+            if ti:
+                if self._etiqueta(ti) in ('pap', 'cips', 'dcvg'):
+                    ti = f'Inspección {ti.upper()}'
+                self._safe_write(ws, r, 7, ti)
+            for et, clave in (('DETALLE', 'detalle'), ('JUSTIFICACIÓN', 'justificacion'),
+                              ('USO DE TIERRA', 'uso_tierra')):
+                self._escribir_tras(ws, r, et, data.get(clave), solo_si=bool(data.get(clave)))
+        r = self._fila_etiqueta_a(ws, 'AMENAZA')
+        if r is not None:
+            if data.get('amenaza'):
+                self._safe_write(ws, r, 7, data['amenaza'])
+            for et, clave in (('TIPO DE DUCTO', 'tipo_ducto'), ('TIPO SPC', 'tipo_spc'),
+                              ('TOPOGRAF', 'topografia')):
+                self._escribir_tras(ws, r, et, data.get(clave), solo_si=bool(data.get(clave)))
+
+        # ── longitudes ──
+        r_ent = self._fila_etiqueta_a(ws, 'LONGITUD TOTAL DE LA LÍNEA ENTERRADA')
+        if r_ent is not None and (pots or absc_cips or total_km):
+            r_sob = r_ent + 1
+            self._safe_write(ws, r_ent, 7, total_km)                       # total de la línea
+            c_insp = self._col_tras_etiqueta(ws, r_ent, 'LONGITUD TOTAL DE LA LÍNEA ENTERRADA INSPECCIO', 8)
+            c_prot = self._col_tras_etiqueta(ws, r_ent, 'LONGITUD ENTERRADA PROTEGIDA')
+            c_desp = self._col_tras_etiqueta(ws, r_ent, 'LONGITUD ENTERRADA DESPROTEGIDA')
+            c_pprot = self._col_tras_etiqueta(ws, r_sob, '% LONGITUD ENTERRADA PROTEGIDA')
+            c_pdesp = self._col_tras_etiqueta(ws, r_sob, '% LONGITUD ENTERRADA DESPROTEGIDA')
+            c_psob = self._col_tras_etiqueta(ws, r_sob, '% LONGITUD ENTERRADA SOBREPROTEGIDA')
+            if es_cips:
+                # fórmulas de la plantilla, pero sobre 'Potenciales CIPS' y sobre
+                # la longitud INSPECCIONADA (la total es la del tramo)
+                last = 11 + (len(cips) if cips else 29989)
+                L = get_column_letter
+                if c_insp:
+                    insp = f'{L(c_insp)}{r_ent}'
+                    self._safe_write(ws, r_sob, 7,
+                                     f"=+(COUNTIF('Potenciales CIPS'!F12:F{last},\"<\"&-1200)"
+                                     f"/COUNT('Potenciales CIPS'!F12:F{last}))*{insp}")
+                    if c_pprot and c_prot:
+                        self._safe_write(ws, r_sob, c_pprot, f'=IFERROR({L(c_prot)}{r_ent}/{insp},"")')
+                    if c_pdesp and c_desp:
+                        self._safe_write(ws, r_sob, c_pdesp, f'=IFERROR({L(c_desp)}{r_ent}/{insp},"")')
+                    if c_psob:
+                        self._safe_write(ws, r_sob, c_psob, f'=IFERROR(G{r_sob}/{insp},"")')
+            elif pots:
+                offs = [p['off_mv'] for p in pots if p.get('off_mv') is not None]
+                n = len(offs) or 1
+                p_prot = sum(1 for v in offs if v <= -850) / n
+                p_desp = sum(1 for v in offs if v > -850) / n
+                p_sob = sum(1 for v in offs if v <= -1200) / n
+                if c_insp:
+                    self._safe_write(ws, r_ent, c_insp, recorrido_km)
+                if c_prot:
+                    self._safe_write(ws, r_ent, c_prot, recorrido_km * p_prot)
+                if c_desp:
+                    self._safe_write(ws, r_ent, c_desp, recorrido_km * p_desp)
+                self._safe_write(ws, r_sob, 7, recorrido_km * p_sob)
+                if c_pprot:
+                    self._safe_write(ws, r_sob, c_pprot, p_prot)
+                if c_pdesp:
+                    self._safe_write(ws, r_sob, c_pdesp, p_desp)
+                if c_psob:
+                    self._safe_write(ws, r_sob, c_psob, p_sob)
+
+        # ── descripción de la línea (PAP/CIPS traen la del ejemplo: Ramal Pereira) ──
+        bloque = self._bloque_seccion(ws, 'DESCRIPCIÓN DE LA LÍNEA OBJETO DE ESTUDIO')
+        tramo = str(data.get('tramo') or '').strip()
+        if bloque and tramo and (total_km or recorrido_km):
+            tipo_tramo = str(data.get('tipo_ducto') or data.get('tipo_tramo') or '').strip()
+            linea = tramo if (not tipo_tramo or tramo.lower().startswith(tipo_tramo.lower())) \
+                else f"{tipo_tramo} {tramo}"
+            rect = data.get('rectificadores_tgi') or '[ESCRIBIR RECTIFICADORES TGI]'
+            descripcion = (f"El {linea} perteneciente al Gasoducto {data.get('gasoducto', '')}, "
+                           f"cuenta con una longitud de {total_km:.1f} Km aproximadamente. "
+                           f"La Tubería cuenta con un recubrimiento {data.get('tipo_recubrimiento', '')} "
+                           f"y un Diámetro de {data.get('diametro', '')} in, tiene como mecanismo contra la "
+                           f"corrosión externa un sistema de corriente impresa por las URPC de {rect} "
+                           f"propiedad de TGI. Adicional, las URPC's [ESCRIBIR RECTIFICADORES CENIT] "
+                           f"propiedad de CENIT, tienen influencia sobre el {tipo_tramo or 'tramo'}.")
+            self._safe_write(ws, bloque[0], 1, descripcion)
+
+        # ── resumen justificación tramos no inspeccionados ──
+        if data.get('resumen_justificacion'):
+            r = self._fila_etiqueta_a(ws, 'RESUMEN JUSTIFICACI')
+            if r is not None:
+                self._safe_write(ws, r, 7, data['resumen_justificacion'])
+
+    def fill_monitoreo(self, data: dict, potenciales: list = None, cips: list = None):
+        """MONITOREO DE POTENCIALES (hoja Informe), por etiqueta. Los defaults
+        (criterio 6.2.1.3, ciclo 1.6/0.4) ya vienen en la plantilla: solo se
+        escriben si Datos Generales trae otros. 'Datos/km' queda como fórmula
+        sobre las filas realmente escritas y la longitud inspeccionada."""
         ws = self.ws_informe
-        # Row 50
-        self._safe_write(ws, 50, 7, data.get('criterio', '6.2.1.3 (-850mVCSE)'))
-        self._safe_write(ws, 50, 15, data.get('descripcion_criterio', 
-            'Potencial polarizado más electronegativo que -850mVCSE'))
-        self._safe_write(ws, 50, 23, data.get('ciclo_on', 1.6))
-        self._safe_write(ws, 50, 29, data.get('ciclo_off', 0.4))
-        # Row 51
-        self._safe_write(ws, 51, 7, data.get('datos_por_km', 0))
-        self._safe_write(ws, 51, 15, data.get('pct_rechazados', 0))
-        self._safe_write(ws, 51, 23, data.get('clima', ''))
+        if ws is None:
+            return
+        r = self._fila_etiqueta_a(ws, 'Criterio de evaluaci')
+        if r is not None:
+            if data.get('criterio'):
+                self._safe_write(ws, r, 7, data['criterio'])
+            for et, clave in (('DESCRIPCI', 'descripcion_criterio'), ('CICLO ON', 'ciclo_on'),
+                              ('CICLO OFF', 'ciclo_off')):
+                self._escribir_tras(ws, r, et, data.get(clave), solo_si=data.get(clave) is not None)
+        r = self._fila_etiqueta_a(ws, 'Datos/km')
+        if r is not None:
+            es_cips = self._etiqueta(data.get('tipo_inspeccion')) == 'cips'
+            r_ent = self._fila_etiqueta_a(ws, 'LONGITUD TOTAL DE LA LÍNEA ENTERRADA')
+            c_insp = self._col_tras_etiqueta(ws, r_ent, 'LONGITUD TOTAL DE LA LÍNEA ENTERRADA INSPECCIO', 8) \
+                if r_ent else None
+            if data.get('datos_por_km') is not None:
+                self._safe_write(ws, r, 7, data['datos_por_km'])
+            elif r_ent and c_insp:
+                hoja, n = (('Potenciales CIPS', len(cips or [])) if es_cips
+                           else ('Potenciales PAP', len(potenciales or [])))
+                last = 11 + (n if n else (29989 if es_cips else 63))
+                self._safe_write(ws, r, 7, f"=COUNT('{hoja}'!B12:B{last})"
+                                           f"/Informe!{get_column_letter(c_insp)}{r_ent}")
+            for et, clave in (('% DATOS RECHAZADOS', 'pct_rechazados'), ('CLIMA', 'clima')):
+                self._escribir_tras(ws, r, et, data.get(clave), solo_si=data.get(clave) not in (None, ''))
 
     def fill_potenciales_pap(self, potenciales: list, fecha: str = ''):
         """Fill Potenciales PAP data table starting at row 12
@@ -1477,6 +1570,8 @@ class ReportGenerator:
         if not filas:
             return
         self.dcvg_filas = len(filas)
+        self.fill_sistema_inspeccionado_dcvg(getattr(self, '_info_general', {}),
+                                             postes, defectos)
 
         # filas (1-based en Excel) de los postes que TIENEN pulso (ON y OFF):
         # el P/RE de cada defecto se interpola entre el pulso anterior y el
@@ -1573,6 +1668,92 @@ class ReportGenerator:
         for row in range(start + len(filas), tope):
             for c in range(1, 25):
                 self._safe_write(ws, row, c, '')
+
+    def _valor_de_etiqueta(self, ws, etiqueta, col, desde=20, hasta=60):
+        """Celda de valor (columna `col`) de una etiqueta de la hoja Informe. La
+        etiqueta puede ocupar dos filas combinadas ('PUNTO INICIAL:' = A30:F31
+        con el valor en G31), así que se busca la celda ancla de la columna en
+        la fila de la etiqueta o en la siguiente."""
+        etiqueta = etiqueta.upper()
+        for r in range(desde, hasta + 1):
+            v = ws.cell(row=r, column=1).value
+            if not (isinstance(v, str) and etiqueta in v.upper()):
+                continue
+            anclas = {(m.min_row, m.min_col) for m in ws.merged_cells.ranges}
+            # 1º la celda ancla de un rango combinado, 2º la que ya trae valor
+            for rr in (r, r + 1):
+                if (rr, col) in anclas:
+                    return rr
+            for rr in (r, r + 1):
+                celda = ws.cell(row=rr, column=col)
+                if type(celda).__name__ != 'MergedCell' and celda.value not in (None, ''):
+                    return rr
+            return r
+        return None
+
+    def fill_sistema_inspeccionado_dcvg(self, info, postes, defectos):
+        """SISTEMA INSPECCIONADO de la plantilla DCVG: punto inicial/final (abscisa
+        y coordenadas) y longitudes. La plantilla los trae QUEMADOS del informe
+        de ejemplo (0, 4000 y 4 km): sin esto, todo DCVG decía 'longitud
+        inspeccionada 4 km'. La longitud total es la del tramo (Datos Generales,
+        `longitud_km`) si viene; la inspeccionada, la extensión recorrida."""
+        ws = self.ws_informe
+        if ws is None:
+            return
+        puntos = [x for x in list(postes or []) + list(defectos or [])
+                  if x.get('pk_m') is not None]
+        if not puntos:
+            return
+        puntos.sort(key=lambda x: float(x['pk_m']))
+        ini, fin = float(puntos[0]['pk_m']), float(puntos[-1]['pk_m'])
+        recorrido_km = round((fin - ini) / 1000.0, 3)
+        try:
+            total_km = float((info or {}).get('longitud_km') or 0) or recorrido_km
+        except (TypeError, ValueError):
+            total_km = recorrido_km
+
+        def _con_coord(secuencia):
+            return next((x for x in secuencia
+                         if x.get('lat') is not None and x.get('lon') is not None), None)
+        primero, ultimo = _con_coord(puntos), _con_coord(reversed(puntos))
+
+        for etiqueta, absc, pto in (('PUNTO INICIAL', ini, primero),
+                                    ('PUNTO FINAL', fin, ultimo)):
+            r = self._valor_de_etiqueta(ws, etiqueta, 7)
+            if r is None:
+                continue
+            self._safe_write(ws, r, 7, int(absc) if float(absc).is_integer() else absc)   # G
+            # LATITUD / LONGITUD / ALTURA: la celda que sigue a cada etiqueta
+            for col in range(8, ws.max_column + 1):
+                v = ws.cell(row=r, column=col).value
+                if not isinstance(v, str):
+                    continue
+                e = v.strip().upper().rstrip(':')
+                destino = next((c for c in range(col + 1, col + 6)
+                                if type(ws.cell(row=r, column=c)).__name__ != 'MergedCell'), None)
+                if destino is None:
+                    continue
+                if e == 'LATITUD':
+                    self._safe_write(ws, r, destino, pto.get('lat') if pto else None)
+                elif e == 'LONGITUD':
+                    self._safe_write(ws, r, destino, pto.get('lon') if pto else None)
+                elif e == 'ALTURA':
+                    # el FastField no la captura: fuera la del ejemplo
+                    self._safe_write(ws, r, destino, (info or {}).get('altura_' + (
+                        'inicio' if etiqueta == 'PUNTO INICIAL' else 'fin')) or None)
+
+        r = self._valor_de_etiqueta(ws, 'LONGITUD TOTAL DE LA LÍNEA ENTERRADA', 7)
+        if r is not None:
+            self._safe_write(ws, r, 7, total_km)            # G: total de la línea
+            # 'INSPECCIONADA' es la segunda etiqueta de la misma fila
+            for col in range(8, ws.max_column + 1):
+                v = ws.cell(row=r, column=col).value
+                if isinstance(v, str) and 'INSPECCIO' in v.upper():
+                    destino = next((c for c in range(col + 1, col + 8)
+                                    if type(ws.cell(row=r, column=c)).__name__ != 'MergedCell'), None)
+                    if destino:
+                        self._safe_write(ws, r, destino, recorrido_km)
+                    break
 
     def fill_resistividad(self, resistividades: list):
         """Llena la hoja 'Resistividad' desde la fila 9 (fila 8 = encabezados).
@@ -1857,6 +2038,26 @@ class ReportGenerator:
                                                          sourceLinked=False)
                 except Exception:
                     pass
+
+            # Eje X al recorrido real: la plantilla trae 0..4000 (el ejemplo) y
+            # el informe salía con la gráfica cortada en el K 004+000.
+            ws_dato = self.wb[hoja_dato]
+            abscisas = []
+            for r in range(inicio, last + 1):
+                v = ws_dato.cell(row=r, column=1 if hoja_dato == 'Resistividad' else 4).value
+                try:
+                    if v is not None and str(v).strip() != '':
+                        abscisas.append(float(v))
+                except (TypeError, ValueError):
+                    pass
+            if abscisas:
+                x_min = self._nice_floor(min(abscisas), 1000) if min(abscisas) >= 1000 else 0
+                x_max = self._nice_ceil(max(abscisas), 1000)
+                if x_max <= x_min:
+                    x_max = x_min + 1000
+                for ch in ws._charts:
+                    ch.x_axis.scaling.min = x_min
+                    ch.x_axis.scaling.max = x_max
 
     # Criterios de la plantilla que no coinciden con lo que escribe el informe.
     _CRITERIOS_RESUMEN = (('"A-A"', '"AA"'),        # el carácter se escribe 'AA'

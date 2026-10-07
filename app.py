@@ -275,11 +275,13 @@ class WorkerThread(QThread):
             self.progress.emit(30)
             
             self.status.emit("Llenando sistema inspeccionado...")
-            gen.fill_sistema_inspeccionado(self.app_data['info'], self.app_data['potenciales'])
+            gen.fill_sistema_inspeccionado(self.app_data['info'], self.app_data['potenciales'],
+                                           cips=self.app_data.get('cips') or [])
             self.progress.emit(40)
             
             self.status.emit("Llenando monitoreo y potenciales...")
-            gen.fill_monitoreo(self.app_data['info'])
+            gen.fill_monitoreo(self.app_data['info'], self.app_data['potenciales'],
+                               cips=self.app_data.get('cips') or [])
             gen.fill_potenciales_pap(self.app_data['potenciales'], self.app_data['info'].get('fecha',''))
             self.progress.emit(50)
             
