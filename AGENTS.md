@@ -305,6 +305,16 @@ La hoja trae 63 filas de datos (12-74) y el bloque de firmas debajo: **NO usar
 dentro de las firmas, perdiéndose). Si no caben, `_bajar_bloque` baja el bloque.
 FastField exporta la fecha como texto **mes-día-año** ('09-27-2026'):
 `readers._fecha_fastfield` la normaliza a DD/MM/AAAA en la entrada.
+**Las columnas de 'Potenciales PAP' NO son las mismas en las dos plantillas:**
+la de PAP trae `Altura` en V y la de CIPS no, así que pintura / conexiones /
+verticalidad / mantenimiento / observaciones están corridas una columna entre
+ambas. `fill_potenciales_pap` ubica cada valor por el encabezado
+(`_mapa_columnas_potenciales`: fila 'ÍTEM' + subfila ON/OFF; respaldo = la
+distribución de PAP). Con columnas quemadas un CIPS sacaba la altura bajo
+ESTADO PINTURA y las observaciones fuera de la tabla ("columnas corridas en los
+postes", 2026-10). La plantilla CIPS trae además 'PK 000+000 No existe' en AA12,
+pegado a la derecha de la tabla: se limpia al escribir (las columnas auxiliares
+numéricas de las gráficas, AB.., no se tocan).
 
 ---
 
@@ -393,6 +403,27 @@ FastField exporta la fecha como texto **mes-día-año** ('09-27-2026'):
   escribirse (cruce, aéreo, tensión, válvula, línea, río, abscisado, rocería,
   "sin paso", PK, mayúscula inicial…). Diccionario cerrado; ampliar si el
   usuario reporta una palabra nueva.
+- **Firmas (ELABORÓ / REVISÓ / APROBÓ):** `fill_firmas` escribe en el bloque de
+  la hoja Informe **ubicado por etiqueta** (`_bloque_firmas`: la celda del rol
+  y debajo Nombre/Cargo/Empresa en su columna, o en la primera ancla a la
+  derecha cuando la columna la ocupa la etiqueta 'Nombre'). El bloque está en
+  filas distintas por plantilla (PAP 100-102 · CIPS 94-96 · DCVG 99-101, con
+  APROBÓ en W y no en X); antes se escribía en 104-106 quemadas, filas vacías
+  bajo el bloque, y TODOS los informes salían con las firmas de ejemplo de la
+  plantilla ('Alejandro Rivera', 'Protección Catódica de Colombia'). Las demás
+  hojas (Potenciales PAP, Hallazgos, Aislamientos, Inspección DCVG,
+  Resistividad) muestran las mismas firmas **por fórmula** `=Informe!D100`,
+  como trae la plantilla; `fill_firmas` reescribe esas fórmulas apuntando a las
+  celdas reales. El flujo DCVG (web y escritorio) **también debe llamar a
+  `fill_firmas`** (no lo hacía). En la web las firmas son `FIRMAS_FIJAS`
+  (nombres vacíos, empresa 'PCC Integrity').
+- **Hoja Aislamientos:** hay UNA sola `fill_aislamientos` (había dos y la
+  activa usaba `insert_rows`, que no corre las celdas combinadas del bloque de
+  firmas: con más de una junta el bloque quedaba sobre los datos). Datos desde
+  la fila 'ÍTEM'+2 (13); capacidad = filas hasta el bloque (5 en PAP, 19 en
+  CIPS) y si no caben se baja el bloque con `_bajar_bloque`. Acepta los
+  nombres de campo del lector (`numero_pernos`, `latitud`, `diferencia`…) y
+  los del adaptador (`num_pernos`, `lat`, `dif_on`…).
 - **Hoja Hallazgos:** la plantilla tiene 500 filas de datos pre-formateadas
   antes del bloque de firmas (se movió con `expandir_hallazgos`). `fill_hallazgos`
   solo escribe (no inserta filas), ordena por abscisa, y limpia sobrantes.

@@ -703,6 +703,56 @@ class ReportGenerator:
             for et, clave in (('% DATOS RECHAZADOS', 'pct_rechazados'), ('CLIMA', 'clima')):
                 self._escribir_tras(ws, r, et, data.get(clave), solo_si=data.get(clave) not in (None, ''))
 
+    # Columnas de 'Potenciales PAP' según la plantilla (PAP trae 'Altura' en
+    # V; CIPS no). Respaldo: la distribución de la plantilla PAP.
+    _COLS_POTENCIALES_PAP = {
+        'abscisa': 2, 'fecha': 3, 'referencia': 4, 'neg1_on': 5, 'neg1_off': 6,
+        'neg1corr_on': 7, 'neg1corr_off': 8, 'neg2_on': 9, 'neg2_off': 10,
+        'for1_on': 11, 'for1_off': 12, 'for2_on': 13, 'for2_off': 14, 'natural': 15,
+        'polarizacion': 16, 'vac': 17, 'resistencia': 18, 'ir': 19, 'lat': 20,
+        'lon': 21, 'alt': 22, 'pintura': 23, 'conexiones': 24, 'verticalidad': 25,
+        'mant': 26, 'obs': 27}
+
+    def _clave_encabezado_potenciales(self, etiqueta):
+        t = self._etiqueta(etiqueta)
+        if not t:
+            return None
+        if t.startswith('potencial negativo 1 tgi'):
+            return 'neg1corr' if 'corregido' in t else 'neg1'
+        reglas = (('potencial negativo 2 tgi', 'neg2'), ('potencial negativo 1 foraneo', 'for1'),
+                  ('potencial negativo 2 foraneo', 'for2'), ('abscisa', 'abscisa'),
+                  ('fecha', 'fecha'), ('referencia', 'referencia'),
+                  ('potencial natural', 'natural'), ('polarizacion', 'polarizacion'),
+                  ('voltaje ac', 'vac'), ('resistencia', 'resistencia'), ('ir on', 'ir'),
+                  ('latitud', 'lat'), ('longitud', 'lon'), ('altura', 'alt'), ('altitud', 'alt'),
+                  ('estado pintura', 'pintura'), ('estado conexiones', 'conexiones'),
+                  ('estado verticalidad', 'verticalidad'), ('tipo de mantenimiento', 'mant'),
+                  ('observaciones', 'obs'))
+        return next((k for pref, k in reglas if t.startswith(pref)), None)
+
+    def _mapa_columnas_potenciales(self, ws):
+        """{clave: columna} leído del encabezado (fila 'ÍTEM' y la subfila
+        ON/OFF). Si no se encuentra el encabezado, la distribución de PAP."""
+        fila = next((r for r in range(1, 16)
+                     if self._etiqueta(ws.cell(row=r, column=1).value).startswith('item')), None)
+        if fila is None:
+            return dict(self._COLS_POTENCIALES_PAP)
+        mapa, clave = {}, None
+        for c in range(1, ws.max_column + 1):
+            lab = ws.cell(row=fila, column=c).value
+            if lab not in (None, ''):
+                clave = self._clave_encabezado_potenciales(lab)
+            if clave is None:
+                continue
+            sub = self._etiqueta(ws.cell(row=fila + 1, column=c).value)
+            if sub.startswith('off'):
+                mapa[clave + '_off'] = c
+            elif sub.startswith('on'):
+                mapa[clave + '_on'] = c
+            elif lab not in (None, ''):
+                mapa[clave] = c
+        return mapa or dict(self._COLS_POTENCIALES_PAP)
+
     def fill_potenciales_pap(self, potenciales: list, fecha: str = ''):
         """Fill Potenciales PAP data table starting at row 12
         
@@ -725,8 +775,33 @@ class ReportGenerator:
             extra = len(sorted_pot) - (bloque - 12)
             self._bajar_bloque(ws, bloque, extra)
             for r in range(bloque, bloque + extra):
-                self._copy_row_style(ws, 12, r, 1, 27)
+                self._copy_row_style(ws, 12, r, 1, 28)
 
+        # Las columnas se ubican por el ENCABEZADO de la plantilla: la de PAP
+        # trae 'Altura' en V y la de CIPS no, así que pintura, conexiones,
+        # verticalidad, mantenimiento y observaciones están corridas una
+        # columna entre ambas (con columnas quemadas un CIPS sacaba la altura
+        # bajo ESTADO PINTURA y las observaciones fuera de la tabla).
+        col = self._mapa_columnas_potenciales(ws)
+        valores = {
+            'abscisa': lambda p: p.get('abscisa', ''),
+            'fecha': lambda p: _fecha_celda(p.get('fecha') or fecha),
+            'referencia': lambda p: corregir_campo(p.get('ref_geografica', '')),
+            'neg1_on': lambda p: p.get('on_mv'), 'neg1_off': lambda p: p.get('off_mv'),
+            'neg1corr_on': lambda p: p.get('on_mv_corregido'),
+            'neg1corr_off': lambda p: p.get('off_mv_corregido'),
+            'neg2_on': lambda p: p.get('on_mv_neg2'), 'neg2_off': lambda p: p.get('off_mv_neg2'),
+            'for1_on': lambda p: p.get('on_mv_foraneo1'), 'for1_off': lambda p: p.get('off_mv_foraneo1'),
+            'for2_on': lambda p: p.get('on_mv_foraneo2'), 'for2_off': lambda p: p.get('off_mv_foraneo2'),
+            'natural': lambda p: p.get('potencial_natural'),
+            'polarizacion': lambda p: p.get('polarizacion'),
+            'vac': lambda p: p.get('vac'), 'resistencia': lambda p: p.get('resistencia'),
+            'ir': lambda p: p.get('ir_on_off'),
+            'lat': lambda p: p.get('lat'), 'lon': lambda p: p.get('lon'), 'alt': lambda p: p.get('alt'),
+            'pintura': lambda p: p.get('pintura'), 'conexiones': lambda p: p.get('conexiones'),
+            'verticalidad': lambda p: p.get('verticalidad'), 'mant': lambda p: p.get('tipo_mant'),
+            'obs': lambda p: corregir_campo(p.get('observaciones')),
+        }
         for i, p in enumerate(sorted_pot):
             row = 12 + i
 
@@ -735,32 +810,17 @@ class ReportGenerator:
             _al = copy(ws.cell(row, 1).alignment)
             _al.wrap_text = False
             ws.cell(row, 1).alignment = _al
-            self._safe_write(ws, row, 2, p.get('abscisa', ''))                # B - ABSCISADO
-            self._safe_write(ws, row, 3, _fecha_celda(p.get('fecha') or fecha))  # C - FECHA
-            self._safe_write(ws, row, 4, corregir_campo(p.get('ref_geografica', '')))  # D - REF GEOG
-            self._safe_write(ws, row, 5, p.get('on_mv'))                      # E - ON NEG1
-            self._safe_write(ws, row, 6, p.get('off_mv'))                     # F - OFF NEG1
-            self._safe_write(ws, row, 7, p.get('on_mv_corregido'))            # G - ON CORR
-            self._safe_write(ws, row, 8, p.get('off_mv_corregido'))           # H - OFF CORR
-            self._safe_write(ws, row, 9, p.get('on_mv_neg2'))                 # I - ON NEG2
-            self._safe_write(ws, row, 10, p.get('off_mv_neg2'))               # J - OFF NEG2
-            self._safe_write(ws, row, 11, p.get('on_mv_foraneo1'))            # K
-            self._safe_write(ws, row, 12, p.get('off_mv_foraneo1'))           # L
-            self._safe_write(ws, row, 13, p.get('on_mv_foraneo2'))            # M
-            self._safe_write(ws, row, 14, p.get('off_mv_foraneo2'))           # N
-            self._safe_write(ws, row, 15, p.get('potencial_natural'))         # O
-            self._safe_write(ws, row, 16, p.get('polarizacion'))              # P
-            self._safe_write(ws, row, 17, p.get('vac'))                       # Q - VAC
-            self._safe_write(ws, row, 18, p.get('resistencia'))               # R - Resistencia
-            self._safe_write(ws, row, 19, p.get('ir_on_off'))                 # S - IR ON-OFF
-            self._safe_write(ws, row, 20, p.get('lat'))                       # T - LAT
-            self._safe_write(ws, row, 21, p.get('lon'))                       # U - LON
-            self._safe_write(ws, row, 22, p.get('alt'))                       # V - Altura
-            self._safe_write(ws, row, 23, p.get('pintura'))                   # W - Pintura
-            self._safe_write(ws, row, 24, p.get('conexiones'))                # X - Conexiones
-            self._safe_write(ws, row, 25, p.get('verticalidad'))              # Y - Verticalidad
-            self._safe_write(ws, row, 26, p.get('tipo_mant'))                 # Z - Tipo mant
-            self._safe_write(ws, row, 27, corregir_campo(p.get('observaciones')))  # AA - Obs
+            for clave, fn in valores.items():
+                c = col.get(clave)
+                if c is not None:
+                    self._safe_write(ws, row, c, fn(p))
+            # La plantilla CIPS trae un texto de ejemplo ('PK 000+000 No
+            # existe') pegado a la derecha de la tabla, que antes tapaban las
+            # observaciones corridas; las columnas auxiliares de las gráficas
+            # (numéricas) no se tocan.
+            borde = max(col.values()) + 1
+            if isinstance(ws.cell(row=row, column=borde).value, str):
+                self._safe_write(ws, row, borde, None)
 
     def fill_cips(self, cips_data: list):
         self.cips_truncados = 0
@@ -1183,59 +1243,6 @@ class ReportGenerator:
             poner(row, 'neg_a2', '-')
             poner(row, 'neg_a3', '-')
 
-    def fill_aislamientos(self, aislamientos: list):
-        """Fill Aislamientos sheet data starting at row 13
-        
-        Each aislamiento: abscisado, tag, clase, diametro, presion, temperatura,
-                          tipo_brida, num_pernos, diam_pernos, tipo_aislamiento,
-                          pct_aislamiento, pot_on_arriba, pot_off_arriba,
-                          pot_on_abajo, pot_off_abajo, dif_on, dif_off,
-                          diagnostico, lat, lon, observaciones
-        """
-        if not self.ws_aislamientos or not aislamientos:
-            return
-        ws = self.ws_aislamientos
-        
-        n_prefilled = 6
-        start_row = 13
-        
-        if len(aislamientos) > n_prefilled:
-            ws.insert_rows(start_row + n_prefilled, len(aislamientos) - n_prefilled)
-            for r in range(start_row + n_prefilled, start_row + len(aislamientos)):
-                self._copy_row_style(ws, start_row, r, 1, 22)
-        
-        for i, a in enumerate(aislamientos):
-            row = start_row + i
-                
-            self._safe_write(ws, row, 1, i + 1)
-            self._safe_write(ws, row, 2, a.get('abscisa_val', a.get('abscisado', '')))
-            self._safe_write(ws, row, 3, a.get('tag', '-'))
-            self._safe_write(ws, row, 4, a.get('clase', ''))
-            self._safe_write(ws, row, 5, a.get('diametro', ''))
-            self._safe_write(ws, row, 6, a.get('presion', '-'))
-            self._safe_write(ws, row, 7, a.get('temperatura', '-'))
-            self._safe_write(ws, row, 8, a.get('tipo_brida', ''))
-            self._safe_write(ws, row, 9, a.get('num_pernos', ''))
-            self._safe_write(ws, row, 10, a.get('diam_pernos', ''))
-            self._safe_write(ws, row, 11, a.get('tipo_aislamiento', ''))
-            self._safe_write(ws, row, 12, a.get('pct_aislamiento', ''))
-            self._safe_write(ws, row, 13, a.get('pot_on_arriba'))
-            self._safe_write(ws, row, 14, a.get('pot_off_arriba'))
-            self._safe_write(ws, row, 15, a.get('pot_on_abajo'))
-            self._safe_write(ws, row, 16, a.get('pot_off_abajo'))
-            self._safe_write(ws, row, 17, a.get('dif_on'))
-            self._safe_write(ws, row, 18, a.get('dif_off'))
-            self._safe_write(ws, row, 19, a.get('diagnostico', ''))
-            self._safe_write(ws, row, 20, a.get('lat'))
-            self._safe_write(ws, row, 21, a.get('lon'))
-            self._safe_write(ws, row, 22, corregir_campo(a.get('observaciones', '')))
-            
-        # Clear unused prefilled rows
-        if len(aislamientos) < n_prefilled:
-            for r in range(start_row + len(aislamientos), start_row + n_prefilled):
-                for c in range(1, 23):
-                    self._safe_write(ws, r, c, '')
-
     def fill_inspecciones(self, marco_h: list = None, ce: list = None,
                           anodos: list = None, cupones_ir: list = None,
                           cupones_grav: list = None, pe: list = None,
@@ -1337,117 +1344,127 @@ class ReportGenerator:
         self.recomendaciones_omitidas = self._escribir_bloque_texto(
             'RECOMENDACIONES', recomendaciones)
 
+    _ROLES_FIRMA = ('ELABORÓ', 'REVISÓ', 'APROBÓ')
+
+    def _bloque_firmas(self, ws, desde=1, hasta=None):
+        """{rol: (fila_nombre, col)} del bloque de firmas de la hoja: la celda
+        del rol (ELABORÓ/REVISÓ/APROBÓ) y, debajo, Nombre / Cargo / Empresa en
+        su misma columna —o en la primera celda ancla a la derecha cuando esa
+        columna la ocupa la etiqueta 'Nombre' (hoja Informe)."""
+        hasta = hasta or ws.max_row
+        roles = {self._etiqueta(r): r for r in self._ROLES_FIRMA}
+        out = {}
+        for r in range(desde, hasta + 1):
+            for c in range(1, min(ws.max_column, 40) + 1):
+                v = ws.cell(row=r, column=c).value
+                if not isinstance(v, str):
+                    continue
+                rol = roles.get(self._etiqueta(v))
+                if rol is None or rol in out:
+                    continue
+                col = c
+                if self._etiqueta(ws.cell(row=r + 1, column=c).value).startswith(
+                        ('nombre', 'cargo', 'empresa')):
+                    col = next((cc for cc in range(c + 1, c + 8)
+                                if self._es_ancla(ws, r + 1, cc)), c)
+                out[rol] = (r + 1, col)
+            if len(out) == 3:
+                break
+        return out
+
     def fill_firmas(self, elaboro: dict, reviso: dict, aprobo: dict):
-        """Fill signatures in ALL sheets
-        
-        Each dict has: nombre, cargo, empresa
-        """
-        # Informe sheet
+        """Firmas (nombre, cargo, empresa) en el bloque ELABORÓ / REVISÓ /
+        APROBÓ de la hoja Informe, ubicado por etiqueta (PAP filas 100-102,
+        CIPS 94-96, DCVG 99-101: antes se escribía en 104-106, filas vacías
+        debajo del bloque, y el informe salía con las firmas de ejemplo de la
+        plantilla). Las demás hojas muestran las mismas firmas por fórmula
+        hacia Informe, como trae la plantilla."""
         ws = self.ws_informe
-        self._safe_write(ws, 104, 4, elaboro.get('nombre', ''))
-        self._safe_write(ws, 105, 4, elaboro.get('cargo', ''))
-        self._safe_write(ws, 106, 4, elaboro.get('empresa', ''))
-        self._safe_write(ws, 104, 15, reviso.get('nombre', ''))
-        self._safe_write(ws, 105, 15, reviso.get('cargo', ''))
-        self._safe_write(ws, 106, 15, reviso.get('empresa', ''))
-        self._safe_write(ws, 104, 24, aprobo.get('nombre', ''))
-        self._safe_write(ws, 105, 24, aprobo.get('cargo', ''))
-        self._safe_write(ws, 106, 24, aprobo.get('empresa', ''))
+        bloque = self._bloque_firmas(ws)
+        personas = dict(zip(self._ROLES_FIRMA, (elaboro or {}, reviso or {}, aprobo or {})))
+        for rol, quien in personas.items():
+            if rol not in bloque:
+                continue
+            r, c = bloque[rol]
+            for k, campo in enumerate(('nombre', 'cargo', 'empresa')):
+                self._safe_write(ws, r + k, c, quien.get(campo, ''))
 
-        # Potenciales PAP
-        ws = self.ws_potenciales
-        # 'ELABORÓ' está en la columna C. Sin fila por defecto: el bloque de
-        # firmas se corre hacia abajo cuando hay muchos postes, y escribir a
-        # ciegas en la fila 77 pisaría los datos de un poste.
-        start_row = None
-        for r in range(12, ws.max_row + 1):
-            if any(isinstance(ws.cell(row=r, column=c).value, str) and
-                   'ELABORÓ' in ws.cell(row=r, column=c).value.upper()
-                   for c in (3, 4)):
-                start_row = r + 1
-                break
-        for col, quien in ((4, elaboro), (15, reviso), (24, aprobo)):
-            if start_row is None:
-                break
-            self._safe_write(ws, start_row, col, quien.get('nombre', ''))
-            self._safe_write(ws, start_row + 1, col, quien.get('cargo', ''))
-            self._safe_write(ws, start_row + 2, col, quien.get('empresa', ''))
-
-        # Hallazgos
-        if self.ws_hallazgos:
-            ws = self.ws_hallazgos
-            start_row = 26
-            for r in range(18, 500):
-                val = ws.cell(row=r, column=3).value
-                if val and isinstance(val, str) and 'ELABORÓ' in val.upper():
-                    start_row = r + 1
-                    break
-            self._safe_write(ws, start_row, 3, elaboro.get('nombre', ''))
-            self._safe_write(ws, start_row + 1, 3, elaboro.get('cargo', ''))
-            self._safe_write(ws, start_row + 2, 3, elaboro.get('empresa', ''))
-            self._safe_write(ws, start_row, 7, reviso.get('nombre', ''))
-            self._safe_write(ws, start_row + 1, 7, reviso.get('cargo', ''))
-            self._safe_write(ws, start_row + 2, 7, reviso.get('empresa', ''))
-            self._safe_write(ws, start_row, 12, aprobo.get('nombre', ''))
-            self._safe_write(ws, start_row + 1, 12, aprobo.get('cargo', ''))
-            self._safe_write(ws, start_row + 2, 12, aprobo.get('empresa', ''))
-
-        # Aislamientos
-        if self.ws_aislamientos:
-            ws = self.ws_aislamientos
-            start_row = 19
-            for r in range(15, 200):
-                val = ws.cell(row=r, column=1).value
-                if val and isinstance(val, str) and 'NOMBRE' in val.upper():
-                    start_row = r
-                    break
-                    
-            self._safe_write(ws, start_row, 3, elaboro.get('nombre', ''))
-            self._safe_write(ws, start_row + 1, 3, elaboro.get('cargo', ''))
-            self._safe_write(ws, start_row + 2, 3, elaboro.get('empresa', ''))
-            self._safe_write(ws, start_row, 8, reviso.get('nombre', ''))
-            self._safe_write(ws, start_row + 1, 8, reviso.get('cargo', ''))
-            self._safe_write(ws, start_row + 2, 8, reviso.get('empresa', ''))
-            self._safe_write(ws, start_row, 18, aprobo.get('nombre', ''))
-            self._safe_write(ws, start_row + 1, 18, aprobo.get('cargo', ''))
-            self._safe_write(ws, start_row + 2, 18, aprobo.get('empresa', ''))
-
+        titulo = ws.title
+        ref = titulo if re.fullmatch(r'\w+', titulo) else f"'{titulo}'"
+        hojas = [self.ws_potenciales, self.ws_hallazgos, self.ws_aislamientos]
+        hojas += [self.wb[n] for n in ('Inspección DCVG', 'Resistividad') if n in self.wb.sheetnames]
+        for hoja in hojas:
+            if hoja is None or hoja is ws:
+                continue
+            b2 = self._bloque_firmas(hoja, desde=12)
+            for rol in self._ROLES_FIRMA:
+                if rol not in bloque or rol not in b2:
+                    continue
+                (ri, ci), (r2, c2) = bloque[rol], b2[rol]
+                for k in range(3):
+                    self._safe_write(hoja, r2 + k, c2,
+                                     f"={ref}!{get_column_letter(ci)}{ri + k}")
 
     def fill_aislamientos(self, aislamientos: list):
-        """Fill Aislamientos data table starting at row 13"""
+        """Hoja Aislamientos: una junta por fila desde la primera fila de
+        datos (encabezado de dos filas bajo 'ÍTEM'). La plantilla trae pocas
+        filas antes del bloque de firmas (5 en PAP, 19 en CIPS); si no caben
+        se BAJA el bloque (como en Potenciales PAP), nunca insert_rows, que no
+        corre las celdas combinadas. Acepta los nombres de campo del lector
+        (numero_pernos, latitud…) y los del adaptador (num_pernos, lat…)."""
         ws = self.ws_aislamientos
-        if not ws or not aislamientos:
+        if not ws:
             return
-            
-        for i, a in enumerate(aislamientos):
-            row = 13 + i
-            if i > 0:
-                ws.insert_rows(row)
-                self._copy_row_style(ws, 13, row, 1, 22)
-                
-            self._safe_write(ws, row, 1, i + 1)                              # A - ÍTEM
-            self._safe_write(ws, row, 2, a.get('abscisado', ''))              # B - ABSCISADO
-            self._safe_write(ws, row, 3, a.get('tag', ''))                    # C - TAG
-            self._safe_write(ws, row, 4, a.get('clase', ''))                  # D - CLASS
-            self._safe_write(ws, row, 5, a.get('diametro', ''))               # E - DIÁMETRO NOMINAL
-            self._safe_write(ws, row, 6, a.get('presion', ''))                # F - PRESIÓN
-            self._safe_write(ws, row, 7, a.get('temperatura', ''))            # G - TEMPERATURA
-            self._safe_write(ws, row, 8, a.get('tipo_brida', ''))             # H - TIPO DE BRIDA
-            self._safe_write(ws, row, 9, a.get('numero_pernos', ''))          # I - NÚMERO DE PERNOS
-            self._safe_write(ws, row, 10, a.get('diametro_pernos', ''))       # J - DIÁMETRO DE PERNOS
-            self._safe_write(ws, row, 11, a.get('tipo_aislamiento', ''))      # K - TIPO DE AISLAMIENTO
-            self._safe_write(ws, row, 12, a.get('porcentaje_aislamiento', '')) # L - % AISLAMIENTO
-            self._safe_write(ws, row, 13, a.get('pot_on_arriba', ''))         # M - AGUAS ARRIBA POT ON
-            self._safe_write(ws, row, 14, a.get('pot_off_arriba', ''))        # N - AGUAS ARRIBA POT OFF
-            self._safe_write(ws, row, 15, a.get('pot_on_abajo', ''))          # O - AGUAS ABAJO POT ON
-            self._safe_write(ws, row, 16, a.get('pot_off_abajo', ''))         # P - AGUAS ABAJO POT OFF
-            self._safe_write(ws, row, 17, a.get('diferencia', ''))            # Q - DIFERENCIA
-            self._safe_write(ws, row, 18, "")                                 # R - DIFERENCIA INSTANT OFF
-            self._safe_write(ws, row, 19, corregir_campo(a.get('diagnostico', '')))  # S - DIAGNÓSTICO
-            self._safe_write(ws, row, 20, a.get('latitud', ''))               # T - LATITUD
-            self._safe_write(ws, row, 21, a.get('longitud', ''))              # U - LONGITUD
-            self._safe_write(ws, row, 22, corregir_campo(a.get('observaciones', '')))  # V - OBSERVACIONES
+        aislamientos = list(aislamientos or [])
 
+        fila_item = next((r for r in range(1, 20)
+                          if self._etiqueta(ws.cell(row=r, column=1).value).startswith('item')), 11)
+        inicio = fila_item + 2
+        bloque = min((m.min_row for m in ws.merged_cells.ranges if m.min_row >= inicio),
+                     default=ws.max_row + 1)
+        capacidad = bloque - inicio
+        if len(aislamientos) > capacidad:
+            extra = len(aislamientos) - capacidad
+            self._bajar_bloque(ws, bloque, extra)
+            for r in range(bloque, bloque + extra):
+                self._copy_row_style(ws, inicio, r, 1, 22)
+            bloque += extra
+
+        def g(a, *claves, default=''):
+            for k in claves:
+                if a.get(k) not in (None, ''):
+                    return a[k]
+            return default
+
+        for i, a in enumerate(aislamientos):
+            row = inicio + i
+            self._safe_write(ws, row, 1, i + 1)                                   # A ÍTEM
+            self._safe_write(ws, row, 2, g(a, 'abscisa_val', 'abscisado'))        # B ABSCISADO
+            self._safe_write(ws, row, 3, g(a, 'tag'))                             # C TAG
+            self._safe_write(ws, row, 4, g(a, 'clase'))                           # D CLASS
+            self._safe_write(ws, row, 5, g(a, 'diametro'))                        # E DIÁMETRO
+            self._safe_write(ws, row, 6, g(a, 'presion'))                         # F PRESIÓN
+            self._safe_write(ws, row, 7, g(a, 'temperatura'))                     # G TEMPERATURA
+            self._safe_write(ws, row, 8, g(a, 'tipo_brida'))                      # H TIPO DE BRIDA
+            self._safe_write(ws, row, 9, g(a, 'numero_pernos', 'num_pernos'))     # I N° PERNOS
+            self._safe_write(ws, row, 10, g(a, 'diametro_pernos', 'diam_pernos')) # J DIÁM. PERNOS
+            self._safe_write(ws, row, 11, g(a, 'tipo_aislamiento'))               # K TIPO AISLAMIENTO
+            self._safe_write(ws, row, 12, g(a, 'porcentaje_aislamiento', 'pct_aislamiento'))  # L %
+            self._safe_write(ws, row, 13, g(a, 'pot_on_arriba'))                  # M ARRIBA ON
+            self._safe_write(ws, row, 14, g(a, 'pot_off_arriba'))                 # N ARRIBA OFF
+            self._safe_write(ws, row, 15, g(a, 'pot_on_abajo'))                   # O ABAJO ON
+            self._safe_write(ws, row, 16, g(a, 'pot_off_abajo'))                  # P ABAJO OFF
+            self._safe_write(ws, row, 17, g(a, 'diferencia', 'dif_on'))           # Q DIFERENCIA ON
+            self._safe_write(ws, row, 18, g(a, 'diferencia_off', 'dif_off'))      # R DIFERENCIA OFF
+            self._safe_write(ws, row, 19, corregir_campo(g(a, 'diagnostico')))    # S DIAGNÓSTICO
+            self._safe_write(ws, row, 20, g(a, 'latitud', 'lat'))                 # T LATITUD
+            self._safe_write(ws, row, 21, g(a, 'longitud', 'lon'))                # U LONGITUD
+            self._safe_write(ws, row, 22, corregir_campo(g(a, 'observaciones')))  # V OBSERVACIONES
+
+        # Filas sobrantes limpias (por si la plantilla traía ejemplo).
+        for r in range(inicio + len(aislamientos), bloque):
+            for c in range(1, 23):
+                self._safe_write(ws, r, c, '')
 
     def fill_comentario_huella(self, comentario: str):
         """Fill oscilloscopic footprint comment in Informe row 74"""

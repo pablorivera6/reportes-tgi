@@ -228,6 +228,8 @@ class WorkerThread(QThread):
                 gen.fill_hallazgos(hall, self.app_data['info'])
                 gen.fill_conclusiones(self.app_data.get('conclusiones', []))
                 gen.fill_recomendaciones(self.app_data.get('recomendaciones', []))
+                _f = self.app_data.get('firmas', {})
+                gen.fill_firmas(_f.get('elaboro', {}), _f.get('reviso', {}), _f.get('aprobo', {}))
                 self.progress.emit(90)
                 self.status.emit("Guardando informe DCVG...")
                 gen.save(self.output_path)

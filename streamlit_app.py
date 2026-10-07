@@ -1421,6 +1421,8 @@ with tabs[7]:
                 gen.fill_hallazgos(hall, info)
                 gen.fill_conclusiones(data['conclusiones'])
                 gen.fill_recomendaciones(data['recomendaciones'])
+                gen.fill_firmas(FIRMAS_FIJAS['elaboro'], FIRMAS_FIJAS['reviso'],
+                                FIRMAS_FIJAS['aprobo'])
                 tmpd = tempfile.mkdtemp(prefix="tgi_out_")
                 nombre = nombres.nombre_archivo(info, revision=_revision_actual())
                 out = os.path.join(tmpd, nombre)
