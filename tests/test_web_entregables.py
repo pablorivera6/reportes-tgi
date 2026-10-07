@@ -106,7 +106,9 @@ def test_autollenar_con_prefijo_ramal():
     assert info.get("gasoducto") == "Mariquita-Cali"
     assert info.get("tipo_ducto") == "Ramal"
     assert info.get("diametro")
-    assert info.get("tipo_recubrimiento")
+    # la tabla trae 'En validación' para este ramal: el campo queda vacío para
+    # que el ingeniero lo escriba, nunca sale 'En validación' en el informe
+    assert not info.get("tipo_recubrimiento")
 
 
 def test_autollenar_trae_la_ot_del_tipo_de_inspeccion():

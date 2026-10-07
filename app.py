@@ -935,67 +935,28 @@ class AppWindow(QMainWindow):
 
     # --- Actions ---
     def autofill_from_infrastructure(self, tramo_name):
-        import pandas as pd
-        import sys
-        
-        # Determinar la ruta base (si es un ejecutable o script)
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.dirname(os.path.abspath(__file__))
-            
-        infra_file = os.path.join(base_path, 'Infraestrutura TGI.xlsx')
-        # También buscar en el directorio de ejecución actual por si acaso
-        if not os.path.exists(infra_file):
-            infra_file = 'Infraestrutura TGI.xlsx'
-            
-        if not os.path.exists(infra_file):
-            print(f"No se encontro archivo infraestructura en {base_path}")
-            return
-        
+        """Gasoducto, diámetro, recubrimiento y tipo de ducto del tramo, con la
+        misma lógica que la app web (`datos_tramo`): comparación exacta del
+        nombre (no `contains`) y sin el 'En validación' de la tabla como
+        recubrimiento."""
         try:
-            df = pd.read_excel(infra_file, header=1)
-            if 'GASODUCTO.1' in df.columns:
-                df['GASODUCTO.1'] = df['GASODUCTO.1'].ffill()
-                
-            if 'TRAMOS' not in df.columns:
-                return
-                
-            df = df.dropna(subset=['TRAMOS'])
-            matches = df[df['TRAMOS'].astype(str).str.contains(tramo_name, case=False, na=False)]
-            
-            if not matches.empty:
-                row = matches.iloc[0]
-                
-                # Verificar coincidencia exacta si es posible
-                exact_matches = df[df['TRAMOS'].astype(str).str.lower() == tramo_name.lower()]
-                if not exact_matches.empty:
-                    row = exact_matches.iloc[0]
-                
-                # Obtener GASODUCTO
-                gasoducto_val = None
-                if 'GASODUCTO.1' in row and pd.notna(row['GASODUCTO.1']):
-                    gasoducto_val = row['GASODUCTO.1']
-                elif 'GASODUCTO' in row and pd.notna(row['GASODUCTO']):
-                    gasoducto_val = row['GASODUCTO']
-                    
-                if gasoducto_val:
-                    self.fields['gasoducto'].setText(str(gasoducto_val))
-                
-                # Obtener Diámetro
-                diam_cols = [c for c in df.columns if 'Di' in str(c) and 'metro' in str(c)]
-                if not diam_cols: diam_cols = [c for c in df.columns if 'pulg' in str(c).lower()]
-                if diam_cols and pd.notna(row[diam_cols[0]]):
-                    self.fields['diametro'].setText(str(row[diam_cols[0]]))
-                
-                # Obtener Recubrimiento
-                if 'Recubrimiento' in row and pd.notna(row['Recubrimiento']):
-                    self.fields['tipo_recubrimiento'].setText(str(row['Recubrimiento']))
-                    
-                # Obtener Tipo Ducto
-                if 'Tipo' in row and pd.notna(row['Tipo']):
-                    if not self.fields['tipo_ducto'].text():
-                        self.fields['tipo_ducto'].setText(str(row['Tipo']))
+            import datos_tramo
+            d = datos_tramo.info_de_infraestructura(tramo_name)
+            if d.get('gasoducto'):
+                self.fields['gasoducto'].setText(str(d['gasoducto']))
+            if d.get('diametro'):
+                self.fields['diametro'].setText(str(d['diametro']))
+            if d.get('tipo_recubrimiento'):
+                self.fields['tipo_recubrimiento'].setText(str(d['tipo_recubrimiento']))
+            elif d:
+                # tramo conocido pero sin recubrimiento confirmado ('En validación'
+                # en la tabla): avisar y dejar que el ingeniero lo escriba.
+                self.fields['tipo_recubrimiento'].setPlaceholderText(
+                    "FALTA: sin dato confirmado, escríbelo a mano")
+                if hasattr(self, 'lbl_status'):
+                    self.lbl_status.setText("Falta el tipo de recubrimiento de este tramo: escríbelo a mano.")
+            if d.get('tipo_ducto') and not self.fields['tipo_ducto'].text():
+                self.fields['tipo_ducto'].setText(str(d['tipo_ducto']))
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error cargando base de datos: {str(e)}")
 

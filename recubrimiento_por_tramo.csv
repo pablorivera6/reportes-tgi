@@ -1,0 +1,49 @@
+# Recubrimiento REAL de los tramos que `Infraestrutura TGI.xlsx` tiene como
+# 'En validación' (los 39 ramales de Mariquita-Cali). Sin este archivo el
+# informe salía con 'En validación' como tipo de recubrimiento.
+#
+# Columnas: tramo · recubrimiento (FBE, Tricapa, Alquitran de Hulla, Epoxico,
+#           Alquitran de Hulla - Epoxico, Cintas...) · fuente (de dónde salió).
+# Una fila con recubrimiento VACÍO es solo un pendiente: el generador deja el
+# campo en blanco para que el ingeniero lo escriba. El tramo se compara sin
+# tildes y sin el 'Ramal'/'PK ...' del final, así que basta con el nombre.
+tramo,recubrimiento,fuente
+Ansermanuevo,,
+Armenia,,
+Balboa,,
+Calarcá,,
+Chinchiná,,
+Fresno,,
+Herveo,,
+La Celia,,
+La Tebaida,,
+La Virginia,,
+Manizales,,
+Manzanares,,
+Marsella,,
+Montenegro,,
+Neira,,
+Palestina,,
+Pereira,,
+Quimbaya,,
+Salento,,
+Santa Rosa de Cabal,,
+Villamaría,,
+Andalucía,,
+Buga,,
+Bugalagrande,,
+Caicedonia,,
+Cartago,,
+El Cerrito,,
+Florida,,
+Ginebra,,
+Guacarí,,
+Jamundí,,
+La Paila,,
+Obando,,
+Pradera,,
+Roldanillo,,
+San Pedro,,
+Sevilla,,
+Tuluá,,
+Zarzal,,

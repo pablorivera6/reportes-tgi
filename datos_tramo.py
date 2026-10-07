@@ -26,6 +26,12 @@ from nombres import mismo_tramo
 ARCHIVO_INFRA = 'Infraestrutura TGI.xlsx'
 ARCHIVO_OT = 'consolidado OT.xlsx'
 ARCHIVO_OT_TIPO = 'ot_por_tipo.csv'
+ARCHIVO_RECUBRIMIENTO = 'recubrimiento_por_tramo.csv'
+
+#: Valores de la columna Recubrimiento de `Infraestrutura TGI.xlsx` que NO son
+#: un recubrimiento: los 39 ramales de Mariquita-Cali (los que inspecciona PCC)
+#: traen 'En validación' y salía tal cual en el informe.
+_SIN_RECUBRIMIENTO = ('', 'nan', 'none', 'recubrimiento', 'en validacion', 'n/a', 'na', '-')
 
 #: Número del contrato PCC Integrity ↔ TGI. Va en la carátula del informe y en
 #: el nombre del archivo/ZIP. El FastField trae 'Cliente' (= 'TGI'), que NO es
@@ -86,14 +92,55 @@ def info_de_infraestructura(tramo):
     gas = _texto(fila.get('GASODUCTO.1')) or _texto(fila.get('GASODUCTO'))
     if gas:
         out['gasoducto'] = gas
-    for col, clave in (('Tipo', 'tipo_ducto'), ('Recubrimiento', 'tipo_recubrimiento')):
-        if col in fila and _texto(fila[col]):
-            out[clave] = _texto(fila[col])
+    if 'Tipo' in fila and _texto(fila['Tipo']):
+        out['tipo_ducto'] = _texto(fila['Tipo'])
+    rec = recubrimiento_de(tramo, fila.get('Recubrimiento') if 'Recubrimiento' in fila else None)
+    if rec:
+        out['tipo_recubrimiento'] = rec
     diam = next((c for c in df.columns
                  if 'pulg' in str(c).lower() or ('Di' in str(c) and 'metro' in str(c))), None)
     if diam and _texto(fila[diam]):
         out['diametro'] = _texto(fila[diam])
     return out
+
+
+def _norm(v):
+    """Texto comparable: sin tildes, minúsculas, sin espacios de más."""
+    import unicodedata
+    t = ''.join(c for c in unicodedata.normalize('NFD', _texto(v)) if unicodedata.category(c) != 'Mn')
+    return ' '.join(t.lower().split())
+
+
+def _recubrimiento_por_tramo():
+    """Filas de `recubrimiento_por_tramo.csv`: el recubrimiento real de los
+    tramos que la tabla de infraestructura tiene 'En validación'. Las filas con
+    recubrimiento vacío son solo la lista de pendientes y no cuentan."""
+    if 'recubrimiento' not in _cache:
+        filas = {}
+        ruta = resource_path(ARCHIVO_RECUBRIMIENTO)
+        try:
+            with open(ruta, encoding='utf-8') as f:
+                lineas = [ln for ln in f if not ln.lstrip().startswith('#')]
+            for r in csv.DictReader(lineas):
+                tramo = (r.get('tramo') or '').strip()
+                rec = (r.get('recubrimiento') or '').strip()
+                if tramo and rec and _norm(rec) not in _SIN_RECUBRIMIENTO:
+                    filas[tramo] = rec
+        except Exception:
+            filas = {}
+        _cache['recubrimiento'] = filas
+    return _cache['recubrimiento']
+
+
+def recubrimiento_de(tramo, valor_tabla=None):
+    """Recubrimiento del tramo: primero el CSV de correcciones; si no, el de
+    la tabla de infraestructura salvo que sea un marcador ('En validación')."""
+    for t, rec in _recubrimiento_por_tramo().items():
+        if mismo_tramo(tramo, t):
+            return rec
+    if _norm(valor_tabla) in _SIN_RECUBRIMIENTO:
+        return None
+    return _texto(valor_tabla)
 
 
 def _ot_por_tipo():

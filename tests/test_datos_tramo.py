@@ -61,7 +61,8 @@ def test_infraestructura_con_prefijo_ramal():
     assert d.get("gasoducto") == "Mariquita-Cali"
     assert d.get("tipo_ducto") == "Ramal"
     assert d.get("diametro")
-    assert d.get("tipo_recubrimiento")
+    # la tabla dice 'En validación': eso NO es un recubrimiento (ver abajo)
+    assert d.get("tipo_recubrimiento") != "En validación"
 
 
 def test_infraestructura_sin_prefijo_sigue_funcionando():
@@ -200,3 +201,36 @@ def test_forzar_vuelve_a_automatico():
 def test_sin_manuales_se_aplica_todo():
     aplicar, manuales = datos_tramo.filtrar_autollenado({"ot": "1"}, manuales=None)
     assert aplicar == {"ot": "1"} and manuales == set()
+
+
+# ── Recubrimiento: 'En validación' no es un recubrimiento ────────────────────
+# `Infraestrutura TGI.xlsx` tiene 'En validación' en los 39 ramales de
+# Mariquita-Cali y el informe salía con eso como tipo de recubrimiento.
+
+def test_en_validacion_no_se_autollena():
+    for tramo in ("Ramal Salento", "Ansermanuevo", "Pereira", "Zarzal"):
+        d = datos_tramo.info_de_infraestructura(tramo)
+        assert d.get("gasoducto") == "Mariquita-Cali", tramo
+        assert "tipo_recubrimiento" not in d, tramo
+
+
+def test_recubrimiento_real_de_la_tabla_sigue_saliendo():
+    assert datos_tramo.info_de_infraestructura("Norean - San Alberto").get("tipo_recubrimiento") == "FBE"
+    assert datos_tramo.info_de_infraestructura("María Conchita").get("tipo_recubrimiento") == "Tricapa"
+
+
+def test_csv_de_recubrimientos_manda(monkeypatch):
+    monkeypatch.setitem(datos_tramo._cache, 'recubrimiento', {"Salento": "FBE", "Pereira": "Tricapa"})
+    assert datos_tramo.info_de_infraestructura("Ramal Salento").get("tipo_recubrimiento") == "FBE"
+    assert datos_tramo.info_de_infraestructura("Pereira").get("tipo_recubrimiento") == "Tricapa"
+    assert "tipo_recubrimiento" not in datos_tramo.info_de_infraestructura("Zarzal")
+
+
+def test_csv_con_recubrimiento_vacio_es_solo_pendiente():
+    """El archivo que viaja en el repo lista los 39 tramos con el valor vacío:
+    no debe devolver '' ni 'En validación'."""
+    datos_tramo._cache.pop('recubrimiento', None)
+    filas = datos_tramo._recubrimiento_por_tramo()
+    assert all(v for v in filas.values())
+    assert datos_tramo.recubrimiento_de("Salento", "En validación") is None
+    assert datos_tramo.recubrimiento_de("Salento", "FBE") == "FBE"
