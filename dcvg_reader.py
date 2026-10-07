@@ -349,3 +349,56 @@ def leer_resistividades_fastfield(ruta):
                     "r1": _num(v("r1")), "r2": _num(v("r2")), "r3": _num(v("r3"))})
     wb.close()
     return out
+
+
+# ── Inspección visual (interfases, derivaciones, citygates) ───────────────────
+# En DCVG, cada interfase tierra-aire, derivación o citygate del recorrido debe
+# llevar su descripción de inspección visual en las OBSERVACIONES del informe
+# (la escribe el ingeniero). La app solo AVISA cuáles hay; no toca el informe.
+_RE_VISUAL = re.compile(
+    r"interfa[sc]e|tierra\s*-?\s*aire|aire\s*-?\s*tierra|a[eé]re[oa]|"
+    r"derivaci[oó]n|city\s*-?\s*gate|estaci[oó]n de regulaci[oó]n|\bERM\b",
+    re.IGNORECASE)
+
+
+def puntos_inspeccion_visual(hallazgos, defectos=None):
+    """[(abscisa_m, texto)] de los hallazgos/defectos DCVG que piden inspección
+    visual: interfases tierra-aire (tramos aéreos), derivaciones y citygates.
+    Ordenados por abscisa y sin repetir el mismo texto en la misma abscisa."""
+    vistos, out = set(), []
+    for h in list(hallazgos or []) + list(defectos or []):
+        texto = str(h.get("observaciones") or h.get("referencia") or h.get("descripcion")
+                    or h.get("comentarios") or h.get("tipo") or "").strip()
+        if not texto or texto.lower() == "nan" or not _RE_VISUAL.search(texto):
+            continue
+        absc = h.get("abscisa_val") if h.get("abscisa_val") is not None else h.get("pk_m")
+        clave = (absc, texto.lower())
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        out.append((absc, texto))
+    return sorted(out, key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0))
+
+
+def defectos_sin_severidad(postes, defectos):
+    """[(pk_m, motivo)] de las indicaciones DCVG que quedarán SIN %IR en el
+    informe (y por tanto fuera de la gráfica): sin PK, sin OL/RE, sin carácter
+    (AA/CA/CC: la severidad se escribe en la columna del carácter) o sin
+    postes con pulso ON-OFF real para interpolar el P/RE. Para que la gráfica
+    y las observaciones cuenten lo mismo, el ingeniero debe completar el dato."""
+    from db import _severidad_dcvg
+    sev = _severidad_dcvg(postes or [], defectos or [])
+    out = []
+    for d, s in zip(defectos or [], sev):
+        motivos = []
+        if d.get("pk_m") is None:
+            motivos.append("sin PK (abscisa)")
+        if d.get("ol_re") is None:
+            motivos.append("sin OL/RE")
+        if str(d.get("caracter") or "").strip().upper() not in ("AA", "CA", "CC"):
+            motivos.append("sin carácter AA/CA/CC")
+        if s.get("p_re") in (None, 0):
+            motivos.append("sin postes con pulso ON-OFF alrededor (P/RE)")
+        if motivos:
+            out.append((d.get("pk_m"), "; ".join(motivos)))
+    return out

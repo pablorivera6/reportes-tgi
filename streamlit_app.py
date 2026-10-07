@@ -548,6 +548,39 @@ def autocargar_carga(cg):
     return msgs, avisos
 
 
+def _aviso_inspeccion_visual():
+    """DCVG: si el recorrido tiene interfases tierra-aire, derivaciones o
+    citygates, el informe debe llevar su inspección visual descrita en las
+    OBSERVACIONES. Solo se avisa (no se escribe nada en el informe)."""
+    from dcvg_reader import puntos_inspeccion_visual
+    from conclusions import _k
+    puntos = puntos_inspeccion_visual(data.get('dcvg_hallazgos') or [],
+                                      data.get('dcvg_defectos') or [])
+    if not puntos:
+        return
+    lineas = "\n".join(f"- {_k(a) if a is not None else 'sin abscisa'}: {t}" for a, t in puntos[:15])
+    extra = f"\n- … y {len(puntos) - 15} más" if len(puntos) > 15 else ""
+    st.warning(f"**Inspección visual pendiente ({len(puntos)}).** El recorrido tiene "
+               f"interfases, derivaciones o citygates: cada una debe llevar la descripción de su "
+               f"inspección visual en las OBSERVACIONES del informe (lo escribe el ingeniero).\n"
+               f"{lineas}{extra}")
+
+
+def _aviso_sin_severidad():
+    """DCVG: indicaciones que quedarán sin %IR (fuera de la gráfica) y por qué.
+    Si no se completa el dato, la gráfica muestra menos defectos que las
+    observaciones (observación del revisor)."""
+    from dcvg_reader import defectos_sin_severidad
+    from conclusions import _k
+    faltan = defectos_sin_severidad(data.get('dcvg_postes') or [], data.get('dcvg_defectos') or [])
+    if not faltan:
+        return
+    lineas = "\n".join(f"- {_k(pk) if pk is not None else 'sin PK'}: {m}" for pk, m in faltan[:15])
+    extra = f"\n- … y {len(faltan) - 15} más" if len(faltan) > 15 else ""
+    st.warning(f"**{len(faltan)} indicación(es) quedarán sin %IR** y no saldrán en la gráfica DCVG, "
+               f"mientras las observaciones sí las cuentan. Completa el dato que falta:\n{lineas}{extra}")
+
+
 def _construir_kmz_sesion():
     """(kmz_bytes, motivo) de la inspección en memoria. La lógica vive en
     `entrega.kmz_de_inspeccion` para poder probarla; aquí solo se pasa la data
@@ -1126,6 +1159,8 @@ with tabs[1]:
         if st.session_state.get("flash_dcvg"):
             st.success(st.session_state.flash_dcvg)
             st.session_state.flash_dcvg = None
+        _aviso_inspeccion_visual()
+        _aviso_sin_severidad()
         dcvg_ff = st.file_uploader("FastField DCVG", type=["xlsx"],
                                    accept_multiple_files=True, key="up_dcvg")
         resist_ff = st.file_uploader("FastField Resistividades", type=["xlsx"],
@@ -1334,6 +1369,9 @@ with tabs[7]:
         st.warning("**Falta el tipo de recubrimiento.** No hay dato confirmado para este tramo: "
                    "escríbelo en Datos Generales antes de generar (el informe saldría con la "
                    "casilla vacía).")
+    if (data['info'].get('tipo_inspeccion') or '') == 'DCVG':
+        _aviso_inspeccion_visual()
+        _aviso_sin_severidad()
     if not _hay_datos:
         st.info("Carga FASTFIELD, CIPS o DCVG antes de generar.")
     if st.button("Generar informe", type="primary", disabled=not _hay_datos,
