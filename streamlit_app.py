@@ -588,11 +588,12 @@ def _armar_paquete_entrega(codigo, kmz_bytes):
                                      informe=informe, ppm=ppm, kmz=kmz_bytes)
 
 
-# Etiquetas cortas y sin emoji: con 10 pasos, la tira se recortaba por debajo
+# Etiquetas cortas y sin emoji: con muchos pasos la tira se recortaba por debajo
 # de ~1440 px y escondia justamente "Generar". El tema ademas la deja envolver.
+# (Las pestañas "Insp. especiales" y "Aislamientos" se retiraron a pedido del
+# ingeniero: las inspecciones especiales quedan todas en "no realizadas".)
 tabs = st.tabs(["Datos generales", "Archivos", "Potenciales PAP", "CIPS",
-                "Hallazgos", "Rectificadores", "Insp. especiales", "Aislamientos",
-                "Conclusiones", "Generar"])
+                "Hallazgos", "Rectificadores", "Conclusiones", "Generar"])
 
 # Firmas fijas del informe (ya no se editan en la app; siempre son las mismas).
 # El informe las incluye siempre vía gen.fill_firmas(...).
@@ -656,6 +657,11 @@ with tabs[0]:
                                    use_container_width=True)
             _bb.caption("Escribe el Tramo y esto completa gasoducto, contrato, OT, "
                         "contratista, inspector, serial y calibración.")
+    if (data['info'].get('tramo') or '').strip() and not (data['info'].get('tipo_recubrimiento') or '').strip():
+        st.warning("**Tipo de recubrimiento sin dato.** La tabla de infraestructura lo tiene "
+                   "'En validación' para este tramo, así que no se autollena. Escríbelo aquí "
+                   "(se conserva) o agrégalo en `recubrimiento_por_tramo.csv` para que salga "
+                   "solo la próxima vez.")
     if _autofill:
         tramo = data['info'].get('tramo', '')
         if tramo.strip():
@@ -670,155 +676,13 @@ with tabs[0]:
 
 # ── Tab 2: Cargar Archivos ────────────────────────────────────────────────────
 with tabs[1]:
-    # ── Bandeja de entrada: envíos FastField + cargas de los técnicos ─────────
-    # Rendimiento: una sola consulta cacheada (45 s) y descargas por enlace
-    # firmado (nada de bajar bytes en cada rerun).
+    # La bandeja de cargas pendientes (técnicos → Supabase) se retiró: la data
+    # se carga a mano en "Carga manual". Queda la cola de rechazos del portal.
     if db.disponible(write=True):
-
-        @st.cache_data(ttl=45, show_spinner=False)
-        def _bandeja_datos():
-            errs = []
-            try:
-                cargas = db.listar_cargas("pendiente")
-            except Exception as e:
-                cargas = []
-                errs.append(f"cargas: {e}")
-            return cargas, errs
-
-        _cargas, _errs = _bandeja_datos()
-
-        _hb1, _hb2 = st.columns([5, 1.2], vertical_alignment="center")
-        _hb1.markdown(
-            "<h2 style='margin:0'>Bandeja de entrada</h2>"
-            + tema.chip(f"{len(_cargas)} cargas pendientes",
-                        "warn" if _cargas else "neu", punto=bool(_cargas)),
-            unsafe_allow_html=True)
-        if _hb2.button("Actualizar", key="bandeja_refresh", type="secondary",
-                       use_container_width=True,
-                       help="Vuelve a consultar las cargas de los técnicos"):
-            _bandeja_datos.clear()
-            st.rerun()
-        for _e in _errs:
-            st.caption(f"⚠️ {_e}")
         if st.session_state.get("flash_autocarga"):
             st.success(st.session_state.flash_autocarga)
             st.session_state.flash_autocarga = None
-        if not _cargas:
-            st.caption("Sin cargas pendientes por ahora.")
-
-        # — Cargas pendientes de los técnicos, agrupadas por tramo ———————
-        # Un informe suele unir varias cargas del MISMO tramo (CIPS + postes
-        # PAP + aislamientos...). Se agrupan por tramo normalizado y se pueden
-        # traer todas juntas con un clic.
         _ICONO_TIPO = {"CIPS": "📈", "PAP": "⚡", "DCVG": "🔎"}
-
-        def _tramo_norm(t):
-            t = str(t or "").strip()
-            t = re.sub(r"\s*\(.*?\)", "", t)                     # "(9+600)"
-            t = re.sub(r"\s*PK\s*[\d+ ]+.*$", "", t, flags=re.I)  # "PK 260+504"
-            t = re.sub(r"\s+", " ", t).strip().lower()
-            return t or "sin tramo"
-
-        _grupos = {}
-        for _cg in _cargas:
-            _grupos.setdefault(_tramo_norm(_cg.get('tramo')), []).append(_cg)
-
-        if _cargas:
-            tema.seccion(st, f"Cargas pendientes · {len(_grupos)} tramo(s)")
-
-        for _gk, _lista in _grupos.items():
-            _tipos = {}
-            for _c in _lista:
-                _t = _c.get('tipo') or '¿?'
-                _tipos[_t] = _tipos.get(_t, 0) + 1
-            _n_arch_g = sum(len(_c.get('archivos') or []) for _c in _lista)
-            # Cada tramo es una BARRA plegada: el encabezado alcanza para triar
-            # (tramo, tipos y volumen) y solo se despliega el que interesa. Con
-            # varios tramos la bandeja ocupaba miles de píxeles de scroll.
-            _resumen_g = " · ".join(f"{t} ×{n}" for t, n in sorted(_tipos.items()))
-            with st.expander(
-                    f"**{_lista[0].get('tramo') or '—'}**  —  {_resumen_g}"
-                    f" · {_n_arch_g} archivo(s)", expanded=False):
-                _ga, _gb = st.columns([4.2, 1.8], vertical_alignment="center")
-                _ga.caption(f"{len(_lista)} carga(s) en este tramo")
-                # Traer TODAS las cargas del tramo de una vez (informe unificado)
-                if len(_lista) > 1 and _gb.button(
-                        f"Traer TODO el tramo ({len(_lista)})",
-                        key=f"all_{_gk}", type="primary",
-                        use_container_width=True):
-                    with st.spinner(f"Trayendo {len(_lista)} cargas del tramo..."):
-                        _msgs_t, _avisos_t = [], []
-                        for _c in _lista:
-                            try:
-                                _m, _a = autocargar_carga(_c)
-                                _msgs_t += _m
-                                _avisos_t += _a
-                            except Exception as e:
-                                _avisos_t.append(f"{_c.get('tipo','')}: {e}")
-                        st.session_state.flash_autocarga = (
-                            f"Tramo {_lista[0].get('tramo','')}: "
-                            + (" · ".join(_msgs_t) if _msgs_t else "sin datos reconocidos")
-                            + ("  ⚠️ " + " ".join(_avisos_t) if _avisos_t else "")
-                            + "  Verifica el Tipo de Inspección en Datos "
-                              "Generales y ve a Generar.")
-                        st.rerun()
-
-                for _i, _cg in enumerate(_lista):
-                    if _i:
-                        st.divider()
-                    _arch = _cg.get('archivos') or []
-                    _cats = {}
-                    for _a in _arch:
-                        _c = _a.get('categoria') or 'otros'
-                        _cats[_c] = _cats.get(_c, 0) + 1
-                    _ca, _cb = st.columns([4.2, 1.8])
-                    _ca.markdown(
-                        tema.chip(_cg.get('tipo') or '—', "tipo")
-                        + f"&nbsp; {_cg.get('fecha') or '—'} &nbsp;·&nbsp; "
-                        + f"{_cg.get('tecnico') or '—'}"
-                        + ("&nbsp;·&nbsp; SharePoint ✓" if _cg.get('sharepoint_ok') else ""),
-                        unsafe_allow_html=True)
-                    if _cats:
-                        _ca.caption(" · ".join(
-                            f"{c} ×{n}" for c, n in sorted(_cats.items())))
-                    # Auto-carga: baja los archivos y los mete al pipeline solo
-                    if _cb.button("Traer y procesar", key=f"auto_{_cg['id']}",
-                                  type="primary", use_container_width=True):
-                        with st.spinner("Descargando y procesando la carga..."):
-                            try:
-                                msgs, avisos = autocargar_carga(_cg)
-                                resumen = (" · ".join(msgs) if msgs
-                                           else "sin datos reconocidos")
-                                st.session_state.flash_autocarga = (
-                                    f"Carga de {_cg.get('tramo','')} traída: {resumen}."
-                                    + ("  ⚠️ " + " ".join(avisos) if avisos else "")
-                                    + "  Revisa las pestañas y ve a Generar.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"No se pudo auto-cargar: {e}")
-                    # Saca la carga de la bandeja sin procesarla: también confirma.
-                    with _cb.popover("Marcar procesada", use_container_width=True):
-                        st.caption("La carga sale de la bandeja sin traerla a la app.")
-                        if st.button("Sí, marcar", key=f"proc_{_cg['id']}",
-                                     type="primary"):
-                            db.marcar_carga_procesada(_cg['id'])
-                            _bandeja_datos.clear()
-                            st.rerun()
-                    with _cb.popover("Archivos", use_container_width=True):
-                        _lk_key = f"links_{_cg['id']}"
-                        if st.button("Preparar enlaces de descarga",
-                                     key=f"lk_{_cg['id']}"):
-                            st.session_state[_lk_key] = [
-                                (_a.get('nombre'), db.url_descarga_carga(_a.get('path')))
-                                for _a in _arch]
-                        _links = st.session_state.get(_lk_key)
-                        if _links:
-                            for _n, _u in _links:
-                                st.markdown(f"- [{_n}]({_u})" if _u
-                                            else f"- {_n} (sin enlace)")
-                        else:
-                            for _a in _arch[:60]:
-                                st.caption(f"[{_a.get('categoria')}] {_a.get('nombre')}")
 
         # — Rechazos por corregir ————————————————————————————————————
         # Un informe rechazado en el portal vuelve aquí con sus observaciones.
@@ -924,7 +788,7 @@ with tabs[1]:
                             key=f"inc_{_r['id']}"):
                         db.marcar_carga_incompleta(_r["carga_id"], _msg)
                         _rechazos_datos.clear()
-                        _bandeja_datos.clear()
+                        _rechazos_datos.clear()
                         st.success("Carga marcada; vuelve a aparecer como pendiente.")
                         st.rerun()
 
@@ -1250,16 +1114,6 @@ with tabs[1]:
             except Exception as e:
                 st.error(f"Error cargando rectificadores: {e}")
 
-        st.divider()
-        st.markdown("**Aislamientos (Excel FastField)** · opcional")
-        ais = st.file_uploader("Excel Aislamientos FastField", type=["xlsx"],
-                               accept_multiple_files=True, key="up_ais")
-        if ais and st.button("Procesar aislamientos"):
-            try:
-                data['aislamientos'] = AislamientoReader().read_files(_tmp_files(ais))
-                st.success(f"{len(data['aislamientos'])} aislamientos cargados.")
-            except Exception as e:
-                st.error(f"Error cargando aislamientos: {e}")
 
     with sub_dcvg:
         st.caption(f"En memoria: {len(data['dcvg_postes'])} postes · "
@@ -1412,24 +1266,7 @@ with tabs[5]:
     else:
         st.info("Aún no hay rectificadores.")
 
-with tabs[6]:
-    st.write("Marca las inspecciones especiales realizadas:")
-    for key, label in [('marco_h', 'Marco H'), ('ce', 'Cruces Encamisados'),
-                       ('anodos', 'Ánodos'), ('cupones_ir', 'Cupones IR FREE'),
-                       ('cupones_grav', 'Cupones Gravimétricos'), ('pe', 'Puentes Eléctricos')]:
-        st.session_state.active_inspections[key] = st.checkbox(
-            label, value=st.session_state.active_inspections[key], key=f"chk_{key}")
-
-with tabs[7]:
-    if data['aislamientos']:
-        st.dataframe(pd.DataFrame(data['aislamientos'])[
-            ['abscisado', 'tag', 'clase', 'diametro', 'tipo_brida',
-             'pot_on_arriba', 'pot_off_arriba', 'diagnostico']],
-            use_container_width=True, height=420)
-    else:
-        st.info("Aún no hay aislamientos.")
-
-# ── Tab 9: Conclusiones ───────────────────────────────────────────────────────
+# ── Tab 7: Conclusiones ───────────────────────────────────────────────────────
 def _conclusiones_base():
     """Conclusiones y recomendaciones BASE del tipo de inspección actual, con
     SOLO la data de esa técnica (un DCVG no mira los potenciales PAP que hayan
@@ -1462,7 +1299,7 @@ def _conclusiones_base():
             "\n\n".join(cg.generar_recomendaciones()))
 
 
-with tabs[8]:
+with tabs[6]:
     tema.seccion(st, f"Conclusiones base · {data['info'].get('tipo_inspeccion') or 'PAP'}")
     st.caption("La base la escribe el generador con la data del tipo de inspección "
                "actual y se actualiza sola mientras no la edites. Lo que corrijas a mano "
@@ -1485,14 +1322,18 @@ with tabs[8]:
     data['conclusiones'] = [p.strip() for p in conc.split('\n\n') if p.strip()]
     data['recomendaciones'] = [p.strip() for p in reco.split('\n\n') if p.strip()]
 
-# ── Tab 10: Generar ───────────────────────────────────────────────────────────
-with tabs[9]:
+# ── Tab 8: Generar ───────────────────────────────────────────────────────────
+with tabs[7]:
     tema.seccion(st, "Generar el informe")
     if st.session_state.get("flash_generar"):
         st.success(st.session_state.flash_generar)
         st.session_state.flash_generar = None
     _hay_datos = bool(data['potenciales'] or data['cips'] or data['dcvg_defectos']
                       or data['dcvg_postes'])
+    if (data['info'].get('tramo') or '').strip() and not (data['info'].get('tipo_recubrimiento') or '').strip():
+        st.warning("**Falta el tipo de recubrimiento.** No hay dato confirmado para este tramo: "
+                   "escríbelo en Datos Generales antes de generar (el informe saldría con la "
+                   "casilla vacía).")
     if not _hay_datos:
         st.info("Carga FASTFIELD, CIPS o DCVG antes de generar.")
     if st.button("Generar informe", type="primary", disabled=not _hay_datos,

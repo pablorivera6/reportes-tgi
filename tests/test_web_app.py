@@ -32,8 +32,10 @@ def test_estado_inicial():
 # Etiquetas cortas y sin emoji: con las largas la tira de 10 pasos se recortaba
 # por debajo de ~1440 px y escondia el paso final ("Generar").
 ETIQUETAS_TABS = ["Datos generales", "Archivos", "Potenciales PAP", "CIPS",
-                  "Hallazgos", "Rectificadores", "Insp. especiales",
-                  "Aislamientos", "Conclusiones", "Generar"]
+                  "Hallazgos", "Rectificadores", "Conclusiones", "Generar"]
+# Retiradas a pedido del ingeniero (2026-10): "Insp. especiales", "Aislamientos"
+# y la bandeja de cargas pendientes (la data se carga a mano).
+TABS_RETIRADAS = ["Insp. especiales", "Aislamientos"]
 
 
 def test_tabs_y_boton_generar():
@@ -43,6 +45,8 @@ def test_tabs_y_boton_generar():
     etiquetas = [str(t.label) for t in at.tabs]
     faltan = [e for e in ETIQUETAS_TABS if e not in etiquetas]
     assert not faltan, f"faltan pestañas: {faltan}"
+    sobran = [e for e in TABS_RETIRADAS if e in etiquetas]
+    assert not sobran, f"pestañas retiradas que siguen: {sobran}"
     # El botón que genera el informe existe y, sin data, está deshabilitado.
     # (Filtrar por "generar" a secas atrapa también "Auto-generar conclusiones".)
     botones = [b for b in at.button
