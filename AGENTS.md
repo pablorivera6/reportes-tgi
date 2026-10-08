@@ -187,7 +187,9 @@ corrosividad ya vienen en la plantilla.
 
 **Gráficas** (`fill_graficas_dcvg`): recorta series a las N filas. En GRAFICA
 DCVG la severidad es **porcentaje**: criterios en **fracción (0.15/0.35/0.60)**
-en D39:G40, eje Y formato `0%`, extremos de abscisa (D39/D40) al rango real.
+en D39:G40, eje Y formato `0%` **fijo de 0 a 100 %** (mín 0, máx 1,0, unidades
+0,1/0,02; la plantilla traía 0..100 de cuando iba en porcentaje y con la
+fracción el eje llegaba al 10000 %), extremos de abscisa (D39/D40) al rango real.
 
 **Sin hojas por rango (decisión del ingeniero, 2026-10):** el informe DCVG lleva
 SOLO dos gráficas, la general de defectos (GRAFICA DCVG) y la de resistividades
