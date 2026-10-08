@@ -43,9 +43,10 @@ def test_el_estado_va_en_el_nombre_del_punto():
     assert "· Protegido</name>" in kml
 
 
-def test_la_traza_se_conserva():
+def test_sin_linea_recta_entre_postes():
+    # la 'Traza' por postes se quitó: con PK desordenados cruzaba el mapa
     _n, kml = _partes(_kmz(cp_puntos=CP))
-    assert "<LineString>" in kml
+    assert "<LineString>" not in kml
 
 
 def test_sigue_sin_depender_de_internet():

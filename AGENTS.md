@@ -535,7 +535,11 @@ app y procesar"** (auto-carga: baja de Supabase y enruta por los readers;
   es_poste_cips` = marcador 'pk N+000' o comentario con 'poste') + hallazgos +
   **traza simplificada** (`entrega.traza_simplificada`, un vértice cada 25 m y
   máx. 3000). NUNCA un placemark por lectura: con ~100.000 puntos el archivo era
-  inmanejable.
+  inmanejable. **La traza va SOLO cuando sale del GPS real del survey (CIPS).**
+  En PAP y DCVG no se dibuja ninguna línea: antes se unían los postes con
+  segmentos rectos por abscisa y, con PK desordenados o repetidos (Marsella),
+  la línea cruzaba el mapa en zigzag y el revisor la confundía con el ducto
+  (observación 2026-10).
   y `construir_paquete` (ZIP con la estructura, fotos por elemento en orden).
 - El intake organiza el paquete SOLO por cómo el técnico sube cada cosa.
 

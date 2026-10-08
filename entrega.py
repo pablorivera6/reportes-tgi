@@ -335,15 +335,12 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None,
     caracteres_usados = set()   # AA/CA/CC de los defectos dibujados
     usa_poste = False           # ¿hay puntos de potencial?
     cp = [p for p in (cp_puntos or []) if p.get("lat") is not None and p.get("lon") is not None]
-    # traza: la del survey simplificada si viene; si no, la línea por los
-    # puntos de potencial ordenados por abscisa
-    if traza and len(traza) >= 2:
-        coords = " ".join(f"{lo},{la},0" for la, lo in traza)
-    elif len(cp) >= 2:
-        orden = sorted(cp, key=lambda p: p.get("abscisa") or 0)
-        coords = " ".join(f"{p['lon']},{p['lat']},0" for p in orden)
-    else:
-        coords = None
+    # Traza SOLO si viene del GPS real del survey (CIPS, un vértice cada
+    # 25 m). Antes, sin traza, se unían los postes con segmentos rectos por
+    # abscisa: con PK desordenados o repetidos la línea cruzaba el mapa en
+    # zigzag y el revisor la confundía con el ducto (observación 2026-10).
+    coords = (" ".join(f"{lo},{la},0" for la, lo in traza)
+              if traza and len(traza) >= 2 else None)
     if coords:
         cuerpo.append(f'<Placemark><name>Traza</name><styleUrl>#s_linea</styleUrl>'
                       f'<LineString><coordinates>{coords}</coordinates></LineString></Placemark>')

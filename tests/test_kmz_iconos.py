@@ -122,7 +122,7 @@ def test_el_kmz_sigue_siendo_valido_sin_hallazgos():
         {"lat": 4.6, "lon": -75.8, "abscisa": 100, "on": -1500, "off": -1100}])
     nombres, kml = _partes(kmz)
     assert "doc.kml" in nombres
-    assert "<LineString>" in kml
+    assert kml.count("<Point>") == 2
 
 
 def test_el_kmz_no_depende_de_internet():
