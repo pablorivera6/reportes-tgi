@@ -628,13 +628,14 @@ def _armar_paquete_entrega(codigo, kmz_bytes):
 tabs = st.tabs(["Datos generales", "Archivos", "Potenciales PAP", "CIPS",
                 "Hallazgos", "Rectificadores", "Conclusiones", "Generar"])
 
-# Firmas del informe (decisión del ingeniero, 2026-10): REVISÓ y APROBÓ son
-# siempre Alejandro Rivera (Ingeniero Especialista CP4); ELABORÓ es el
+# Firmas del informe (decisión del ingeniero, 2026-10): REVISÓ es siempre
+# Javier Jara (Ingeniero Residente) y APROBÓ Alejandro Rivera (Ingeniero
+# Especialista CP4); ELABORÓ es el
 # ingeniero junior que hizo el informe y se elige en la pestaña Generar antes
 # de generar (sin elegirlo, el botón queda deshabilitado).
 FIRMAS_FIJAS = {
     "elaboro": {"nombre": "", "cargo": "Ingeniero Junior", "empresa": "PCC Integrity"},
-    "reviso":  {"nombre": "Alejandro Rivera", "cargo": "Ingeniero Especialista CP4",
+    "reviso":  {"nombre": "Javier Jara", "cargo": "Ingeniero Residente",
                 "empresa": "PCC Integrity"},
     "aprobo":  {"nombre": "Alejandro Rivera", "cargo": "Ingeniero Especialista CP4",
                 "empresa": "PCC Integrity"},
@@ -1393,7 +1394,8 @@ with tabs[7]:
     st.selectbox("¿Quién elaboró el informe? (firma ELABORÓ)", ELABORADORES,
                  index=None, placeholder="Elige al ingeniero que lo elaboró…",
                  key="elaboro_nombre",
-                 help="Revisó y aprobó: Alejandro Rivera, Ingeniero Especialista CP4.")
+                 help="Revisó: Javier Jara, Ingeniero Residente. "
+                      "Aprobó: Alejandro Rivera, Ingeniero Especialista CP4.")
     _falta_elaboro = not st.session_state.get("elaboro_nombre")
     if _hay_datos and _falta_elaboro:
         st.warning("Elige quién elaboró el informe para poder generarlo.")

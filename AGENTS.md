@@ -450,8 +450,8 @@ numéricas de las gráficas, AB.., no se tocan).
   como trae la plantilla; `fill_firmas` reescribe esas fórmulas apuntando a las
   celdas reales. El flujo DCVG (web y escritorio) **también debe llamar a
   `fill_firmas`** (no lo hacía). En la web (`FIRMAS_FIJAS` + `_firmas()`,
-  decisión del ingeniero 2026-10): REVISÓ y APROBÓ son siempre **Alejandro
-  Rivera, Ingeniero Especialista CP4**; ELABORÓ es el ingeniero junior que hizo
+  decisión del ingeniero 2026-10): REVISÓ es siempre **Javier Jara, Ingeniero
+  Residente** y APROBÓ **Alejandro Rivera, Ingeniero Especialista CP4**; ELABORÓ es el ingeniero junior que hizo
   el informe (`ELABORADORES`: Pablo Rivera · Edwin López · Juan Gallego),
   elegido en un selector de la pestaña Generar (`elaboro_nombre`); sin elegirlo
   el botón "Generar informe" queda deshabilitado. Empresa 'PCC Integrity'. El
