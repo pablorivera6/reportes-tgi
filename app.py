@@ -224,7 +224,6 @@ class WorkerThread(QThread):
                                             defectos, resist)
                 gen.ajustar_resumenes_dcvg(gen.dcvg_filas, len(resist))
                 gen.fill_graficas_dcvg(gen.dcvg_filas, len(resist))
-                gen.fill_rangos_dcvg(postes, defectos)
                 gen.fill_hallazgos(hall, self.app_data['info'])
                 gen.fill_conclusiones(self.app_data.get('conclusiones', []))
                 gen.fill_recomendaciones(self.app_data.get('recomendaciones', []))

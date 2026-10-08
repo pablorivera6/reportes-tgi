@@ -189,11 +189,11 @@ corrosividad ya vienen en la plantilla.
 DCVG la severidad es **porcentaje**: criterios en **fracción (0.15/0.35/0.60)**
 en D39:G40, eje Y formato `0%`, extremos de abscisa (D39/D40) al rango real.
 
-**Hojas por rango** (`fill_rangos_dcvg`): una hoja por segmento de ~5 km que
-cubre la extensión de abscisas; cada una copia GRAFICA DCVG (celdas + deepcopy
-del chart) con el eje X limitado al segmento. NO usan el voltaje del logger
-(son zoom del %IR). Correr DESPUÉS de `fill_graficas_dcvg` para heredar los
-criterios en fracción.
+**Sin hojas por rango (decisión del ingeniero, 2026-10):** el informe DCVG lleva
+SOLO dos gráficas, la general de defectos (GRAFICA DCVG) y la de resistividades
+(Gráfica Resistividad). Las hojas 'K xxx+xxx - K yyy+yyy' con una gráfica cada
+~5 km (las creaba `fill_rangos_dcvg` al generar, no venían en la plantilla) se
+retiraron de la web y del escritorio; `test_dcvg_sin_hojas_por_rango` lo cuida.
 
 **SISTEMA INSPECCIONADO / MONITOREO (hoja Informe) — por etiqueta, nunca por
 fila.** Las plantillas traen QUEMADOS los valores del informe de ejemplo: DCVG

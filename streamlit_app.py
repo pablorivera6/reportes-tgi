@@ -1437,7 +1437,6 @@ with tabs[7]:
                                             data['dcvg_resist'])
                 gen.ajustar_resumenes_dcvg(gen.dcvg_filas, len(data['dcvg_resist']))
                 gen.fill_graficas_dcvg(gen.dcvg_filas, len(data['dcvg_resist']))
-                gen.fill_rangos_dcvg(data['dcvg_postes'], data['dcvg_defectos'])
                 prog.progress(75, text="Hallazgos...")
                 gen.fill_hallazgos(hall, info)
                 gen.fill_conclusiones(data['conclusiones'])
