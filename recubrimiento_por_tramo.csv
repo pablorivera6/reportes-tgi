@@ -7,43 +7,46 @@
 # Una fila con recubrimiento VACÍO es solo un pendiente: el generador deja el
 # campo en blanco para que el ingeniero lo escriba. El tramo se compara sin
 # tildes y sin el 'Ramal'/'PK ...' del final, así que basta con el nombre.
+# 2026-10-08: cargado por el ingeniero desde los informes históricos TELMACOM
+# 2023-2025 y TECNA 2021-2022: los 38 ramales son FBE; Obando queda pendiente.
+# Las contradicciones de algún informe suelto van anotadas en la columna fuente.
 tramo,recubrimiento,fuente
-Ansermanuevo,,
-Armenia,,
-Balboa,,
-Calarcá,,
-Chinchiná,,
-Fresno,,
-Herveo,,
-La Celia,,
-La Tebaida,,
-La Virginia,,
-Manizales,,
-Manzanares,,
-Marsella,,
-Montenegro,,
-Neira,,
-Palestina,,
-Pereira,,
-Quimbaya,,
-Salento,,
-Santa Rosa de Cabal,,
-Villamaría,,
-Andalucía,,
-Buga,,
-Bugalagrande,,
-Caicedonia,,
-Cartago,,
-El Cerrito,,
-Florida,,
-Ginebra,,
-Guacarí,,
-Jamundí,,
-La Paila,,
-Obando,,
-Pradera,,
-Roldanillo,,
-San Pedro,,
-Sevilla,,
-Tuluá,,
-Zarzal,,
+Ansermanuevo,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Armenia,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+Balboa,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Calarcá,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+Chinchiná,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Fresno,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Herveo,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+La Celia,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+La Tebaida,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+La Virginia,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - DCVG TELMACOM 2024 dice Alquitran de Hulla; los demas informes del tramo dicen FBE
+Manizales,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Manzanares,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Marsella,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Montenegro,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+Neira,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Palestina,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Pereira,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+Quimbaya,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Salento,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+Santa Rosa de Cabal,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Villamaría,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Andalucía,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - DCVG TELMACOM 2024 dice Alquitran de Hulla; los demas informes del tramo dicen FBE
+Buga,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - DCVG TELMACOM 2024 dice No se tiene informacion; los demas informes dicen FBE
+Bugalagrande,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - DCVG TELMACOM 2024 dice Alquitran de Hulla; los demas informes del tramo dicen FBE
+Caicedonia,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Cartago,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+El Cerrito,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Florida,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Ginebra,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - DCVG TELMACOM 2024 dice No se tiene informacion; los demas informes dicen FBE
+Guacarí,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Jamundí,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+La Paila,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Obando,,Pendiente: el unico historico (CIPS TECNA 2021) dice No se conoce
+Pradera,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Roldanillo,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+San Pedro,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022
+Sevilla,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - CIPS TELMACOM 2024 dice En validacion; los demas informes dicen FBE
+Tuluá,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022 - DCVG TELMACOM 2024 dice No se tiene informacion; los demas informes dicen FBE
+Zarzal,FBE,Historicos TELMACOM 2023-2025 / TECNA 2021-2022

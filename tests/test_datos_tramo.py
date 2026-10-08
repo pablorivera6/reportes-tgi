@@ -208,10 +208,19 @@ def test_sin_manuales_se_aplica_todo():
 # Mariquita-Cali y el informe salía con eso como tipo de recubrimiento.
 
 def test_en_validacion_no_se_autollena():
-    for tramo in ("Ramal Salento", "Ansermanuevo", "Pereira", "Zarzal"):
+    # Obando sigue pendiente en recubrimiento_por_tramo.csv (su único histórico
+    # dice 'No se conoce'): la tabla dice 'En validación' y eso no se escribe.
+    d = datos_tramo.info_de_infraestructura("Obando")
+    assert d.get("gasoducto") == "Mariquita-Cali"
+    assert "tipo_recubrimiento" not in d
+
+
+def test_los_ramales_confirmados_salen_fbe():
+    # 2026-10-08: el ingeniero confirmó FBE para 38 ramales desde los históricos
+    # TELMACOM / TECNA; ninguno debe salir 'En validación'.
+    for tramo in ("Ramal Salento", "Ansermanuevo", "Pereira", "Zarzal", "La Virginia", "Tuluá"):
         d = datos_tramo.info_de_infraestructura(tramo)
-        assert d.get("gasoducto") == "Mariquita-Cali", tramo
-        assert "tipo_recubrimiento" not in d, tramo
+        assert d.get("tipo_recubrimiento") == "FBE", tramo
 
 
 def test_recubrimiento_real_de_la_tabla_sigue_saliendo():
@@ -227,10 +236,11 @@ def test_csv_de_recubrimientos_manda(monkeypatch):
 
 
 def test_csv_con_recubrimiento_vacio_es_solo_pendiente():
-    """El archivo que viaja en el repo lista los 39 tramos con el valor vacío:
-    no debe devolver '' ni 'En validación'."""
+    """Una fila con el valor vacío (Obando) es solo un pendiente: no debe
+    devolver '' ni 'En validación'. Las confirmadas devuelven su valor."""
     datos_tramo._cache.pop('recubrimiento', None)
     filas = datos_tramo._recubrimiento_por_tramo()
     assert all(v for v in filas.values())
-    assert datos_tramo.recubrimiento_de("Salento", "En validación") is None
-    assert datos_tramo.recubrimiento_de("Salento", "FBE") == "FBE"
+    assert datos_tramo.recubrimiento_de("Obando", "En validación") is None
+    assert datos_tramo.recubrimiento_de("Obando", "FBE") == "FBE"
+    assert datos_tramo.recubrimiento_de("Salento", "En validación") == "FBE"

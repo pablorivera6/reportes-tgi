@@ -352,7 +352,10 @@ numéricas de las gráficas, AB.., no se tocan).
   descarta esos marcadores (`_SIN_RECUBRIMIENTO`) y mira primero
   `recubrimiento_por_tramo.csv` (tramo,recubrimiento,fuente): ahí va el
   recubrimiento REAL de cada tramo a medida que se confirme (una fila con valor
-  vacío es solo un pendiente). Sin dato, el campo queda vacío, la web avisa en
+  vacío es solo un pendiente). **2026-10-08: el ingeniero confirmó FBE para 38
+  de los 39 ramales** (históricos TELMACOM 2023-2025 y TECNA 2021-2022; las
+  contradicciones de informes sueltos van en la columna fuente). **Obando sigue
+  pendiente** (su único histórico, CIPS TECNA 2021, dice 'No se conoce'). Sin dato, el campo queda vacío, la web avisa en
   Datos Generales y lo que el ingeniero escriba a mano se conserva. La app de
   escritorio usa la misma función (`autofill_from_infrastructure`).
 - **El contrato NO viene del FastField.** La columna `Cliente` del FastField PAP
