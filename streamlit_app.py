@@ -1185,44 +1185,29 @@ with tabs[1]:
                 st.warning("Sube al menos el FastField de DCVG.")
             else:
                 try:
-                    from dcvg_reader import (leer_dcvg_fastfield_varios,
-                                             leer_resistividades_fastfield_varios,
-                                             leer_hallazgos_logger_varios)
-                    d = leer_dcvg_fastfield_varios(_tmp_files(dcvg_ff))
-                    data['dcvg_postes'] = d['postes']
-                    data['dcvg_defectos'] = d['defectos']
-                    if resist_ff:
-                        data['dcvg_resist'] = leer_resistividades_fastfield_varios(
-                            _tmp_files(resist_ff))
+                    # Cada paso va blindado por separado (dcvg_carga): un
+                    # logger o un listado de equipos que falle NO cancela el
+                    # tramo, la fecha ni el recubrimiento del FastField.
+                    from dcvg_carga import procesar_dcvg
                     _rutas_logger = _tmp_files(campo_ff) if campo_ff else []
+                    r = procesar_dcvg(_tmp_files(dcvg_ff),
+                                      _tmp_files(resist_ff) if resist_ff else [],
+                                      _rutas_logger, tipo='DCVG',
+                                      equipos_fn=get_equipos_for_inspector)
+                    data['dcvg_postes'] = r['postes']
+                    data['dcvg_defectos'] = r['defectos']
+                    if resist_ff:
+                        data['dcvg_resist'] = r['resist']
                     if _rutas_logger:
-                        data['dcvg_hallazgos'] = leer_hallazgos_logger_varios(
-                            _rutas_logger)
-                    # Datos Generales desde la cabecera del FastField: tramo
-                    # ('Troncal o ramal'), fecha y contratista. El INSPECTOR sale
-                    # de la data cruda del logger (es el nombre que coincide con
-                    # el listado de equipos); con el tramo se autollena
-                    # infraestructura + OT/distrito.
-                    from dcvg_reader import info_desde_meta
-                    auto = info_desde_meta(d['meta'], _rutas_logger)
-                    tecnico = auto.get('inspector', '')
-                    if tecnico:
-                        serial, fc, eqs = get_equipos_for_inspector(tecnico)
-                        if serial:
-                            auto['serial_equipo'] = serial
-                        if fc:
-                            auto['fecha_calibracion'] = fc
-                        if eqs:
-                            st.session_state.equipos_inspector = eqs
-                    _tramo_dcvg = auto.get('tramo', '')
-                    if _tramo_dcvg:
-                        _adic, _eqs = _autollenar_tramo(_tramo_dcvg, tecnico, 'DCVG')
-                        auto.update(_adic)
-                        if _eqs:
-                            st.session_state.equipos_inspector = _eqs
-                    _aplicar_autofill(auto)
+                        data['dcvg_hallazgos'] = r['hallazgos']
+                    if r['equipos']:
+                        st.session_state.equipos_inspector = r['equipos']
+                    tecnico = r['tecnico']
+                    _tramo_dcvg = r['auto'].get('tramo', '')
+                    aplicado = _aplicar_autofill(r['auto'])
+                    omitidos = [k for k in r['auto'] if k not in aplicado]
                     st.session_state.flash_dcvg = (
-                        f"DCVG: {len(d['postes'])} postes, {len(d['defectos'])} "
+                        f"DCVG: {len(r['postes'])} postes, {len(r['defectos'])} "
                         f"defectos, {len(data['dcvg_resist'])} resistividades, "
                         f"{len(data['dcvg_hallazgos'])} hallazgos (logger)."
                         + (f" · Inspector: {tecnico}"
@@ -1234,7 +1219,11 @@ with tabs[1]:
                         + (f" · Datos Generales autollenados desde el tramo "
                            f"'{_tramo_dcvg}'." if _tramo_dcvg else
                            " ⚠️ El FastField no trae el tramo: escríbelo en "
-                           "Datos Generales."))
+                           "Datos Generales.")
+                        + (f" ⚠️ No se tocaron porque los escribiste a mano: "
+                           f"{', '.join(omitidos)} (en Datos Generales, 'Autollenar desde "
+                           f"el tramo' los fuerza)." if omitidos else "")
+                        + ("".join(f" ⚠️ Falló {e}." for e in r['errores'])))
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error procesando DCVG: {e}")

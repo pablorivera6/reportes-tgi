@@ -376,9 +376,16 @@ numéricas de las gráficas, AB.., no se tocan).
   `data['info'].update(...)` directo desde un flujo de carga: usa el helper.**
 - **Autollenado tramo→informe (DCVG):** la cabecera del FastField DCVG trae
   `Troncal o ramal`, fecha y contratista (`dcvg_reader.info_desde_meta`); al
-  cargar se llevan a Datos Generales y se dispara `_autollenar_tramo`. Sin eso
-  el informe sale sin tramo (encabezado, columna TRAMO de Hallazgos, objetivo y
-  sigla del nombre del archivo).
+  cargar se llevan a Datos Generales y se autollena el tramo. Sin eso el
+  informe sale sin tramo (encabezado, columna TRAMO de Hallazgos, objetivo y
+  sigla del nombre del archivo). **La carga va en `dcvg_carga.procesar_dcvg`
+  (sin Streamlit, testeable), con cada paso blindado por separado:** antes todo
+  iba en un solo `try` y un fallo en la data cruda del logger, en los equipos
+  del inspector o en las resistividades cancelaba también el tramo, la fecha y
+  el recubrimiento (el ingeniero tenía que escribir el tramo a mano y quedaban
+  campos en blanco, Marsella 2026-10). Lo que falle se lista en `errores` y el
+  mensaje de la pestaña lo muestra; también dice qué campos NO se tocaron por
+  estar escritos a mano (`info_manual`).
 - **Conclusiones y recomendaciones BASE por tipo (`conclusions.py`).**
   `ConclusionGenerator(..., info, cips=, dcvg=)` despacha por
   `info['tipo_inspeccion']`: PAP (potenciales por poste, VAC, estaciones,
