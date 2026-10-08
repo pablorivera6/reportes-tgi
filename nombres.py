@@ -46,7 +46,8 @@ def _norm(s):
     sin espacios de más y en minúsculas. OJO: hay tramos que se LLAMAN
     'PK 7+200 - PK 17+500'; ahí no se recorta nada."""
     t = _sin_tildes(s).lower()
-    sin_pk = re.sub(r'\s*\(?\bpk\b\s*\d.*', '', t)   # 'Armenia PK 46+265' -> 'armenia'
+    # 'Armenia PK 46+265' -> 'armenia'; también 'FRESNO PK19+140' (sin espacio)
+    sin_pk = re.sub(r'\s*\(?\bpk\s*\d.*', '', t)
     if sin_pk.strip():
         t = sin_pk
     return re.sub(r'\s+', ' ', t).strip()

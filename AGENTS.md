@@ -346,6 +346,21 @@ numéricas de las gráficas, AB.., no se tocan).
   van en `ot_por_tipo.csv` (tipo,tramo,ot,distrito,plan) y mandan sobre el
   consolidado cuando el tipo coincide. Para tramos nuevos, agregar la fila ahí.
   La app de escritorio usa la misma función (antes tenía su propio `contains`).
+  **Control de OT 2026 de TGI (2026-10-08):** `consolidado OT.xlsx` trae las OT
+  de 2025; las de 2026 vienen en el control de TGI
+  (`CONTROL_2026_TGI_Consolidado_OT_...xlsx`, hoja 'Consolidado OT', columna
+  'OT', tramo en 'Nombre (tramo / subsistema)', tipo por 'Actividad'/'Grupo
+  hoja ruta': TINTCIPS/TINT-PAP/TINT-REV=DCVG; TINT-AFL = calibración de ánodos,
+  no es inspección). `cargar_consolidado_ot.py <xlsx>` lo exporta a
+  `consolidado_ot_2026.csv` (solo tramo/tipo/OT/distrito/trimestre/estado/mes:
+  el xlsx trae valores y facturación y el repo es público; NO se sube).
+  `info_de_ot` lo consulta con tipo: **manda sobre el consolidado viejo**, y
+  entre varias OT del mismo tramo y tipo prefiere la ejecutada del trimestre
+  más reciente (`_mejor_ot_2026`). `ot_por_tipo.csv` sigue mandando sobre todo.
+  TGI escribe algunos tramos distinto ('TEBAIDA', 'BUGA LA GRANDE', 'ARMENIA
+  Loop', 'PK 65+900 - APIAY'…): `ALIAS` en el script los traduce al nombre del
+  FastField/Infraestrutura. `nombres._norm` recorta también 'PK19+140' sin
+  espacio. Cuando TGI mande un control nuevo: correr el script y publicar el CSV.
 - **Recubrimiento: 'En validación' NO es un recubrimiento.** `Infraestrutura
   TGI.xlsx` trae 'En validación' en los 39 ramales de Mariquita-Cali (justo los
   que inspecciona PCC) y el informe salía con eso. `datos_tramo.recubrimiento_de`

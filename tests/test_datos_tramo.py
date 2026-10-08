@@ -139,10 +139,10 @@ def test_no_confunde_un_ramal_con_su_loop():
 
 @pytest.mark.parametrize("tramo,tipo,ot", [
     ("Ginebra", "CIPS", "1300011002"),
-    ("Ginebra", "PAP", "1300012983"),
+    ("Ginebra", "PAP", "1300015167"),               # 2026-Q2 ejecutada (control 2026)
     ("Obando - Tuluá", "CIPS", "1300010882"),
-    ("Obando - Tuluá", "PAP", "1300012655"),
-    ("Termocentro", "DCVG", "1300012989"),
+    ("Obando - Tuluá", "PAP", "1300014395"),        # 2026-Q1 ejecutada (control 2026)
+    ("Termocentro", "DCVG", "1300012989"),          # no está en el control 2026: consolidado viejo
     ("Termocentro", "PAP", "1300011875"),
     ("Mariquita - Letras", "DCVG", "1300012991"),   # no la de calibración de cajas
     ("Jamundí", "CIPS", "1300011006"),
@@ -150,6 +150,48 @@ def test_no_confunde_un_ramal_con_su_loop():
 ])
 def test_ot_del_consolidado_segun_el_plan(tramo, tipo, ot):
     assert datos_tramo.info_de_ot(tramo, tipo).get("ot") == ot
+
+
+# ── Control de OT 2026 de TGI (consolidado_ot_2026.csv) ──────────────────────
+# El consolidado viejo trae las OT de 2025; el control de TGI de 2026 trae la
+# OT de cada tramo por tipo (y a veces la de 2025 y la de 2026 del mismo
+# tramo). Manda sobre el consolidado viejo; ot_por_tipo.csv sigue mandando
+# sobre todo (es la corrección a mano).
+
+@pytest.mark.parametrize("tramo,tipo,ot,distrito", [
+    ("Ramal Marsella", "DCVG", "1300015004", "D07"),
+    ("Ramal Marsella", "PAP", "1300014323", "D07"),
+    ("Ansermanuevo", "CIPS", "1300014377", "D08"),     # no estaba en ninguna fuente
+    ("Ramal Armenia", "PAP", "1300015146", "D07"),     # la de 2026, no la de 2025
+    ("Ramal La Tebaida", "CIPS", "1300014341", "D07"), # TGI la llama 'TEBAIDA'
+    ("Fresno", "DCVG", "1300015001", "D07"),           # TGI escribe 'FRESNO PK19+140'
+    ("Loop - Ramal Armenia", "PAP", "1300015190", "D08"),
+    ("Cartago", "DCVG", "1300015195", "D08"),          # igual en ot_por_tipo.csv
+])
+def test_ot_del_control_2026(tramo, tipo, ot, distrito):
+    d = datos_tramo.info_de_ot(tramo, tipo)
+    assert d.get("ot") == ot, d
+    assert d.get("distrito") == distrito
+
+
+def test_control_2026_no_pisa_la_ot_forzada_a_mano(monkeypatch):
+    monkeypatch.setitem(datos_tramo._cache, 'ot_tipo',
+                        [{"tipo": "DCVG", "tramo": "Marsella", "ot": "9999", "distrito": "D07", "plan": ""}])
+    assert datos_tramo.info_de_ot("Ramal Marsella", "DCVG").get("ot") == "9999"
+
+
+def test_mejor_ot_2026_prefiere_ejecutada_y_mas_reciente():
+    filas = [{"ot": "a", "estado": "Por ejecutar", "trimestre": "2026-Q4"},
+             {"ot": "b", "estado": "Ejecutada", "trimestre": "2025"},
+             {"ot": "c", "estado": "Ejecutada", "trimestre": "2026-Q2"}]
+    assert datos_tramo._mejor_ot_2026(filas)["ot"] == "c"
+    assert datos_tramo._mejor_ot_2026(filas[:1])["ot"] == "a"
+
+
+def test_pk_sin_espacio_se_recorta():
+    assert mismo_tramo("FRESNO PK19+140", "Fresno")
+    assert mismo_tramo("UBATE PK73+420", "Ubaté")
+    assert mismo_tramo("PK 7+200 - PK 17+500", "PK 7+200 - PK 17+500")
 
 
 def test_ot_nunca_es_la_de_cupones_ni_anodos():

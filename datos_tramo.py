@@ -26,6 +26,9 @@ from nombres import mismo_tramo
 ARCHIVO_INFRA = 'Infraestrutura TGI.xlsx'
 ARCHIVO_OT = 'consolidado OT.xlsx'
 ARCHIVO_OT_TIPO = 'ot_por_tipo.csv'
+#: Control de OT 2026 de TGI (hoja 'Consolidado OT'), exportado por
+#: cargar_consolidado_ot.py. Fuente PRINCIPAL de la OT por tramo y tipo.
+ARCHIVO_OT_2026 = 'consolidado_ot_2026.csv'
 ARCHIVO_RECUBRIMIENTO = 'recubrimiento_por_tramo.csv'
 
 #: Valores de la columna Recubrimiento de `Infraestrutura TGI.xlsx` que NO son
@@ -161,6 +164,42 @@ def _ot_por_tipo():
     return _cache['ot_tipo']
 
 
+def _consolidado_2026():
+    """Filas de `consolidado_ot_2026.csv` (OT 2026 por tramo y tipo)."""
+    if 'ot_2026' not in _cache:
+        filas = []
+        ruta = resource_path(ARCHIVO_OT_2026)
+        try:
+            with open(ruta, encoding='utf-8') as f:
+                lineas = [ln for ln in f if not ln.lstrip().startswith('#')]
+            for r in csv.DictReader(lineas):
+                if (r.get('tramo') or '').strip() and (r.get('ot') or '').strip():
+                    filas.append({k: (v or '').strip() for k, v in r.items()})
+        except Exception:
+            filas = []
+        _cache['ot_2026'] = filas
+    return _cache['ot_2026']
+
+
+def _mejor_ot_2026(filas):
+    """Entre varias OT del mismo tramo y tipo: primero las ejecutadas o en
+    ejecución, y de esas la del trimestre más reciente (un tramo puede tener
+    la OT de 2025 ya ejecutada y la de 2026)."""
+    def clave(f):
+        estado = (f.get('estado') or '').lower()
+        ejecutada = 0 if ('ejecut' in estado and 'por ' not in estado) else 1
+        return (ejecutada, f.get('trimestre') or '')
+    orden = sorted(filas, key=clave)
+    # dentro del mismo estado, el trimestre MÁS reciente
+    mejor = orden[0]
+    for f in orden:
+        if clave(f)[0] != clave(mejor)[0]:
+            break
+        if (f.get('trimestre') or '') >= (mejor.get('trimestre') or ''):
+            mejor = f
+    return mejor
+
+
 def _plan_de(fila):
     """Texto que identifica el plan de una fila del consolidado."""
     return (_texto(fila.get('Texto breve operación')) + ' '
@@ -210,7 +249,18 @@ def info_de_ot(tramo, tipo=None):
                 except (TypeError, ValueError):
                     pass
 
-    # la OT del plan propio del tipo de inspección manda sobre la del consolidado
+    # El control de OT 2026 de TGI manda sobre el consolidado viejo cuando trae
+    # el tramo con el tipo de inspección pedido.
+    if t:
+        del_2026 = [f for f in _consolidado_2026()
+                    if f.get('tipo', '').upper() == t and mismo_tramo(tramo, f['tramo'])]
+        if del_2026:
+            mejor = _mejor_ot_2026(del_2026)
+            out['ot'] = mejor['ot']
+            if mejor.get('distrito'):
+                out['distrito'] = mejor['distrito']
+
+    # la OT forzada a mano (ot_por_tipo.csv) manda sobre todo lo demás
     candidatas = [f for f in _ot_por_tipo() if mismo_tramo(tramo, f['tramo'])]
     propia = next((f for f in candidatas if f.get('tipo', '').upper() == t and t), None)
     if propia is None and not out.get('ot'):
