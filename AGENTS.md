@@ -415,8 +415,13 @@ numéricas de las gráficas, AB.., no se tocan).
   Resistividad) muestran las mismas firmas **por fórmula** `=Informe!D100`,
   como trae la plantilla; `fill_firmas` reescribe esas fórmulas apuntando a las
   celdas reales. El flujo DCVG (web y escritorio) **también debe llamar a
-  `fill_firmas`** (no lo hacía). En la web las firmas son `FIRMAS_FIJAS`
-  (nombres vacíos, empresa 'PCC Integrity').
+  `fill_firmas`** (no lo hacía). En la web (`FIRMAS_FIJAS` + `_firmas()`,
+  decisión del ingeniero 2026-10): REVISÓ y APROBÓ son siempre **Alejandro
+  Rivera, Ingeniero Especialista CP4**; ELABORÓ es el ingeniero junior que hizo
+  el informe (`ELABORADORES`: Pablo Rivera · Edwin López · Juan Gallego),
+  elegido en un selector de la pestaña Generar (`elaboro_nombre`); sin elegirlo
+  el botón "Generar informe" queda deshabilitado. Empresa 'PCC Integrity'. El
+  escritorio conserva su propia página de Firmas.
 - **Hoja Aislamientos:** hay UNA sola `fill_aislamientos` (había dos y la
   activa usaba `insert_rows`, que no corre las celdas combinadas del bloque de
   firmas: con más de una junta el bloque quedaba sobre los datos). Datos desde

@@ -628,13 +628,25 @@ def _armar_paquete_entrega(codigo, kmz_bytes):
 tabs = st.tabs(["Datos generales", "Archivos", "Potenciales PAP", "CIPS",
                 "Hallazgos", "Rectificadores", "Conclusiones", "Generar"])
 
-# Firmas fijas del informe (ya no se editan en la app; siempre son las mismas).
-# El informe las incluye siempre vía gen.fill_firmas(...).
+# Firmas del informe (decisión del ingeniero, 2026-10): REVISÓ y APROBÓ son
+# siempre Alejandro Rivera (Ingeniero Especialista CP4); ELABORÓ es el
+# ingeniero junior que hizo el informe y se elige en la pestaña Generar antes
+# de generar (sin elegirlo, el botón queda deshabilitado).
 FIRMAS_FIJAS = {
-    "elaboro": {"nombre": "", "cargo": "", "empresa": "PCC Integrity"},
-    "reviso":  {"nombre": "", "cargo": "", "empresa": "PCC Integrity"},
-    "aprobo":  {"nombre": "", "cargo": "", "empresa": "PCC Integrity"},
+    "elaboro": {"nombre": "", "cargo": "Ingeniero Junior", "empresa": "PCC Integrity"},
+    "reviso":  {"nombre": "Alejandro Rivera", "cargo": "Ingeniero Especialista CP4",
+                "empresa": "PCC Integrity"},
+    "aprobo":  {"nombre": "Alejandro Rivera", "cargo": "Ingeniero Especialista CP4",
+                "empresa": "PCC Integrity"},
 }
+ELABORADORES = ["Pablo Rivera", "Edwin López", "Juan Gallego"]
+
+
+def _firmas():
+    """Las tres firmas del informe, con el ELABORÓ elegido en Generar."""
+    f = {k: dict(v) for k, v in FIRMAS_FIJAS.items()}
+    f["elaboro"]["nombre"] = st.session_state.get("elaboro_nombre") or ""
+    return f
 
 FIELD_LABELS = [('gasoducto', 'Gasoducto'), ('tramo', 'Tramo'),
                 ('tipo_ducto', 'Tipo Ducto'), ('contrato', 'Contrato'),
@@ -1377,8 +1389,16 @@ with tabs[7]:
         _aviso_sin_severidad()
     if not _hay_datos:
         st.info("Carga FASTFIELD, CIPS o DCVG antes de generar.")
-    if st.button("Generar informe", type="primary", disabled=not _hay_datos,
-                 help=None if _hay_datos else "Primero carga la data de campo."):
+    st.selectbox("¿Quién elaboró el informe? (firma ELABORÓ)", ELABORADORES,
+                 index=None, placeholder="Elige al ingeniero que lo elaboró…",
+                 key="elaboro_nombre",
+                 help="Revisó y aprobó: Alejandro Rivera, Ingeniero Especialista CP4.")
+    _falta_elaboro = not st.session_state.get("elaboro_nombre")
+    if _hay_datos and _falta_elaboro:
+        st.warning("Elige quién elaboró el informe para poder generarlo.")
+    if st.button("Generar informe", type="primary", disabled=not _hay_datos or _falta_elaboro,
+                 help=(None if _hay_datos and not _falta_elaboro else
+                       "Primero carga la data de campo y elige quién elaboró el informe.")):
         st.session_state.publicado_id = None   # nuevo informe → permite republicar
         try:
             prog = st.progress(5, text="Iniciando...")
@@ -1421,8 +1441,8 @@ with tabs[7]:
                 gen.fill_hallazgos(hall, info)
                 gen.fill_conclusiones(data['conclusiones'])
                 gen.fill_recomendaciones(data['recomendaciones'])
-                gen.fill_firmas(FIRMAS_FIJAS['elaboro'], FIRMAS_FIJAS['reviso'],
-                                FIRMAS_FIJAS['aprobo'])
+                _fir = _firmas()
+                gen.fill_firmas(_fir['elaboro'], _fir['reviso'], _fir['aprobo'])
                 tmpd = tempfile.mkdtemp(prefix="tgi_out_")
                 nombre = nombres.nombre_archivo(info, revision=_revision_actual())
                 out = os.path.join(tmpd, nombre)
@@ -1528,8 +1548,8 @@ with tabs[7]:
             prog.progress(80, text="Conclusiones y firmas...")
             gen.fill_conclusiones(data['conclusiones'])
             gen.fill_recomendaciones(data['recomendaciones'])
-            gen.fill_firmas(FIRMAS_FIJAS['elaboro'], FIRMAS_FIJAS['reviso'],
-                            FIRMAS_FIJAS['aprobo'])
+            _fir = _firmas()
+            gen.fill_firmas(_fir['elaboro'], _fir['reviso'], _fir['aprobo'])
             tmpd = tempfile.mkdtemp(prefix="tgi_out_")
             nombre = nombres.nombre_archivo(info, revision=_revision_actual())
             pap_path = os.path.join(tmpd, nombre)
