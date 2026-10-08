@@ -2156,8 +2156,14 @@ class ReportGenerator:
                     self._safe_write(ws, rc, 6, 0.35)   # F
                     self._safe_write(ws, rc, 7, 0.60)   # G
                 try:
-                    ws._charts[0].y_axis.numFmt = NumFmt(formatCode='0%',
-                                                         sourceLinked=False)
+                    eje_y = ws._charts[0].y_axis
+                    eje_y.numFmt = NumFmt(formatCode='0%', sourceLinked=False)
+                    # la plantilla trae 0..100 (de cuando iba en porcentaje):
+                    # con la fracción la gráfica llegaba al 10000 %
+                    eje_y.scaling.min = 0
+                    eje_y.scaling.max = 1.0
+                    eje_y.majorUnit = 0.1
+                    eje_y.minorUnit = 0.02
                 except Exception:
                     pass
 

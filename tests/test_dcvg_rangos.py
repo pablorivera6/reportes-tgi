@@ -33,3 +33,21 @@ def test_graficas_dcvg_criterios_en_porcentaje(tmp_path):
     assert ws.cell(row=39, column=7).value == 0.6
     # eje Y en porcentaje
     assert ws._charts[0].y_axis.numFmt.formatCode == '0%'
+
+
+def test_eje_y_de_severidad_va_de_0_a_100_por_ciento(tmp_path):
+    """La severidad %IR se escribe en fracción (0..1). La plantilla traía el
+    eje Y en 0..100 (de cuando iba en porcentaje) y la gráfica llegaba al
+    10000 %: el máximo va en 1,0 = 100 %, con unidades 0,1 y 0,02 (como lo
+    ajusta el ingeniero en Excel)."""
+    gen = ReportGenerator(resource_path("DCVG_REP.xlsx"))
+    postes, defectos = _datos()
+    gen.fill_dcvg(postes, defectos)
+    gen.fill_graficas_dcvg(gen.dcvg_filas, 0)
+    out = os.path.join(tmp_path, "y.xlsx")
+    gen.save(out)
+    eje = openpyxl.load_workbook(out)["GRAFICA DCVG"]._charts[0].y_axis
+    assert eje.scaling.min == 0
+    assert eje.scaling.max == 1.0
+    assert eje.majorUnit == 0.1
+    assert eje.minorUnit == 0.02
