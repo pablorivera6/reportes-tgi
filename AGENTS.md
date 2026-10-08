@@ -361,6 +361,15 @@ numéricas de las gráficas, AB.., no se tocan).
   Loop', 'PK 65+900 - APIAY'…): `ALIAS` en el script los traduce al nombre del
   FastField/Infraestrutura. `nombres._norm` recorta también 'PK19+140' sin
   espacio. Cuando TGI mande un control nuevo: correr el script y publicar el CSV.
+- **Ciclo de interrupción (decisión del ingeniero, 2026-10-08):** PAP y CIPS
+  van SIEMPRE con `ON 1,6 s / OFF 0,4 s`; DCVG está **pendiente de definir** y
+  la casilla Ciclo sale vacía. Lo fija `datos_tramo.ciclo_de(tipo)`
+  (constantes `CICLO_POTENCIALES` / `CICLO_DCVG`; cuando se defina el de DCVG,
+  se cambia ahí). `generator.fill_general_info` lo impone por tipo (lo que traiga
+  la sesión o el equipo no manda), `autollenar` lo lleva a Datos Generales, y en
+  la web la casilla está bloqueada y se actualiza al cambiar el tipo; en DCVG
+  se avisa en Datos Generales y en Generar. El ciclo en ms que leía el Excel de
+  equipos ('1600/400 ms') ya no se escribe (web ni escritorio).
 - **Recubrimiento: 'En validación' NO es un recubrimiento.** `Infraestrutura
   TGI.xlsx` trae 'En validación' en los 39 ramales de Mariquita-Cali (justo los
   que inspecciona PCC) y el informe salía con eso. `datos_tramo.recubrimiento_de`
@@ -513,6 +522,8 @@ numéricas de las gráficas, AB.., no se tocan).
   + `cargar_rectificadores.py`, verificar en vivo, y decidir asignación de tramos.
 - `.exe` de Windows: recompilar en Windows (`build_windows.bat`); no se puede en Mac.
 - DCVG Fase pendiente: fotos de defectos (multiphoto_picker) — no implementado.
+- **Ciclo de interrupción de DCVG**: pendiente de definir (hoy la casilla sale vacía;
+  `datos_tramo.CICLO_DCVG`).
 - CIPS: decidir si ciertos picos hacia -500/-600 son artefactos o baja
   protección real (pendiente de revisión del ingeniero).
 - Deuda técnica: VAC falso negativo (`readers.py` conversión mV solo si >1.0),

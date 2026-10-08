@@ -678,6 +678,12 @@ with tabs[0]:
         index=["PAP", "CIPS", "DCVG"].index(_tipo_prev),
         help="Define la plantilla del informe y qué data hace falta cargar.")
     data['info']['tipo_inspeccion'] = _tipo_sel
+    # El ciclo lo fija el tipo (PAP/CIPS ON 1,6 s / OFF 0,4 s; DCVG pendiente).
+    import datos_tramo as _dt
+    if (data['info'].get('ciclo') or '') != _dt.ciclo_de(_tipo_sel):
+        _aplicar_autofill({'ciclo': _dt.ciclo_de(_tipo_sel)}, forzar=True)
+        if _tipo_sel == _tipo_prev:
+            st.rerun()
     # El panel de estado se dibuja ANTES que esta pestaña: al cambiar el tipo hay
     # que releer para que el cromo lateral no quede un paso atrás. (Sin `key`
     # en el selectbox: la autocarga fija el tipo directo en data['info'] y un
@@ -693,8 +699,12 @@ with tabs[0]:
                 data['info'][key] = st.text_input(
                     _ETIQUETA.get(key, key), value=data['info'].get(key, ''),
                     key=f"info_{key}", on_change=_marcar_manual, args=(key,),
-                    help="Se autollena desde el tramo; lo que escribas a mano manda."
-                         if key in _AUTOLLENADOS else None)
+                    disabled=(key == 'ciclo'),
+                    placeholder=("Pendiente de definir para DCVG" if key == 'ciclo' else None),
+                    help=("Fijo por tipo: PAP y CIPS ON 1,6 s / OFF 0,4 s; DCVG pendiente."
+                          if key == 'ciclo' else
+                          "Se autollena desde el tramo; lo que escribas a mano manda."
+                          if key in _AUTOLLENADOS else None))
         if 'tramo' in _claves:
             # El camino rápido: con el tramo escrito se llena casi todo lo demás.
             _ba, _bb = st.columns([1.25, 3])
@@ -702,6 +712,9 @@ with tabs[0]:
                                    use_container_width=True)
             _bb.caption("Escribe el Tramo y esto completa gasoducto, contrato, OT, "
                         "contratista, inspector, serial y calibración.")
+    if _dt.ciclo_pendiente(_tipo_sel):
+        st.info("**Ciclo DCVG pendiente de definir.** El informe sale con la casilla "
+                "Ciclo vacía hasta que se defina el ciclo de interrupción para DCVG.")
     if (data['info'].get('tramo') or '').strip() and not (data['info'].get('tipo_recubrimiento') or '').strip():
         st.warning("**Tipo de recubrimiento sin dato.** La tabla de infraestructura lo tiene "
                    "'En validación' para este tramo, así que no se autollena. Escríbelo aquí "
@@ -1029,8 +1042,6 @@ with tabs[1]:
                         h.setdefault('route_id', route_id)
                     if info['pipeline'] and not data['info'].get('gasoducto'):
                         data['info']['gasoducto'] = info['pipeline']
-                    if info['cycle_on_ms'] and not data['info'].get('ciclo'):
-                        data['info']['ciclo'] = f"{info['cycle_on_ms']}/{info['cycle_off_ms']} ms"
                 for h in data['hallazgos']:
                     if h.get('abscisa') is None and h.get('lat') and h.get('lon') and calc:
                         m = calc.calculate(h['lat'], h['lon'])
@@ -1374,6 +1385,7 @@ with tabs[7]:
                    "escríbelo en Datos Generales antes de generar (el informe saldría con la "
                    "casilla vacía).")
     if (data['info'].get('tipo_inspeccion') or '') == 'DCVG':
+        st.info("Ciclo DCVG pendiente de definir: la casilla Ciclo del informe sale vacía.")
         _aviso_inspeccion_visual()
         _aviso_sin_severidad()
     if not _hay_datos:

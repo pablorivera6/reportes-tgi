@@ -70,7 +70,7 @@ def test_valores_del_encabezado_dcvg_en_las_columnas_u_y_ae(tmp_path):
     assert ws["AE6"].value == '551007370'          # No de contrato
     assert ws["AE7"].value == 'PCC'                # Contratista
     assert ws["AE8"].value == '1300013506'         # OT
-    assert ws["AE9"].value == '2025'               # Ciclo
+    assert ws["AE9"].value in (None, '')           # Ciclo DCVG: pendiente, vacío
 
 
 def test_equipos_dcvg_reemplazan_los_del_ejemplo(tmp_path):

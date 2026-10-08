@@ -29,6 +29,22 @@ ARCHIVO_OT_TIPO = 'ot_por_tipo.csv'
 #: Control de OT 2026 de TGI (hoja 'Consolidado OT'), exportado por
 #: cargar_consolidado_ot.py. Fuente PRINCIPAL de la OT por tramo y tipo.
 ARCHIVO_OT_2026 = 'consolidado_ot_2026.csv'
+
+#: Ciclo de interrupción de los rectificadores con que se mide (decisión del
+#: ingeniero, 2026-10-08). PAP y CIPS: siempre ON 1,6 s / OFF 0,4 s. DCVG:
+#: PENDIENTE de definir, la casilla va vacía; cuando se defina, se cambia aquí.
+CICLO_POTENCIALES = 'ON 1,6 s / OFF 0,4 s'
+CICLO_DCVG = ''
+
+
+def ciclo_de(tipo):
+    """Ciclo que va en el informe según el tipo de inspección."""
+    return CICLO_DCVG if (tipo or '').strip().upper() == 'DCVG' else CICLO_POTENCIALES
+
+
+def ciclo_pendiente(tipo):
+    """¿El ciclo de este tipo aún no está definido (sale vacío)?"""
+    return not ciclo_de(tipo)
 ARCHIVO_RECUBRIMIENTO = 'recubrimiento_por_tramo.csv'
 
 #: Valores de la columna Recubrimiento de `Infraestrutura TGI.xlsx` que NO son
@@ -281,6 +297,8 @@ def autollenar(tramo, tipo=None):
     if d:
         # el tramo está en las tablas de TGI → el contrato es el de TGI
         d['contrato'] = CONTRATO_TGI
+    if tipo:
+        d['ciclo'] = ciclo_de(tipo)
     return d
 
 

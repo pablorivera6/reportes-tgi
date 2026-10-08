@@ -358,7 +358,11 @@ class ReportGenerator:
                    contrato, ot, contratista, ciclo
         """
         ws = self.ws_informe
-        self._info_general = dict(data or {})
+        # El ciclo NO sale de la sesión ni del equipo: lo fija el tipo de
+        # inspección (PAP/CIPS 'ON 1,6 s / OFF 0,4 s'; DCVG pendiente, vacío).
+        from datos_tramo import ciclo_de
+        data = dict(data or {}, ciclo=ciclo_de((data or {}).get('tipo_inspeccion')))
+        self._info_general = dict(data)
         # Filas 6-9: pares etiqueta/valor en celdas combinadas. Cada valor se
         # escribe en la celda que sigue a SU etiqueta (ver CAMPOS_ENCABEZADO):
         # así funciona con cualquiera de las tres plantillas.

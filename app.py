@@ -1192,8 +1192,7 @@ class AppWindow(QMainWindow):
             info = data['survey_info']
             if info['pipeline'] and not self.fields['gasoducto'].text(): 
                 self.fields['gasoducto'].setText(info['pipeline'])
-            if info['cycle_on_ms'] and not self.fields['ciclo'].text(): 
-                self.fields['ciclo'].setText(f"{info['cycle_on_ms']}/{info['cycle_off_ms']} ms")
+            # el ciclo lo fija el tipo de inspección (datos_tramo.ciclo_de)
             
         self.update_ruta_filter()
         self.refresh_hallazgos_table()
