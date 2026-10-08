@@ -1,9 +1,8 @@
 """El KMZ dibujaba una 'Traza' uniendo los postes con segmentos RECTOS en el
 orden de su abscisa. Con PK desordenados o repetidos (Marsella: dos postes en
 3+000 y dos en 6+000) la línea cruzaba el mapa en zigzag y el revisor la
-confundía con el ducto. Esa línea se quita: entre postes no se dibuja nada.
-Solo el CIPS lleva traza, porque sale del GPS real del survey (un vértice cada
-25 m), no de unir postes."""
+confundía con el ducto. El KMZ queda SOLO con puntos, en los tres tipos: ni la
+línea entre postes ni la traza del GPS del survey CIPS (pedido del ingeniero)."""
 import io
 import zipfile
 
@@ -30,8 +29,12 @@ def test_pap_y_dcvg_sin_linea_entre_postes():
     assert kml.count("<Point>") == 5          # los postes y el defecto siguen ahí
 
 
-def test_el_cips_conserva_la_traza_del_gps():
-    traza = [(4.95 + i * 0.001, -75.77) for i in range(10)]
-    kml = _kml(entrega.construir_kmz("CIPS", cp_puntos=POSTES[:2], traza=traza))
-    assert kml.count("<LineString>") == 1
-    assert "4.959" in kml
+def test_el_cips_tampoco_lleva_linea():
+    cips = [dict(abscisa_val=i * 5, lat=4.95 + i * 0.0001, lon=-75.77, on_mv=-1500, off_mv=-1000,
+                 off_limpio=-1000, observaciones=('pk 0+000' if i == 0 else '')) for i in range(400)]
+    kmz, motivo = entrega.kmz_de_inspeccion({'info': {'tipo_inspeccion': 'CIPS', 'tramo': 'X'},
+                                             'cips': cips})
+    assert kmz, motivo
+    kml = _kml(kmz)
+    assert "<LineString>" not in kml and "<name>Traza</name>" not in kml
+    assert kml.count("<Point>") >= 1

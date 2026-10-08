@@ -216,7 +216,7 @@ def kmz_de_inspeccion(data):
     como el paquete de entrega.
 
     Toma los puntos según el tipo: CIPS/PAP de las lecturas; DCVG de los postes
-    (la traza) más los defectos por severidad. Los hallazgos entran siempre,
+    más los defectos por severidad. Los hallazgos entran siempre,
     haya o no defectos.
     """
     try:
@@ -225,12 +225,10 @@ def kmz_de_inspeccion(data):
         tipo = info.get('tipo_inspeccion', '')
         cp, defectos, hall = [], [], []
 
-        traza = None
         if data.get('cips'):
-            # Como el KMZ de PAP: postes + hallazgos + traza. NO un placemark
-            # por lectura (~100.000 en un CIPS): el archivo quedaba inmanejable.
+            # Como el KMZ de PAP: postes + hallazgos. NO un placemark por
+            # lectura (~100.000 en un CIPS): el archivo quedaba inmanejable.
             from cips_adapter import es_poste_cips
-            traza = traza_simplificada(data['cips'])
             if data.get('potenciales'):
                 # los postes del FastField PAP de la misma campaña
                 for p in data['potenciales']:
@@ -248,6 +246,19 @@ def kmz_de_inspeccion(data):
                     on = c.get('on_limpio') if c.get('on_limpio') is not None else c.get('on_mv')
                     cp.append({'lat': c.get('lat'), 'lon': c.get('lon'),
                                'abscisa': c.get('abscisa_val'), 'on': on, 'off': off})
+            if not cp:
+                # Survey sin postes marcados: al menos el inicio y el fin del
+                # recorrido, para que el mapa ubique la inspección (antes lo
+                # hacía la traza, que ya no se dibuja).
+                pts = sorted((c for c in data['cips']
+                              if c.get('lat') is not None and c.get('lon') is not None
+                              and c.get('abscisa_val') is not None),
+                             key=lambda c: float(c['abscisa_val']))
+                for c in ([pts[0], pts[-1]] if len(pts) >= 2 else pts):
+                    off = c.get('off_limpio') if c.get('off_limpio') is not None else c.get('off_mv')
+                    on = c.get('on_limpio') if c.get('on_limpio') is not None else c.get('on_mv')
+                    cp.append({'lat': c.get('lat'), 'lon': c.get('lon'),
+                               'abscisa': c.get('abscisa_val'), 'on': on, 'off': off})
             hall = cips_a_hallazgos(data['cips'])
         elif data.get('potenciales'):
             for p in data['potenciales']:
@@ -258,7 +269,7 @@ def kmz_de_inspeccion(data):
                            'off': p.get('off_mv') or p.get('off')})
             hall = data.get('hallazgos') or []
 
-        # DCVG: los postes dan la traza aunque los defectos no traigan GPS
+        # DCVG: los postes van al mapa aunque los defectos no traigan GPS
         if data.get('dcvg_postes'):
             for p in data['dcvg_postes']:
                 cp.append({'lat': p.get('lat'), 'lon': p.get('lon'),
@@ -278,46 +289,21 @@ def kmz_de_inspeccion(data):
 
         con_gps = [x for x in (cp + defectos + list(hall or []))
                    if x.get('lat') is not None and x.get('lon') is not None]
-        if not con_gps and traza:
-            con_gps = traza
         if not con_gps:
             return (None, "Ningún punto de la inspección tiene coordenadas GPS, "
                           "así que no hay nada que dibujar en el mapa.")
         nombre = f"{info.get('tramo', '')} {tipo}".strip() or "Inspección TGI"
         return (construir_kmz(nombre, cp_puntos=cp, defectos=defectos,
-                              hallazgos=hall, traza=traza), "")
+                              hallazgos=hall), "")
     except Exception as e:
         return (None, f"No se pudo armar el KMZ: {type(e).__name__}: {e}")
 
 
-def traza_simplificada(cips, paso_m=25, max_vertices=3000):
-    """Vértices (lat, lon) de la traza a partir de los puntos del survey,
-    ordenados por abscisa y adelgazados: un vértice cada `paso_m` metros y a lo
-    sumo `max_vertices`, conservando siempre los extremos. Una LineString con
-    100.000 vértices pesa tanto como los placemarks que se quitaron."""
-    pts = sorted((c for c in (cips or [])
-                  if c.get('lat') is not None and c.get('lon') is not None
-                  and c.get('abscisa_val') is not None),
-                 key=lambda c: float(c['abscisa_val']))
-    if len(pts) < 2:
-        return [(c['lat'], c['lon']) for c in pts]
-    ini, fin = float(pts[0]['abscisa_val']), float(pts[-1]['abscisa_val'])
-    paso = max(float(paso_m), (fin - ini) / max(max_vertices - 1, 1))
-    out, siguiente = [], ini
-    for c in pts:
-        a = float(c['abscisa_val'])
-        if a >= siguiente or c is pts[-1]:
-            out.append((c['lat'], c['lon']))
-            siguiente = a + paso
-    if out[-1] != (pts[-1]['lat'], pts[-1]['lon']):
-        out.append((pts[-1]['lat'], pts[-1]['lon']))
-    return out
-
-
-def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None,
-                  traza=None) -> bytes:
-    """Construye un KMZ (KML comprimido) con la traza, los puntos coloreados por
-    estado (CIPS/PAP), los defectos DCVG por severidad y los hallazgos."""
+def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None) -> bytes:
+    """Construye un KMZ (KML comprimido) con los postes, los defectos DCVG por
+    severidad y los hallazgos. SOLO puntos: ninguna línea. La 'Traza' que unía
+    postes (o el GPS del survey CIPS) se quitó porque el revisor la confundía
+    con el ducto (observación 2026-10)."""
     # círculo base de los puntos por estado/severidad: también va dentro del
     # KMZ, para que el archivo no dependa de internet en ningún punto
     _base = ruta_icono(ICONO_BASE)
@@ -327,23 +313,12 @@ def construir_kmz(nombre_doc, cp_puntos=None, defectos=None, hallazgos=None,
         f'<Style id="s_{k}"><IconStyle><color>{v}</color><scale>0.7</scale>'
         f'<Icon><href>{_href_base}</href></Icon>'
         f'</IconStyle></Style>' for k, v in _KML_COLOR.items())
-    estilos += ('<Style id="s_linea"><LineStyle><color>ff8a8a8a</color>'
-                '<width>2</width></LineStyle></Style>')
 
     cuerpo = []
     iconos_usados = {}      # clave -> icono; se incrustan al final en el KMZ
     caracteres_usados = set()   # AA/CA/CC de los defectos dibujados
     usa_poste = False           # ¿hay puntos de potencial?
     cp = [p for p in (cp_puntos or []) if p.get("lat") is not None and p.get("lon") is not None]
-    # Traza SOLO si viene del GPS real del survey (CIPS, un vértice cada
-    # 25 m). Antes, sin traza, se unían los postes con segmentos rectos por
-    # abscisa: con PK desordenados o repetidos la línea cruzaba el mapa en
-    # zigzag y el revisor la confundía con el ducto (observación 2026-10).
-    coords = (" ".join(f"{lo},{la},0" for la, lo in traza)
-              if traza and len(traza) >= 2 else None)
-    if coords:
-        cuerpo.append(f'<Placemark><name>Traza</name><styleUrl>#s_linea</styleUrl>'
-                      f'<LineString><coordinates>{coords}</coordinates></LineString></Placemark>')
     # puntos de potencial: icono de poste (177). El estado de protección ya no
     # se ve por color, así que va en el nombre y en la ficha del punto.
     car_cp = []

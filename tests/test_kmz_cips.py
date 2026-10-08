@@ -1,4 +1,4 @@
-"""KMZ de CIPS: como el de PAP (postes + hallazgos + traza), no los ~100.000
+"""KMZ de CIPS: como el de PAP (postes + hallazgos, sin líneas), no los ~100.000
 puntos del perfil. Antes cada lectura del logger era un placemark y el archivo
 quedaba inmanejable en Google Earth."""
 import io
@@ -49,19 +49,9 @@ def test_cips_dibuja_postes_y_hallazgos_no_todos_los_puntos():
     # 10 marcadores 'pk N+000' + 1 'poste de potencial' = 11 postes, no 2000 puntos
     assert _postes(kml) == 11, _postes(kml)
     assert kml.count("<Placemark>") < 20
-    assert "<LineString>" in kml                      # la traza se conserva
+    assert "<LineString>" not in kml                  # sin líneas: solo puntos
     assert "Cruce" in kml                             # el hallazgo sí
     assert len(kmz) < 60_000                          # liviano
-
-
-def test_la_traza_del_cips_se_simplifica():
-    data = dict(BASE, info={'tipo_inspeccion': 'CIPS'}, cips=_cips(n=20000, paso=1))
-    kmz, _ = entrega.kmz_de_inspeccion(data)
-    kml = _kml(kmz)
-    coords = kml.split("<coordinates>")[1].split("</coordinates>")[0].split()
-    assert 2 <= len(coords) <= 3000
-    # conserva los extremos
-    assert coords[0].startswith("-75.7,4.5") and coords[-1].startswith("-75.89999")
 
 
 def test_con_postes_del_fastfield_esos_son_los_postes():

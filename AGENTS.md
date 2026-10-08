@@ -529,17 +529,16 @@ app y procesar"** (auto-carga: baja de Supabase y enruta por los readers;
 ### 10.4 Cumplimiento contrato TGI (numeral 6.3.5) — `entrega.py`
 - `CATALOGO` (por tipo) = casillas del intake mapeadas a las carpetas del entregable
   (01 Huellas Osc · 02 GPS · 03 Data Logger · 04 Anexos[informe+KMZ] · 05 PPM · 06 RF).
-- `construir_kmz` (traza + postes + defectos por severidad + hallazgos). **El KMZ
+- `construir_kmz` (postes + defectos por severidad + hallazgos; sin líneas). **El KMZ
   de CIPS es como el de PAP**: postes (los del FastField PAP de la misma campaña
   o, si no, los puntos del survey marcados como poste: `cips_adapter.
-  es_poste_cips` = marcador 'pk N+000' o comentario con 'poste') + hallazgos +
-  **traza simplificada** (`entrega.traza_simplificada`, un vértice cada 25 m y
-  máx. 3000). NUNCA un placemark por lectura: con ~100.000 puntos el archivo era
-  inmanejable. **La traza va SOLO cuando sale del GPS real del survey (CIPS).**
-  En PAP y DCVG no se dibuja ninguna línea: antes se unían los postes con
-  segmentos rectos por abscisa y, con PK desordenados o repetidos (Marsella),
-  la línea cruzaba el mapa en zigzag y el revisor la confundía con el ducto
-  (observación 2026-10).
+  es_poste_cips` = marcador 'pk N+000' o comentario con 'poste') + hallazgos.
+  NUNCA un placemark por lectura: con ~100.000 puntos el archivo era
+  inmanejable. **El KMZ lleva SOLO puntos, ninguna línea, en los tres tipos**
+  (decisión del ingeniero, 2026-10): antes se dibujaba una 'Traza' uniendo los
+  postes con segmentos rectos por abscisa y, con PK desordenados o repetidos
+  (Marsella), cruzaba el mapa en zigzag y el revisor la confundía con el ducto;
+  la traza del GPS del survey CIPS también se quitó a pedido suyo.
   y `construir_paquete` (ZIP con la estructura, fotos por elemento en orden).
 - El intake organiza el paquete SOLO por cómo el técnico sube cada cosa.
 
