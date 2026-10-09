@@ -96,6 +96,13 @@ BLANCO.xlsx` (CIPS), `DCVG_REP.xlsx` (DCVG), `PPM.XLSX`. Datos:
 
 **Entrada:** uno o varios Excel del logger iBTVM (hojas `Survey Data`,
 `DCP Data`, `Survey Info`). Selector Empresa (TGI/OCENSA) → Distrito → Tramo.
+**El logger también exporta en `.xls` (Excel 97-2003)** ('28-09-26 RAMAL TAUSA
+… 2+420.xls'): el cargador web solo aceptaba `.xlsx` y el selector de archivos
+los dejaba en gris (Tausa, 2026-10). Hoy los cargadores de data cruda (CIPS y
+logger DCVG) aceptan `.xls` y `streamlit_app._tmp_files` los pasa por
+`xls_compat.a_xlsx` (xlrd → .xlsx con las mismas hojas y celdas), así ningún
+lector cambia. `xlrd` está en requirements. Un `.xls` ilegible da un mensaje
+claro (guardarlo como .xlsx). Fixture real en `tests/fixtures/cips_logger.xls`.
 
 **Procesamiento** (`cips_lrs.procesar_cips_lrs(archivos, shp_path)`):
 1. Unifica archivos (`mod_unificar`), dedup de filas idénticas (exportes solapados).

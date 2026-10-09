@@ -154,14 +154,17 @@ def get_abscisa_calculator(kmz, route_id=None):
 
 
 def _tmp_files(uploaded_files):
-    """Guarda file_uploaders a disco temporal y devuelve las rutas."""
+    """Guarda file_uploaders a disco temporal y devuelve las rutas. Un .xls
+    (Excel 97-2003, como exporta el logger de campo) se convierte a .xlsx,
+    que es lo que leen los lectores."""
+    from xls_compat import a_xlsx
     rutas = []
     tmpdir = tempfile.mkdtemp(prefix="tgi_up_")
     for uf in uploaded_files:
         ruta = os.path.join(tmpdir, uf.name)
         with open(ruta, "wb") as f:
             f.write(uf.getbuffer())
-        rutas.append(ruta)
+        rutas.append(a_xlsx(ruta))
     return rutas
 
 
@@ -1072,7 +1075,7 @@ with tabs[1]:
             else:
                 dist = None
                 tramo_cips = st.selectbox("Tramo", infra_tramos.tramos("OCENSA"), key="cips_tr_oc")
-            cips_files = st.file_uploader("Excel CIPS", type=["xlsx"],
+            cips_files = st.file_uploader("Excel CIPS", type=["xlsx", "xls"],
                                           accept_multiple_files=True, key="up_cips")
             if cips_files and st.button("Procesar CIPS"):
                 shp = infra_tramos.shapefile(empresa=emp, tramo=tramo_cips, distrito=dist)
@@ -1190,7 +1193,7 @@ with tabs[1]:
         resist_ff = st.file_uploader("FastField Resistividades", type=["xlsx"],
                                      accept_multiple_files=True, key="up_resist")
         campo_ff = st.file_uploader("Data cruda de campo (logger, para hallazgos)",
-                                    type=["xlsx"], accept_multiple_files=True,
+                                    type=["xlsx", "xls"], accept_multiple_files=True,
                                     key="up_dcvg_campo")
         if st.button("Procesar DCVG"):
             if not dcvg_ff:
