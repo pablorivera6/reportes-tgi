@@ -202,3 +202,26 @@ def test_aislamientos_entran_en_pap_y_cips():
     assert '2 junta(s)/brida(s) de aislamiento' in conc and 'K 005+000' in conc
     cg = ConclusionGenerator([], [], [], aisl, ACTIVAS, dict(INFO, tipo_inspeccion='CIPS'), cips=_cips())
     assert 'aislamiento' in _texto(cg.generar_conclusiones())
+
+
+@pytest.mark.parametrize("tipo_ducto,tramo,esperado", [
+    ('Ramal', 'Tausa', 'Ramal Tausa'),
+    ('Ramal', 'Ramal Tausa', 'Ramal Tausa'),
+    ('', 'Ramal Tausa', 'Ramal Tausa'),
+    ('Ramal', '', 'Ramal'),
+])
+def test_linea_une_tipo_de_ducto_y_tramo(tipo_ducto, tramo, esperado):
+    from conclusions import _linea
+    assert _linea(tipo_ducto, tramo) == esperado
+
+
+@pytest.mark.parametrize("tipo", ['PAP', 'CIPS', 'DCVG'])
+def test_tramo_sin_el_tipo_de_ducto_al_frente_no_rompe(tipo):
+    """Tausa, 2026-10: con tipo de ducto 'Ramal' y tramo 'Tausa' (sin el
+    'Ramal' al frente) la pestaña Conclusiones caía con NameError."""
+    info = dict(INFO, tramo='Tausa', tipo_inspeccion=tipo)
+    cg = ConclusionGenerator(_pap() if tipo == 'PAP' else [], [], [], [], ACTIVAS,
+                             info, cips=_cips() if tipo == 'CIPS' else None,
+                             dcvg=_dcvg() if tipo == 'DCVG' else None)
+    texto = _texto(cg.generar_conclusiones()) + _texto(cg.generar_recomendaciones())
+    assert 'Ramal Tausa' in texto

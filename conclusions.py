@@ -49,7 +49,7 @@ def _linea(tipo_ducto, tramo):
         return tramo
     if not tramo or tramo.lower().startswith(tipo_ducto.lower()):
         return tramo or tipo_ducto
-    return f'{linea}'
+    return f'{tipo_ducto} {tramo}'
 
 
 def _n(cant, singular, plural=None):
