@@ -62,13 +62,18 @@ def test_dcvg_no_escribe_encima_de_las_recomendaciones(tmp_path):
 
 @pytest.mark.parametrize("plantilla", list(LAYOUT))
 def test_una_lista_larga_no_invade_la_seccion_siguiente(tmp_path, plantilla):
+    """Una lista más larga que el bloque ABRE filas: el título de
+    RECOMENDACIONES baja hasta quedar justo después de la última conclusión
+    (antes lo que no cabía quedaba fuera del informe)."""
     f_conc, f_reco, _cupo = LAYOUT[plantilla]
     muchas = [f"Conclusión larga {i}" for i in range(30)]
     ws = _informe(tmp_path, plantilla, conc=muchas, reco=RECO)
-    assert ws.cell(row=f_reco, column=1).value == "RECOMENDACIONES", \
+    ultima = f_conc + len(muchas)
+    assert "Conclusión larga 29" in str(ws.cell(row=ultima, column=1).value)
+    assert ws.cell(row=ultima + 1, column=1).value == "RECOMENDACIONES", \
         "las conclusiones pisaron el título de RECOMENDACIONES"
     for i, r in enumerate(RECO):
-        assert r in str(ws.cell(row=f_reco + 1 + i, column=1).value)
+        assert r in str(ws.cell(row=ultima + 2 + i, column=1).value)
 
 
 @pytest.mark.parametrize("plantilla", list(LAYOUT))
@@ -92,15 +97,17 @@ def test_sin_conclusiones_no_toca_nada(tmp_path):
 
 
 @pytest.mark.parametrize("plantilla", list(LAYOUT))
-def test_avisa_lo_que_no_cabe(tmp_path, plantilla):
-    """El espacio lo fija la plantilla; lo que no entra se reporta en vez de
-    perderse en silencio."""
-    _fc, _fr, cupo = LAYOUT[plantilla]
+def test_nada_queda_por_fuera(tmp_path, plantilla):
+    """Antes lo que no entraba en el espacio de la plantilla se reportaba y se
+    quedaba fuera (Tausa: 3 párrafos). Ahora se abren filas y no se pierde
+    ninguno (ver test_conclusiones_sin_tope)."""
+    _fc, f_reco, cupo = LAYOUT[plantilla]
     gens = []
     muchas = [f"Recomendación {i}" for i in range(cupo + 3)]
-    _informe(tmp_path, plantilla, reco=muchas, gen_out=gens)
-    assert gens[0].recomendaciones_omitidas == 3
+    ws = _informe(tmp_path, plantilla, reco=muchas, gen_out=gens)
+    assert gens[0].recomendaciones_omitidas == 0
     assert gens[0].conclusiones_omitidas == 0
+    assert f"Recomendación {cupo + 2}" in str(ws.cell(row=f_reco + cupo + 3, column=1).value)
 
 
 # ── La plantilla CIPS trae conclusiones de EJEMPLO (Ramal Pradera) ──────────

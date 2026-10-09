@@ -1317,24 +1317,84 @@ class ReportGenerator:
                 self._safe_write(ws, row, 12, t.get('justificacion', ''))
 
     def _escribir_bloque_texto(self, etiqueta, textos):
-        """Escribe una lista de párrafos bajo el título de su sección, sin
-        pasarse del espacio disponible. Devuelve cuántos no cupieron.
+        """Escribe una lista de párrafos bajo el título de su sección, uno por
+        fila. Devuelve cuántos no se pudieron escribir (0 salvo que la
+        plantilla no tenga la sección).
 
         El bloque se LIMPIA completo antes de escribir (también con la lista
         vacía): la plantilla CIPS trae conclusiones de ejemplo de otro informe
-        y lo que no se sobreescribía quedaba mezclado con las reales."""
+        y lo que no se sobreescribía quedaba mezclado con las reales.
+
+        La plantilla deja pocas filas (CIPS: 8 conclusiones y 2 recomendaciones)
+        y la base automática genera más: antes lo que no cabía quedaba FUERA del
+        informe. Ahora se abren filas con `_bajar_bloque` (lo de abajo, incluido
+        el bloque de firmas, baja; `fill_firmas` lo ubica por etiqueta después)
+        y cada fila nueva copia formato y combinación de la primera del bloque."""
         textos = list(textos or [])
         ws = self.ws_informe
         bloque = self._bloque_texto(ws, etiqueta)
         if not bloque:
             return len(textos)
         ini, fin = bloque
+        extra = len(textos) - (fin - ini + 1)
+        if extra > 0:
+            self._bajar_bloque(ws, fin + 1, extra)
+            for r in range(fin + 1, fin + 1 + extra):
+                self._copiar_fila_texto(ws, ini, r)
+            fin += extra
         for r in range(ini, fin + 1):
             self._safe_write(ws, r, 1, None)
-        cupo = fin - ini + 1
-        for i, txt in enumerate(textos[:cupo]):
-            self._safe_write(ws, ini + i, 1, f"• {txt}")
-        return max(0, len(textos) - cupo)
+        for i, txt in enumerate(textos):
+            fila = ini + i
+            self._safe_write(ws, fila, 1, f"• {txt}")
+            # algunas filas de la plantilla no ajustan el texto (la última de
+            # RECOMENDACIONES en PAP/DCVG) y un párrafo largo quedaba cortado
+            celda = ws.cell(row=fila, column=1)
+            if not celda.alignment.wrap_text:
+                al = copy(celda.alignment)
+                al.wrap_text = True
+                celda.alignment = al
+            self._ajustar_alto(ws, fila, f"• {txt}")
+        return 0
+
+    @staticmethod
+    def _copiar_fila_texto(ws, origen, destino):
+        """Fila de párrafo nueva igual a `origen`: estilos, celdas combinadas
+        de una sola fila (A:AI / A:AH) y alto."""
+        for col in range(1, ws.max_column + 1):
+            src = ws.cell(row=origen, column=col)
+            if src.has_style:
+                dst = ws.cell(row=destino, column=col)
+                dst.font = copy(src.font)
+                dst.border = copy(src.border)
+                dst.fill = copy(src.fill)
+                dst.number_format = src.number_format
+                dst.alignment = copy(src.alignment)
+        for m in [m for m in ws.merged_cells.ranges
+                  if m.min_row == m.max_row == origen]:
+            ws.merge_cells(start_row=destino, start_column=m.min_col,
+                           end_row=destino, end_column=m.max_col)
+        ws.row_dimensions[destino].height = ws.row_dimensions[origen].height
+
+    @staticmethod
+    def _ajustar_alto(ws, fila, texto, alto_linea=13.5):
+        """Sube el alto de la fila si el párrafo necesita más líneas de las que
+        caben (nunca lo baja: se respeta el de la plantilla). El ancho sale de
+        la celda combinada de la fila, ~1 carácter por unidad de ancho."""
+        rango = next((m for m in ws.merged_cells.ranges
+                      if m.min_row == m.max_row == fila and m.min_col == 1), None)
+        cols = range(1, (rango.max_col if rango else 1) + 1)
+        anchos = {}
+        for d in ws.column_dimensions.values():
+            for c in range((d.min or 0), (d.max or 0) + 1):
+                anchos[c] = d.width
+        ancho = sum((anchos.get(c) or 8.43) for c in cols)
+        lineas = sum(max(1, -(-len(parte) // max(20, int(ancho))))
+                     for parte in str(texto).split("\n"))
+        necesario = lineas * alto_linea + 4
+        actual = ws.row_dimensions[fila].height or 15
+        if necesario > actual:
+            ws.row_dimensions[fila].height = necesario
 
     def fill_conclusiones(self, conclusiones: list):
         """Escribe las conclusiones bajo el título CONCLUSIONES de la hoja

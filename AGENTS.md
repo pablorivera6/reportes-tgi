@@ -450,6 +450,15 @@ numéricas de las gráficas, AB.., no se tocan).
   `auto_generate_conclusions`. **La plantilla CIPS trae conclusiones de
   ejemplo (Ramal Pradera)**: `generator._escribir_bloque_texto` limpia el
   bloque completo antes de escribir, también con lista vacía.
+  **No hay tope de párrafos (2026-10):** la hoja Informe deja pocas filas
+  (CIPS 8 conclusiones / 2 recomendaciones, PAP 10 / 4, DCVG 14 / 13) y lo que
+  no cabía quedaba FUERA del informe con el aviso "N conclusión(es)/
+  recomendación(es) no cupieron" (Tausa). Ahora se abren filas con
+  `_bajar_bloque` (recomendaciones y firmas bajan; `fill_firmas` las ubica por
+  etiqueta y reapunta las fórmulas de las otras hojas, por eso va DESPUÉS),
+  cada fila nueva copia formato y combinación de la primera del bloque, toda
+  fila con párrafo ajusta el texto y `_ajustar_alto` sube el alto si el
+  párrafo lo necesita. Cubierto por `test_conclusiones_sin_tope`.
 - **Ortografía:** todo texto libre pasa por `ortografia.corregir_campo` antes de
   escribirse (cruce, aéreo, tensión, válvula, línea, río, abscisado, rocería,
   "sin paso", PK, mayúscula inicial…). Diccionario cerrado; ampliar si el
