@@ -112,6 +112,14 @@ claro (guardarlo como .xlsx). Fixture real en `tests/fixtures/cips_logger.xls`.
 3. **Guardia de tramo equivocado** (`TramoIncorrectoError`): si la mediana
    punto→traza > 300 m, el tramo elegido no corresponde; la app sugiere el
    correcto con `InfraTramos.sugerir_tramos(lat, lon)` (lee bbox de headers .shp).
+   **Una traza con partes lejanas da abscisas corridas SIN error**: `_leer_linea_
+   proyectada` une todas las partes del .shp en una sola línea. `R_TAU.shp` traía
+   Ramal Tausa (D3) y Ramal Tauramena (D4) a ~130 km: Tausa (`R_TAUS`) salía "sin
+   shapefile" y Tauramena quedaba con un salto falso (2026-10). Se separaron en
+   `R_TAUS.shp` (ID_90030, 3,1 km) y `R_TAU.shp` (ID_90047, 4,5 km);
+   `test_shapefile_tausa` revisa que ninguna traza del listado junte partes a más
+   de 2 km. (El KMZ general tampoco trae Tausa: su 'R_TAU' es solo Tauramena; eso
+   afecta las abscisas PAP de Tausa, no el CIPS.)
 4. **GPS congelado:** si todas las lecturas tienen el mismo GPS (span geom < 5 m
    con odómetro que avanza), la abscisa se toma de `Dist From Start` anclada a
    una etiqueta 'pk X+YYY' del comentario. `df.attrs['fuente_abscisa']`.
