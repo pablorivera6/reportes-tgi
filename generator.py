@@ -150,10 +150,18 @@ class ReportGenerator:
         for m in combinadas:
             ws.merge_cells(start_row=m.min_row + n, start_column=m.min_col,
                            end_row=m.max_row + n, end_column=m.max_col)
+        # alto Y estado oculto viajan con la fila: las plantillas traen filas
+        # ocultas (DCVG 78-82 / 88-97, PAP 90) y si el flag se quedaba en su
+        # índice viejo, lo movido caía en filas ocultas y no se imprimía
         for r in range(ultima, desde - 1, -1):
             ws.row_dimensions[r + n].height = ws.row_dimensions[r].height
+            ws.row_dimensions[r + n].hidden = ws.row_dimensions[r].hidden
         for r in range(desde, desde + n):
             ws.row_dimensions[r].height = None
+            ws.row_dimensions[r].hidden = False
+        for brk in ws.row_breaks.brk:
+            if brk.id >= desde:
+                brk.id += n
         if ws.print_area:
             area = str(ws.print_area).split(',')[0].split('!')[-1]
             m = re.match(r"\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)", area)
@@ -243,19 +251,23 @@ class ReportGenerator:
         fin = (min(siguientes) - 1) if siguientes else min(ws.max_row, ini + 6)
         return (ini + 1, fin) if fin >= ini + 1 else None
 
-    def _fila_firmas(self, ws, hasta=140):
+    def _fila_firmas(self, ws, hasta=None):
         """Fila del bloque de firmas ('ELABORÓ'), en cualquier columna."""
+        hasta = hasta or ws.max_row
         for r in range(1, min(ws.max_row, hasta) + 1):
             for c in range(1, 30):
                 if self._etiqueta(ws.cell(row=r, column=c).value) == 'elaboro':
                     return r
         return None
 
-    def _bloque_texto(self, ws, etiqueta, hasta=140):
+    def _bloque_texto(self, ws, etiqueta, hasta=None):
         """(primera, última) fila donde cabe el texto de CONCLUSIONES o
         RECOMENDACIONES. Cada plantilla las tiene en filas distintas (DCVG 69 y
         84; PAP 83 y 94; CIPS 81 y 90), así que se ubican por el título y se
-        acotan con la sección siguiente o con el bloque de firmas."""
+        acotan con la sección siguiente o con el bloque de firmas. Se busca en
+        toda la hoja: al abrir filas en CONCLUSIONES, RECOMENDACIONES y las
+        firmas bajan."""
+        hasta = hasta or ws.max_row
         ini = self._fila_seccion(ws, etiqueta, hasta)
         if ini is None:
             return None
@@ -1354,6 +1366,9 @@ class ReportGenerator:
                 al = copy(celda.alignment)
                 al.wrap_text = True
                 celda.alignment = al
+            # la plantilla trae ocultas filas sobrantes del bloque (DCVG
+            # 78-82, PAP 90): un párrafo escrito ahí no se imprimía
+            ws.row_dimensions[fila].hidden = False
             self._ajustar_alto(ws, fila, f"• {txt}")
         return 0
 

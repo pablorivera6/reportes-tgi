@@ -95,3 +95,29 @@ def test_sin_exceso_la_plantilla_no_cambia(tmp_path):
     """Con pocos párrafos nada se mueve: las firmas siguen donde las trae la plantilla."""
     gen, wb = _generar(tmp_path, "EN BLANCO.xlsx", conc=CONC[:2], reco=RECO[:1])
     assert min(r for r, _ in gen._bloque_firmas(wb["Informe"]).values()) == 100
+
+
+def test_ninguna_fila_con_texto_queda_oculta(generado):
+    """Las plantillas traen OCULTAS filas sobrantes dentro de los bloques (DCVG
+    78-82 y 88-97, PAP 90). Un párrafo escrito ahí, o el título de
+    RECOMENDACIONES / las firmas corridos a una de esas filas, no se imprime."""
+    gen, wb = generado
+    ws = wb["Informe"]
+    filas = _textos(ws)
+    con_texto = [filas[f"• {t}"] for t in CONC + RECO]
+    con_texto.append(next(f for t, f in filas.items() if t.upper().startswith("RECOMENDACIONES")))
+    r_firmas = min(r for r, _ in gen._bloque_firmas(ws).values())
+    con_texto += [r_firmas - 1, r_firmas, r_firmas + 1, r_firmas + 2]
+    ocultas = sorted(r for r in con_texto if ws.row_dimensions[r].hidden)
+    assert not ocultas, f"filas con contenido ocultas: {ocultas}"
+
+
+def test_con_pocos_parrafos_las_filas_escritas_se_ven(tmp_path):
+    """DCVG trae ocultas las filas 78-82 del bloque: con 10 conclusiones las
+    últimas quedaban en filas ocultas (esto pasaba ya antes de abrir filas)."""
+    conc = [f"Conclusión {i}" for i in range(1, 11)]
+    gen, wb = _generar(tmp_path, "DCVG_REP.xlsx", conc=conc, reco=RECO[:2])
+    ws = wb["Informe"]
+    filas = _textos(ws)
+    ocultas = [filas[f"• {t}"] for t in conc if ws.row_dimensions[filas[f"• {t}"]].hidden]
+    assert not ocultas, f"conclusiones en filas ocultas: {ocultas}"

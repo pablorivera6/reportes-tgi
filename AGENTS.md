@@ -89,6 +89,9 @@ BLANCO.xlsx` (CIPS), `DCVG_REP.xlsx` (DCVG), `PPM.XLSX`. Datos:
 `Infraestrutura TGI.xlsx` (autollenado), `Listado equipos TGI.xlsx`
 (inspector→seriales), `Infra_General_TGI_V11_29032023.kmz`, `shapefiles/`
 (259 trazas por tramo; se empaquetan como `shapefiles.zip` en el build).
+**El `.spec` reutiliza un `shapefiles.zip` existente**: tras agregar o cambiar
+una traza (p.ej. `R_TAUS`, 2026-10) hay que borrarlo antes de compilar el
+escritorio, si no el .exe/.app sale con las trazas viejas.
 
 ---
 
@@ -459,6 +462,14 @@ numéricas de las gráficas, AB.., no se tocan).
   cada fila nueva copia formato y combinación de la primera del bloque, toda
   fila con párrafo ajusta el texto y `_ajustar_alto` sube el alto si el
   párrafo lo necesita. Cubierto por `test_conclusiones_sin_tope`.
+  **OJO filas OCULTAS en las plantillas:** DCVG trae ocultas las filas 78-82
+  (dentro de CONCLUSIONES) y 88-97 (RECOMENDACIONES), PAP la 90. Un DCVG con
+  10 conclusiones perdía la 9 y la 10 sin ningún aviso (caían en filas
+  ocultas; pasaba desde antes de abrir filas). Hoy toda fila que recibe un
+  párrafo se pone visible, y `_bajar_bloque` mueve el flag `hidden` y los
+  saltos de página junto con el alto (si no, lo corrido caía en los índices
+  ocultos viejos). `_bloque_texto`/`_fila_firmas` buscan en toda la hoja (ya
+  no hasta la fila 140): con muchos párrafos los bloques bajan de ahí.
 - **Ortografía:** todo texto libre pasa por `ortografia.corregir_campo` antes de
   escribirse (cruce, aéreo, tensión, válvula, línea, río, abscisado, rocería,
   "sin paso", PK, mayúscula inicial…). Diccionario cerrado; ampliar si el
