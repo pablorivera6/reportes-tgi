@@ -131,7 +131,19 @@ claro (guardarlo como .xlsx). Fixture real en `tests/fixtures/cips_logger.xls`.
    cortos; PRESERVA caídas sostenidas (baja protección real). Produce
    `On_mV_limpio`/`Off_mV_limpio`.
 6. Lecturas Metal IR / Far / Near Ground de `DCP Data` por Data No.
-7. Fecha por punto (`Fecha_dato`) del timestamp `On Time`.
+7. Fecha por punto (`Fecha_dato`) del timestamp `On Time` (o `Time`/`Fix Time`).
+8. **Logger en 'Always ON' (Tausa, 2026-09): NO hay Instant OFF.** Con el
+   rectificador sin interrumpir el export trae UNA columna `Voltage` (el ON)
+   en vez de `On Voltage`/`Off Voltage` y `Time` en vez de `On Time`; otro
+   archivo del mismo survey traía On/Off pero con `Off Voltage` = 0,0 en todas
+   las filas. Antes el ON se descartaba por el nombre (el informe salía con
+   abscisas y sin potenciales) y el 0 se escribía como OFF real. Hoy `Voltage`
+   rellena `On Voltage`, un OFF de exactamente 0 con ON medido es NaN,
+   `df.attrs['sin_off']` cuenta las lecturas sin OFF, `modo_rectificador()`
+   lee 'Rectifier Mode' de Survey Info y `aviso_sin_off()` arma el aviso que la
+   web muestra en la pestaña CIPS y en Generar (`_aviso_cips_sin_off`). Las
+   conclusiones ya decían "no trae lecturas Instant Off válidas". El OFF no se
+   recupera: hay que repetir con interrupción. `test_cips_always_on`.
 
 **Adaptador** (`cips_adapter.lrs_df_a_cips_dicts`): mapea a dicts; **1 punto por
 abscisa** (dedup por metro, conservando comentarios y lecturas DCP); corrige

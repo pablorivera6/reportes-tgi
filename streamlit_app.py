@@ -584,6 +584,16 @@ def _aviso_sin_severidad():
                f"mientras las observaciones sí las cuentan. Completa el dato que falta:\n{lineas}{extra}")
 
 
+def _aviso_cips_sin_off():
+    """CIPS sin Instant OFF (logger en 'Always ON', Tausa 2026-09): se avisa en
+    la pestaña CIPS y en Generar; el informe sale solo con ON."""
+    from cips_lrs import aviso_sin_off
+    d = st.session_state.get("cips_sin_off") or {}
+    msg = aviso_sin_off(d.get("n", 0), d.get("total", 0), d.get("modo", ""))
+    if msg:
+        st.warning(msg)
+
+
 def _construir_kmz_sesion():
     """(kmz_bytes, motivo) de la inspección en memoria. La lógica vive en
     `entrega.kmz_de_inspeccion` para poder probarla; aquí solo se pasa la data
@@ -1067,6 +1077,7 @@ with tabs[1]:
         if st.session_state.get("flash_cips"):
             st.success(st.session_state.flash_cips)
             st.session_state.flash_cips = None
+        _aviso_cips_sin_off()
         if infra_tramos:
             emp = st.selectbox("Empresa", ["TGI", "OCENSA"], key="cips_emp")
             if emp == "TGI":
@@ -1142,6 +1153,10 @@ with tabs[1]:
                         if df.attrs.get("fuente_abscisa") == "EQUIPO":
                             st.session_state.flash_cips += (
                                 " · Abscisa tomada del odómetro (GPS congelado).")
+                        from cips_lrs import modo_rectificador
+                        st.session_state.cips_sin_off = {
+                            "n": int(df.attrs.get("sin_off", 0)), "total": int(len(df)),
+                            "modo": modo_rectificador(rutas_cips)}
                         st.rerun()
                     except Exception as e:
                         from cips_lrs import TramoIncorrectoError
@@ -1388,6 +1403,8 @@ with tabs[7]:
         st.warning("**Falta el tipo de recubrimiento.** No hay dato confirmado para este tramo: "
                    "escríbelo en Datos Generales antes de generar (el informe saldría con la "
                    "casilla vacía).")
+    if (data['info'].get('tipo_inspeccion') or '') == 'CIPS':
+        _aviso_cips_sin_off()
     if (data['info'].get('tipo_inspeccion') or '') == 'DCVG':
         st.info("Ciclo DCVG pendiente de definir: la casilla Ciclo del informe sale vacía.")
         _aviso_inspeccion_visual()

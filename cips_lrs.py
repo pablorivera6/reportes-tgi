@@ -152,16 +152,25 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         # Lecturas Metal IR / Far / Near de la hoja DCP Data, por Data No.
         df = _lecturas_dcp(unif, df)
 
+        # Logger en modo 'Always ON' (sin interrupción, Tausa 2026-09): el
+        # export trae UNA columna 'Voltage' (es el ON; no hay Instant OFF) en
+        # vez de 'On Voltage'/'Off Voltage', y 'Time' en vez de 'On Time'. Al
+        # unir archivos de los dos tipos, las columnas conviven con huecos.
+        if "Voltage" in df.columns:
+            if "On Voltage" not in df.columns:
+                df["On Voltage"] = np.nan
+            df["On Voltage"] = df["On Voltage"].fillna(df["Voltage"])
+        if "Off Voltage" not in df.columns:
+            df["Off Voltage"] = np.nan
+
         # Fecha de inspección por punto: el día del timestamp 'On Time' (al
         # subir varios archivos con fechas distintas, cada punto conserva la
         # suya). Se guarda como texto dd/mm/aaaa.
-        col_time = next((c for c in ("On Time", "Off Time", "Fix Time")
-                         if c in df.columns), None)
-        if col_time is not None:
-            fechas = pd.to_datetime(df[col_time], errors="coerce")
-            df["Fecha_dato"] = fechas.dt.strftime("%d/%m/%Y")
-        else:
-            df["Fecha_dato"] = None
+        fechas = pd.Series(pd.NaT, index=df.index)
+        for c in ("On Time", "Time", "Fix Time", "Off Time"):
+            if c in df.columns:
+                fechas = fechas.fillna(pd.to_datetime(df[c], errors="coerce"))
+        df["Fecha_dato"] = fechas.dt.strftime("%d/%m/%Y").where(fechas.notna(), None)
 
         df = df.rename(columns={
             "Dist From Start": "PK_equipo",
@@ -280,6 +289,14 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         ys = [p.y for p in df["geometry"]]
         df["Long_corr"], df["Lat_corr"] = t_back.transform(xs, ys)
 
+        df["On_V"] = pd.to_numeric(df["On_V"], errors="coerce")
+        df["Off_V"] = pd.to_numeric(df["Off_V"], errors="coerce")
+        # Un OFF de exactamente 0,000 V con ON medido no es un Instant OFF:
+        # es lo que exporta el logger cuando el rectificador no se interrumpió
+        # ('Rectifier Mode: Always ON'). Escribirlo como 0 mV daba un informe
+        # con OFF = 0 y 'desprotegido' en todo el tramo.
+        sin_off = (df["Off_V"] == 0) & df["On_V"].notna() & (df["On_V"] != 0)
+        df.loc[sin_off, "Off_V"] = np.nan
         df["On_mV"] = df["On_V"] * 1000
         df["Off_mV"] = df["Off_V"] * 1000
 
@@ -302,6 +319,7 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
         df = df.drop(columns=["X", "Y", "geometry"], errors="ignore")
 
         df.attrs["fuente_abscisa"] = fuente_abscisa
+        df.attrs["sin_off"] = int(df["Off_mV"].isna().sum())
 
         if carpeta_salida:
             salida = os.path.join(carpeta_salida, "CIPS_VALIDADO_FINAL.xlsx")
@@ -310,3 +328,51 @@ def procesar_cips_lrs(lista_archivos_xlsx, shp_path, carpeta_salida=None):
             return df, salida
 
         return df
+
+
+def _survey_info(ruta):
+    """{campo: valor} de la hoja 'Survey Info' de un export del logger."""
+    import openpyxl
+    info = {}
+    try:
+        wb = openpyxl.load_workbook(ruta, read_only=True, data_only=True)
+    except Exception:
+        return info
+    try:
+        if "Survey Info" in wb.sheetnames:
+            for fila in wb["Survey Info"].iter_rows(values_only=True):
+                if fila and fila[0] is not None and len(fila) > 1:
+                    info[str(fila[0]).strip()] = fila[1]
+    finally:
+        wb.close()
+    return info
+
+
+def modo_rectificador(lista_archivos_xlsx):
+    """'Rectifier Mode' de los archivos ('Always ON' = sin interrupción, no hay
+    Instant OFF). El más frecuente; '' si no aparece."""
+    from collections import Counter
+    cont = Counter()
+    for ruta in lista_archivos_xlsx:
+        v = _survey_info(ruta).get("Rectifier Mode")
+        if v:
+            cont[str(v).strip()] += 1
+    return cont.most_common(1)[0][0] if cont else ""
+
+
+def aviso_sin_off(n_sin_off, total, modo=""):
+    """Texto del aviso cuando el survey no trae Instant OFF (todo o en parte).
+    '' si no falta ninguno."""
+    if not n_sin_off or not total:
+        return ""
+    if n_sin_off >= total:
+        cuanto = f"**Ninguna de las {total} lecturas trae potencial Instant OFF**"
+    else:
+        cuanto = f"**{n_sin_off} de {total} lecturas no traen potencial Instant OFF**"
+    causa = (f" (el logger registra 'Rectifier Mode: {modo}': el rectificador no se "
+             f"interrumpió durante el registro)" if modo and modo.lower().startswith("always")
+             else "")
+    return (f"{cuanto}{causa}. El informe sale con el potencial ON, pero sin OFF no se "
+            f"puede evaluar el criterio de -850 mV [CSE] ni el % de longitud protegida, "
+            f"y las conclusiones lo dirán. Para un CIPS válido hay que repetir el "
+            f"registro con el rectificador interrumpido (ciclo ON 1,6 s / OFF 0,4 s).")
