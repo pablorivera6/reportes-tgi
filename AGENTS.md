@@ -719,6 +719,16 @@ viejo (`VTG_REP_*.xlsx`, hoja única con 77 imágenes). Va al ZIP en
   el build; Fotos IA es opcional; `photo_utils` lo importa guardado con try/except).
 - Diagnóstico: consola del navegador "RUNNING" = script colgado; el error real está
   en Manage app → logs (build). Status oficial: streamlitstatus.com / githubstatus.com.
+- **`ImportError: cannot import name X from cips_lrs` justo después de un push**
+  (2026-10): la app en la nube quedó a medias entre dos versiones — el proceso
+  conserva en memoria el módulo viejo (importado perezosamente dentro de una
+  función) y ejecuta el `streamlit_app.py` nuevo. No es un bug del código: se
+  arregla con **Manage app → ⋮ → Reboot app**. Pasa cuando un push agrega una
+  función a un módulo que la web importa con `from modulo import f` dentro de
+  una función; cambiar `requirements.txt` fuerza un reinicio completo y no lo
+  provoca.
+- **Historial de cambios para el ingeniero:** `CHANGELOG.md` en la raíz (qué,
+  por qué y commit). Actualizarlo al cerrar cada cambio.
 
 ### 10.8 Bandeja de entrada + autollenado (streamlit_app.py, esta sesión)
 **RETIRADO (2026-10, a pedido del ingeniero):** la bandeja de cargas pendientes
