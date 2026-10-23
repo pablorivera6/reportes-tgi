@@ -276,9 +276,17 @@ def leer_dcvg_fastfield_varios(rutas):
 
 
 def leer_resistividades_fastfield_varios(rutas):
-    out = []
+    """Une los archivos descartando las resistividades idénticas: el mismo
+    FastField cargado dos veces (o dos exportes solapados) duplicaba los
+    puntos y la hoja Resistividad se salía de la plantilla."""
+    vistos, out = set(), []
     for r in rutas:
-        out += leer_resistividades_fastfield(r)
+        for d in leer_resistividades_fastfield(r):
+            clave = tuple(sorted(d.items()))
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            out.append(d)
     return out
 
 

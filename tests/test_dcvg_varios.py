@@ -43,9 +43,33 @@ def test_varios_montenegro_duplicado():
     uno = leer_dcvg_fastfield_varios([f])
     dos = leer_dcvg_fastfield_varios([f, f])
     assert len(dos["defectos"]) == 2 * len(uno["defectos"])
+    # las resistividades repetidas se descartan (mismo archivo dos veces)
     r = os.path.join(_REF, "Resistividades Fastfield.xlsx")
     assert len(leer_resistividades_fastfield_varios([r, r])) == \
-        2 * len(leer_resistividades_fastfield_varios([r]))
+        len(leer_resistividades_fastfield_varios([r]))
     lg = os.path.join(_REF, "DCVG MONTENEGRO 28 07 2026.xlsx")
     assert len(leer_hallazgos_logger_varios([lg, lg])) == \
         2 * len(leer_hallazgos_logger_varios([lg]))
+
+
+def _resist(tmp_path, nombre, pks):
+    wb = openpyxl.Workbook()
+    s7 = wb.create_sheet("subform_7")
+    s7.append(["Submission Id", "PK", "Sector", "Profundidad", "Ubicación",
+               "Resistencia 1 metro", "Resistencia 2 metros",
+               "Resistencia 3 metros"])
+    for pk in pks:
+        s7.append(["x", pk, "Potrero", 150, "4.9,-75.7", 1.5, 2.5, 3.5])
+    ruta = os.path.join(tmp_path, nombre)
+    wb.save(ruta)
+    return ruta
+
+
+def test_resistividades_varios_descarta_repetidas(tmp_path):
+    """El mismo FastField cargado dos veces (o dos exportes solapados) no
+    duplica los puntos: una resistividad idéntica entra una sola vez."""
+    a = _resist(tmp_path, "a.xlsx", ["1+000", "2+000"])
+    b = _resist(tmp_path, "b.xlsx", ["2+000", "3+000"])
+    assert len(leer_resistividades_fastfield_varios([a, a])) == 2
+    pks = sorted(x["pk_m"] for x in leer_resistividades_fastfield_varios([a, b]))
+    assert pks == [1000, 2000, 3000]

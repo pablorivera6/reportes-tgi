@@ -1958,6 +1958,12 @@ class ReportGenerator:
             key=lambda d: (d.get('pk_m') is None, d.get('pk_m') or 0))
         ws = self.wb['Resistividad']
         start = 9
+        # Debajo de las filas pre-formateadas está el bloque de firmas, con
+        # celdas combinadas: si los puntos no caben, se baja el bloque (como
+        # en PAP) en vez de escribir encima y reventar con MergedCell.
+        firmas = self._fila_firmas(ws)
+        if firmas is not None and len(resistividades) > firmas - start:
+            self._bajar_bloque(ws, firmas, len(resistividades) - (firmas - start))
         # última fila con fórmula ρ (modelo a replicar si hay más puntos)
         modelo = start
         for r in range(start, ws.max_row + 1):

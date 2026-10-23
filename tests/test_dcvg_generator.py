@@ -125,3 +125,26 @@ def test_fill_resistividad(tmp_path):
     assert ws.cell(row=9, column=10).value == 2.8      # J R3
     # la fórmula ρ del template sigue ahí
     assert str(ws.cell(row=9, column=12).value).startswith("=2*PI()")
+
+
+def test_fill_resistividad_baja_firmas_si_no_caben(tmp_path):
+    """La hoja trae 282 filas de datos (9-290) y las firmas en la 291 con
+    celdas combinadas: con más puntos, el bloque baja en vez de pisarse."""
+    gen = _gen()
+    n = 300
+    resist = [{"pk_m": 1000 + i * 10, "sector": "Potrero", "profundidad": 150,
+               "lat": 4.9, "lon": -75.7, "r1": 1.0, "r2": 2.0, "r3": 3.0}
+              for i in range(n)]
+    gen.fill_resistividad(resist)
+    out = os.path.join(tmp_path, "r.xlsx")
+    gen.save(out)
+    ws = openpyxl.load_workbook(out)["Resistividad"]
+    ultima = 9 + n - 1
+    assert ws.cell(row=ultima, column=1).value == 1000 + (n - 1) * 10
+    assert str(ws.cell(row=ultima, column=12).value) == f"=2*PI()*F{ultima}*100"
+    # el bloque de firmas quedó debajo de los datos, entero y con sus fórmulas
+    firmas = gen._fila_firmas(ws)
+    assert firmas > ultima
+    assert ws.cell(row=firmas + 2, column=2).value == "=Informe!D100"
+    assert any(m.min_row == firmas and m.min_col == 2 and m.max_col == 5
+               for m in ws.merged_cells.ranges)
