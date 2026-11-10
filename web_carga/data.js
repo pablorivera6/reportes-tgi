@@ -75,16 +75,6 @@ window.CATALOGO = {
 ],
 "DCVG": [
 {
-"clave": "resistividades",
-"etiqueta": "Resistividades",
-"req": true,
-"tipos": [
-"xlsx",
-"xls"
-],
-"grupo": "proc"
-},
-{
 "clave": "logger",
 "etiqueta": "Data cruda del logger (hallazgos)",
 "req": true,

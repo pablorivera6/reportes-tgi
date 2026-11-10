@@ -144,7 +144,17 @@ def test_cips_y_dcvg_conservan_sus_obligatorios(r):
     assert "Archivo CIPS" in r["cips_solo_opcional"]["hint"]
     assert r["cips_completo"]["disabled"] is False
     assert r["dcvg_sin_archivos"]["disabled"] is True
-    assert "Resistividades" in r["dcvg_sin_archivos"]["hint"]
+    assert "Data cruda del logger" in r["dcvg_sin_archivos"]["hint"]
+
+
+def test_dcvg_no_pide_resistividades(r):
+    # Las resistividades van en el MISMO formulario FastField de DCVG
+    # (subform_7), que entra por el webhook: el técnico no tiene nada que
+    # subir. La casilla sobraba y, como era obligatoria, bloqueaba el envío
+    # (pedido del ingeniero, 2026-11).
+    assert "resistividades" not in r["catalogo"]["DCVG"]
+    assert "resistividades" not in r["casillas"]["DCVG"]
+    assert r["catalogo"]["DCVG"] == ["logger"]
 
 
 def test_tecnico_y_pk_siguen_mandando(r):

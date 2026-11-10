@@ -3,6 +3,17 @@
 Registro de lo que se modificó, por qué y en qué commit. Lo más reciente
 arriba. Los detalles técnicos de cada regla viven en `AGENTS.md`.
 
+## 2026-11-10
+
+- **Web de carga (Vercel): DCVG ya no pide "Resistividades".** Las
+  resistividades van en el mismo formulario FastField de DCVG (`subform_7`) y
+  entran por el webhook, igual que el FastField DCVG; el técnico no tenía nada
+  que subir ahí y, como la casilla era obligatoria, bloqueaba el envío. Se
+  filtra en `exportar_datos_carga.py` (`_SIN_FASTFIELD`) y se regeneró
+  `web_carga/data.js`. El catálogo del paquete de entrega y el procesamiento no
+  cambian. Un test nuevo avisa si `data.js` queda desactualizado respecto al
+  catálogo.
+
 ## 2026-10-13
 
 - **CIPS sin Instant OFF (logger en "Always ON") — `0238448`.** Tausa: el

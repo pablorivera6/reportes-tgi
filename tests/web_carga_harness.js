@@ -146,8 +146,10 @@ const estado = () => ({ disabled: el('enviar').disabled,
 
 const r = { total_tramos: ctx.TRAMOS.length };
 r.catalogo = {};
+r.casillas = {};
 Object.keys(ctx.CATALOGO).forEach((t) => {
   r.catalogo[t] = ctx.CATALOGO[t].filter((c) => c.req).map((c) => c.clave);
+  r.casillas[t] = ctx.CATALOGO[t].map((c) => c.clave);
 });
 
 // ── Selector de tramo ───────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ _SALIDA = os.path.join(_AQUI, "web_carga", "data.js")
 _SIN_FASTFIELD = {
     "fastfield_pap",      # Potenciales PAP (FastField)
     "dcvg",               # FastField DCVG
+    "resistividades",     # van en el subform_7 del MISMO FastField DCVG (2026-11)
     "rectificador",       # Rectificador URPC (FastField)
     "aislamientos",       # Aislamientos (FastField)
     "anexo_interfases",   # Inspección visual de interfases (FastField)

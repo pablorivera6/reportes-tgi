@@ -946,6 +946,14 @@ esta appcita (199 líneas, solo sube archivos + crea carga) a **web estática**.
   posterior. Además el formulario pasa a **una sola columna en ≤520 px** (el
   `input[type=date]` de Safari/iPhone se salía de su columna y pisaba 'Tu
   nombre': `min-width:0` + `appearance:none`).
+- **Casillas que NO salen en la web** (`exportar_datos_carga._SIN_FASTFIELD`):
+  lo que el técnico llena DENTRO de FastField entra por el webhook, así que no
+  se le pide subirlo: FastField PAP, FastField DCVG, rectificador, aislamientos,
+  interfases y, desde 2026-11, **Resistividades** (es el `subform_7` del mismo
+  FastField DCVG; la casilla era obligatoria y bloqueaba el envío). Se filtra
+  SOLO en el exportador: `entrega.CATALOGO` las conserva porque arma el paquete
+  de entrega y lo usa `autocargar_carga`. Tras tocar el catálogo, regenerar
+  `data.js` y hacer push: `test_web_carga_catalogo` falla si quedó viejo.
 - **PENDIENTE**: usuario corre schema_v8.sql → probar envío real e2e → desplegar en
   Vercel y reemplazar el link que usan los técnicos. Rotar contraseña FastField sigue.
 
